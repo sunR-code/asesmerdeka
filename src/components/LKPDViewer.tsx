@@ -17,6 +17,7 @@ import {
   Layers,
   Users,
   RefreshCw,
+  RotateCcw,
 } from 'lucide-react';
 import type {
   LKPDDokumen,
@@ -233,6 +234,15 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   // Switch Archetype Preset
   const handleSwitchPreset = (presetId: LKPDPresetType) => {
     if (presetId === currentPreset) return;
+
+    // Synchronously flush pending currentDoc before switching
+    try {
+      const currentKey = `lkpd_${tpId}_${currentPreset}`;
+      localStorage.setItem(currentKey, JSON.stringify(currentDoc));
+    } catch {
+      // ignore
+    }
+
     setCurrentPreset(presetId);
 
     const storageKey = `lkpd_${tpId}_${presetId}`;
@@ -255,6 +265,27 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
     const fresh = buildSmartLKPD(effectiveTP, activeProfile, presetId, konteksInput);
     setCurrentDoc(fresh);
     showToast(`Preset "${presetId}" aktif.`);
+  };
+
+  // Reset Draft to system default
+  const handleResetDraft = () => {
+    if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      const ok = window.confirm(
+        'Kembalikan draf LKPD preset ini ke draf awal bawaan sistem? Semua perubahan pada preset ini akan direset.'
+      );
+      if (!ok) return;
+    }
+
+    try {
+      const key = `lkpd_${tpId}_${currentPreset}`;
+      localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+
+    const fresh = buildSmartLKPD(effectiveTP, activeProfile, currentPreset, konteksInput);
+    setCurrentDoc(fresh);
+    showToast('Draf preset berhasil direset ke draf awal bawaan');
   };
 
   // AI Re-generation
@@ -597,6 +628,15 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
 
           {/* Action Export Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              onClick={handleResetDraft}
+              className="btn btn-sm btn-outline"
+              style={{ borderColor: '#cbd5e1', color: '#64748b', fontWeight: 700 }}
+              title="Kembalikan draf preset ini ke template bawaan awal"
+            >
+              <RotateCcw size={14} /> Reset Draf
+            </button>
+
             <button
               onClick={() => setShowTeacherGuide((v) => !v)}
               className="btn btn-sm"

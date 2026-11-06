@@ -1,8 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import JSZip from 'jszip';
+import saveAs from 'file-saver';
 import { exportLKPDToDocx } from '../docxPerangkatAjar';
 import { buildSmartLKPD } from '../../perangkatAjarEngine';
 import type { CustomTPItem, SchoolProfile } from '../../schoolProfileStorage';
+
+vi.mock('file-saver', () => ({
+  default: vi.fn(),
+}));
 
 describe('exportLKPDToDocx archetype support', () => {
   const profile: SchoolProfile = {
@@ -92,5 +97,31 @@ describe('exportLKPDToDocx archetype support', () => {
     const teacherZip = await JSZip.loadAsync(await teacherBlob.arrayBuffer());
     const teacherXml = await teacherZip.file('word/document.xml')?.async('text');
     expect(teacherXml).toContain(answerGuideText);
+  });
+
+  it('guards single column observation tables and missing column safely', async () => {
+    const lkpd = buildSmartLKPD(tp, profile, 'eksperimen');
+    lkpd.eksperimenData!.tabelObservasi = {
+      kolom: ['No'],
+      baris: [['1'], ['2']],
+    };
+    const blob = await exportLKPDToDocx(lkpd, profile);
+    expect(blob).toBeDefined();
+    expect(blob.size).toBeGreaterThan(500);
+  });
+
+  it('guards differentiated tiers when tugas array or instruksi is undefined', async () => {
+    const lkpd = buildSmartLKPD(tp, profile, 'diferensiasi');
+    (lkpd.diferensiasiData!.tingkatDasar as any).tugas = undefined;
+    (lkpd.diferensiasiData!.tingkatMenengah as any).tugas = null;
+    const blob = await exportLKPDToDocx(lkpd, profile);
+    expect(blob).toBeDefined();
+    expect(blob.size).toBeGreaterThan(500);
+  });
+
+  it('generates filename with presetType suffix in exportLKPDToDocx', async () => {
+    const lkpd = buildSmartLKPD(tp, profile, 'eksperimen');
+    await exportLKPDToDocx(lkpd, profile);
+    expect(saveAs).toHaveBeenCalledWith(expect.anything(), 'LKPD_Cahaya_eksperimen.docx');
   });
 });

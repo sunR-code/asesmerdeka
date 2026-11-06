@@ -1,5 +1,5 @@
 // src/components/__tests__/LKPDViewer.test.tsx
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { LKPDViewer } from '../LKPDViewer';
 import { buildSmartLKPD } from '../../utils/perangkatAjarEngine';
@@ -46,6 +46,12 @@ class LocalStorageMock {
 if (typeof globalThis.localStorage === 'undefined') {
   (globalThis as any).localStorage = new LocalStorageMock();
 }
+if (typeof (globalThis as any).window === 'undefined') {
+  (globalThis as any).window = globalThis;
+}
+if (typeof (globalThis as any).window.confirm === 'undefined') {
+  (globalThis as any).window.confirm = () => true;
+}
 
 const mockTP: CustomTPItem = {
   id: 'tp-1',
@@ -80,6 +86,9 @@ const mockProfile: SchoolProfile = {
 };
 
 describe('LKPDViewer Studio', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
   it('renders all 4 archetype pill buttons and switches active tab', () => {
     const lkpd = buildSmartLKPD(mockTP, mockProfile, 'kasus');
 
@@ -227,5 +236,43 @@ describe('LKPDViewer Studio', () => {
     expect(screen.getByDisplayValue('Tabung Reaksi Khusus')).toBeInTheDocument();
 
     localStorage.removeItem('lkpd_tp-1_eksperimen');
+  });
+
+  it('renders the "Reset Draf" action button in the studio action bar', () => {
+    const lkpd = buildSmartLKPD(mockTP, mockProfile, 'kasus');
+
+    render(
+      <LKPDViewer
+        lkpd={lkpd}
+        schoolProfile={mockProfile}
+        onPrint={vi.fn()}
+        onBackToClassHub={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/Reset Draf/i)).toBeInTheDocument();
+  });
+
+  it('renders customTP information when passed as prop', () => {
+    const customTP: CustomTPItem = {
+      ...mockTP,
+      id: 'tp-kustom-101',
+      kode: 'TP-101',
+      materiPokok: 'Pecahan Desimal Lanjutan',
+      tujuanPembelajaran: 'Mengubah pecahan biasa ke desimal',
+    };
+    const lkpd = buildSmartLKPD(customTP, mockProfile, 'kasus');
+
+    render(
+      <LKPDViewer
+        lkpd={lkpd}
+        schoolProfile={mockProfile}
+        customTP={customTP}
+        onPrint={vi.fn()}
+        onBackToClassHub={vi.fn()}
+      />
+    );
+
+    expect(screen.getByDisplayValue(/Pecahan Desimal Lanjutan/i)).toBeInTheDocument();
   });
 });

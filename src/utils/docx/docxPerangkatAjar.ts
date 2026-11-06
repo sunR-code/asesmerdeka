@@ -453,12 +453,13 @@ export async function exportLKPDToDocx(
       );
 
       const colCount = exp.tabelObservasi.kolom.length;
-      const isFirstNo = exp.tabelObservasi.kolom[0].toLowerCase() === 'no';
+      const isFirstNo = exp.tabelObservasi.kolom[0]?.toLowerCase() === 'no';
+      const colWidth = colCount > 1 ? Math.floor(92 / (colCount - 1)) : 100;
       const colWidths = exp.tabelObservasi.kolom.map((_, idx) => {
         if (isFirstNo) {
-          return idx === 0 ? 8 : Math.floor(92 / (colCount - 1));
+          return colCount > 1 ? (idx === 0 ? 8 : colWidth) : 100;
         }
-        return Math.floor(100 / colCount);
+        return colCount > 0 ? Math.floor(100 / colCount) : 100;
       });
 
       const obsHeaderRow = new TableRow({
@@ -558,7 +559,7 @@ export async function exportLKPDToDocx(
         new Paragraph({
           children: [
             new TextRun({ text: 'Instruksi Khusus: ', bold: true, size: 18 }),
-            new TextRun({ text: tier.data.instruksi, italics: true, size: 18 }),
+            new TextRun({ text: tier.data?.instruksi || '', italics: true, size: 18 }),
           ],
           spacing: { after: 40 },
         }),
@@ -568,7 +569,7 @@ export async function exportLKPDToDocx(
         }),
       ];
 
-      tier.data.tugas.forEach((t, tidx) => {
+      (tier.data?.tugas || []).forEach((t, tidx) => {
         taskParagraphs.push(
           new Paragraph({
             indent: { left: 240 },
@@ -935,12 +936,13 @@ export async function exportLKPDToDocx(
 
   const doc = new Document({ sections: [{ properties: {}, children }] });
   const blob = await Packer.toBlob(doc);
-  const cleanFilename = `LKPD_${lkpd.materiPokok.replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Siswa'}`;
+  const cleanMateri = lkpd.materiPokok.replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Siswa';
+  const cleanFilename = `LKPD_${cleanMateri}_${lkpd.presetType || 'kasus'}.docx`;
   if (typeof window !== 'undefined') {
-    saveAs(blob, `${cleanFilename}.docx`);
+    saveAs(blob, cleanFilename);
   } else {
     try {
-      saveAs(blob, `${cleanFilename}.docx`);
+      saveAs(blob, cleanFilename);
     } catch {
       // non-browser fallback
     }
