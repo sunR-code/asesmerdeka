@@ -468,6 +468,144 @@ body {
   }
 }
 
+/* ===================================================
+   SMART LKPD PRESET STUDIO & INLINE LIVE EDITOR STYLES
+   =================================================== */
+.lkpd-studio-bento {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.07);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.lkpd-archetype-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.lkpd-archetype-pill:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.lkpd-archetype-pill.is-active {
+  background: linear-gradient(135deg, #0d9488 0%, #059669 100%);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.32);
+}
+
+.lkpd-inline-textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  box-sizing: border-box;
+  resize: vertical;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.lkpd-inline-textarea:hover {
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
+}
+
+.lkpd-inline-textarea:focus {
+  outline: none;
+  border-color: #0d9488;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+}
+
+.lkpd-inline-input {
+  width: 100%;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  padding: 3px 6px;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.lkpd-inline-input:hover {
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
+}
+
+.lkpd-inline-input:focus {
+  outline: none;
+  border-color: #0d9488;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+}
+
+.lkpd-btn-icon-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lkpd-btn-icon-danger:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.lkpd-btn-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lkpd-btn-add:hover {
+  background: #f1f5f9;
+  border-color: #0d9488;
+  color: #0d9488;
+}
+
 /* =========================================
    PRINT STYLES FOR TEACHERS & EXAM PAPERS
    ========================================= */
@@ -479,7 +617,7 @@ body {
     line-height: 1.4;
   }
   
-  .no-print, header, .app-sidebar, .controls-bar, .modal-overlay {
+  .no-print, header, .app-sidebar, .controls-bar, .modal-overlay, .lkpd-studio-controls {
     display: none !important;
   }
   
@@ -492,6 +630,14 @@ body {
     padding: 0 !important;
     margin: 0 !important;
     width: 100% !important;
+  }
+
+  .lkpd-inline-textarea, .lkpd-inline-input {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    resize: none !important;
   }
 
   .print-kop {

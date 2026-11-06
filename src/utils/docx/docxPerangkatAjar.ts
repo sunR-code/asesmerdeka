@@ -238,7 +238,7 @@ export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile
 /**
  * Ekspor Lembar Kerja Peserta Didik (LKPD) ke Microsoft Word (.docx)
  */
-export async function exportLKPDToDocx(lkpd: LKPDDokumen, userProfile?: SchoolProfile): Promise<void> {
+export async function exportLKPDToDocx(lkpd: LKPDDokumen, userProfile?: SchoolProfile, _isTeacherMode?: boolean): Promise<void> {
   const profile = userProfile || getSchoolProfile();
   const children: (Paragraph | Table)[] = [];
 
