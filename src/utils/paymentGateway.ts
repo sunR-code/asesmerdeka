@@ -1,5 +1,13 @@
-import { activateLicense } from './licenseManager';
+import { activateLicense, deductQuota, getUserQuota, refundQuota } from './licenseManager';
 import type { UserQuota } from '../types/assessment';
+
+export { deductQuota, refundQuota };
+
+export function getQuotaRemaining(): number {
+  const quota = getUserQuota();
+  if (quota.tier === 'pro') return Infinity;
+  return quota.remainingCredits;
+}
 
 export type OneTimePlanId = 'pro_individu' | 'pro_sekolah';
 
