@@ -464,13 +464,14 @@ export function buildDiferensiasiSection(
   konteks?: string
 ): LKPDSectionResult {
   const materi = tp.materiPokok;
+  const mapel = profile.mataPelajaranUtama;
   const judul = konteks
     ? `LKPD Berdiferensiasi: ${konteks}`
     : `LKPD Aktivitas Berdiferensiasi: ${materi}`;
 
   const teksStimulus = konteks
-    ? `Setiap peserta didik memiliki kecepatan dan gaya belajar yang unik dalam memahami topik "${konteks}" terkait "${materi}". Melalui lembar kerja berdiferensiasi ini, kamu diberikan ruang untuk memilih jalur aktivitas yang paling sesuai dengan tingkat kesiapanmu saat ini—mulai dari memantapkan konsep dasar, mengaplikasikan dalam studi kasus, hingga menciptakan gagasan solutif yang inovatif.`
-    : `Dalam memahami materi "${materi}", setiap siswa memiliki titik awal kesiapan yang berbeda. Lembar kerja berdiferensiasi ini dirancang untuk mendampingi belajarmu melalui 3 jalur berjenjang: Jalur Perintis (Tingkat Dasar), Jalur Cakap (Tingkat Menengah), dan Jalur Mahir (Pengayaan). Pilihlah tantangan yang sesuai dan jangan ragu untuk meningkatkan pencapaian belajarmu!`;
+    ? `Setiap peserta didik memiliki kecepatan dan gaya belajar yang unik dalam memahami topik "${konteks}" terkait "${materi}" pada mata pelajaran ${mapel}. Melalui lembar kerja berdiferensiasi ini, kamu diberikan ruang untuk memilih jalur aktivitas yang paling sesuai dengan tingkat kesiapanmu saat ini—mulai dari memantapkan konsep dasar, mengaplikasikan dalam studi kasus, hingga menciptakan gagasan solutif yang inovatif.`
+    : `Dalam memahami materi "${materi}" pada mata pelajaran ${mapel}, setiap siswa memiliki titik awal kesiapan yang berbeda. Lembar kerja berdiferensiasi ini dirancang untuk mendampingi belajarmu melalui 3 jalur berjenjang: Jalur Perintis (Tingkat Dasar), Jalur Cakap (Tingkat Menengah), dan Jalur Mahir (Pengayaan). Pilihlah tantangan yang sesuai dan jangan ragu untuk meningkatkan pencapaian belajarmu!`;
 
   return {
     judul,

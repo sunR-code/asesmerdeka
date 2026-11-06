@@ -1,31 +1,38 @@
 // src/utils/__tests__/perangkatAjarEngine.test.ts
 import { describe, it, expect } from 'vitest';
 import { buildSmartLKPD } from '../perangkatAjarEngine';
-import type { CustomTPItem } from '../../types/perangkatAjar';
-import type { SchoolProfile } from '../schoolProfileStorage';
+import type { CustomTPItem, SchoolProfile } from '../schoolProfileStorage';
 
 const mockTP: CustomTPItem = {
   id: 'tp-1',
   kode: 'TP-1',
+  elemen: 'Pemahaman IPA',
   materiPokok: 'Ekosistem dan Rantai Makanan',
   tujuanPembelajaran: 'Menganalisis hubungan antarmakhluk hidup dalam ekosistem',
-  alokasiWaktu: 4,
-  semester: 'Ganjil',
+  arahanRangkuman: 'Fokus pada rantai makanan dan hubungan antar komponen biotik',
+  alokasiJP: 4,
   mingguMulai: 1,
   mingguSelesai: 2,
 };
 
 const mockProfile: SchoolProfile = {
+  instansiDinas: 'DINAS PENDIDIKAN PROVINSI DKI JAKARTA',
   namaSekolah: 'SMP Merdeka Belajar',
+  alamatSekolah: 'Jl. Merdeka Belajar No. 1, Jakarta',
   namaGuru: 'Budi Santoso, S.Pd.',
   nipGuru: '198501012010011001',
+  namaKepalaSekolah: 'Dr. H. Ahmad Dahlan, M.Pd.',
+  nipKepalaSekolah: '197001011995011001',
   kotaSekolah: 'Jakarta',
-  jenjang: 'SMP',
+  jenjang: 'SMP/MTs',
   kelasUtama: 'VII',
   mataPelajaranUtama: 'Ilmu Pengetahuan Alam (IPA)',
-  semester: 'Ganjil',
+  semester: '1 (Ganjil)',
   tahunAjaran: '2024/2025',
   rombelAktif: 'VII-A',
+  daftarRombel: ['VII-A', 'VII-B'],
+  tampilkanTandaTangan: true,
+  pakaiFormatKopSekolah: true,
 };
 
 describe('buildSmartLKPD multi-archetype generator', () => {
