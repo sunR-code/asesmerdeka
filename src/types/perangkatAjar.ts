@@ -66,14 +66,57 @@ export interface ModulAjarDokumen {
   daftarPustaka: string[];
 }
 
+export type LKPDPresetType = 'kasus' | 'eksperimen' | 'diferensiasi' | 'proyek';
+
+export const LKPD_PRESET_TYPES: readonly LKPDPresetType[] = [
+  'kasus',
+  'eksperimen',
+  'diferensiasi',
+  'proyek',
+] as const;
+
+export interface LKPDPertanyaanItem {
+  id?: string;
+  nomor: number;
+  pertanyaan: string;
+  tingkatKognitif?: 'Dasar' | 'Menengah' | 'Mahir';
+  panduanJawabanSingkat?: string;
+  petunjukPengerjaan?: string;
+}
+
+export interface LKPDEksperimenData {
+  alatDanBahan: string[];
+  hipotesisAwal: string;
+  tabelObservasi: {
+    kolom: string[];
+    baris: string[][];
+  };
+}
+
+export interface LKPDDiferensiasiData {
+  tingkatDasar: { instruksi: string; tugas: string[] };
+  tingkatMenengah: { instruksi: string; tugas: string[] };
+  tingkatMahir: { instruksi: string; tugas: string[] };
+}
+
+export interface LKPDProyekData {
+  tujuanProyek: string;
+  tahapanWaktu: string;
+  peranAnggota: { peran: string; tanggungJawab: string }[];
+  rubrikKarya: { kriteria: string; deskripsiSkor: string }[];
+}
+
 export interface LKPDDokumen {
   id: string;
+  tpId?: string;
+  presetType?: LKPDPresetType;
+  konteksAktual?: string;
   judul: string;
   mataPelajaran: string;
   jenjangFase: string;
   kelas: string;
   rombel: string;
-  semester: '1 (Ganjil)' | '2 (Genap)';
+  semester: '1 (Ganjil)' | '2 (Genap)' | string;
   tahunAjaran: string;
   namaSekolah: string;
   namaGuru: string;
@@ -90,18 +133,25 @@ export interface LKPDDokumen {
   stimulusKasus: {
     judul: string;
     teks: string;
-    pertanyaanAwal: string;
+    pertanyaanAwal?: string;
   };
+
+  // Archetype 1 & 2: Eksperimen & Penyelidikan Terstruktur
+  eksperimenData?: LKPDEksperimenData;
+
+  // Archetype 3: Tugas Berdiferensiasi Terstruktur
+  diferensiasiData?: LKPDDiferensiasiData;
+
+  // Archetype 4: Proyek & Pembagian Peran Tim Terstruktur
+  proyekData?: LKPDProyekData;
+
   langkahAktivitas: {
     langkahKe: number;
+    judulLangkah?: string;
     instruksi: string;
     bantuanAtauTabel?: string[];
   }[];
-  pertanyaanAnalisis: {
-    nomor: number;
-    pertanyaan: string;
-    petunjukPengerjaan?: string;
-  }[];
+  pertanyaanAnalisis: LKPDPertanyaanItem[];
   kesimpulanRefleksi: string[];
 }
 
