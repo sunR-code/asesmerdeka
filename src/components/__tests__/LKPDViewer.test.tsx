@@ -169,4 +169,63 @@ describe('LKPDViewer Studio', () => {
     expect(screen.getByText(/Tampilkan Panduan Guru \/ Kunci/i)).toBeInTheDocument();
     expect(screen.getByText(/Tambah Pertanyaan/i)).toBeInTheDocument();
   });
+
+  it('lazily restores previous edits from localStorage on initial render', () => {
+    const lkpd = buildSmartLKPD(mockTP, mockProfile, 'kasus');
+    const modifiedDraft = {
+      ...lkpd,
+      judul: 'Topik Khusus Hasil Edit Guru',
+      stimulusKasus: {
+        ...lkpd.stimulusKasus,
+        judul: 'Stimulus Khusus Tersimpan',
+      },
+    };
+
+    localStorage.setItem('lkpd_tp-1_kasus', JSON.stringify(modifiedDraft));
+
+    render(
+      <LKPDViewer
+        lkpd={lkpd}
+        schoolProfile={mockProfile}
+        onPrint={vi.fn()}
+        onBackToClassHub={vi.fn()}
+      />
+    );
+
+    expect(screen.getByDisplayValue('Topik Khusus Hasil Edit Guru')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Stimulus Khusus Tersimpan')).toBeInTheDocument();
+
+    localStorage.removeItem('lkpd_tp-1_kasus');
+  });
+
+  it('lazily restores preset-specific draft when preset is loaded', () => {
+    const lkpd = buildSmartLKPD(mockTP, mockProfile, 'eksperimen');
+    const eksDraft = {
+      ...lkpd,
+      eksperimenData: {
+        alatDanBahan: ['Tabung Reaksi Khusus', 'Pipet Tetes Khusus'],
+        hipotesisAwal: 'Hipotesis khusus yang telah tersimpan di localStorage',
+        tabelObservasi: {
+          kolom: ['No', 'Parameter', 'Hasil'],
+          baris: [['1', 'Suhu', '37 C']],
+        },
+      },
+    };
+
+    localStorage.setItem('lkpd_tp-1_eksperimen', JSON.stringify(eksDraft));
+
+    render(
+      <LKPDViewer
+        lkpd={lkpd}
+        schoolProfile={mockProfile}
+        onPrint={vi.fn()}
+        onBackToClassHub={vi.fn()}
+      />
+    );
+
+    expect(screen.getByDisplayValue(/Hipotesis khusus yang telah tersimpan/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Tabung Reaksi Khusus')).toBeInTheDocument();
+
+    localStorage.removeItem('lkpd_tp-1_eksperimen');
+  });
 });

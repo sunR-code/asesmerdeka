@@ -638,6 +638,9 @@ body {
     box-shadow: none !important;
     padding: 0 !important;
     resize: none !important;
+    overflow: visible !important;
+    height: auto !important;
+    word-break: break-word !important;
   }
 
   .print-kop {

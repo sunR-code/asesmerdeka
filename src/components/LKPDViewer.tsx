@@ -41,6 +41,53 @@ export interface LKPDViewerProps {
   onBackToClassHub: () => void;
 }
 
+interface AutoExpandingTextareaProps
+  extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  value: string;
+}
+
+const AutoExpandingTextarea: React.FC<AutoExpandingTextareaProps> = ({
+  value,
+  onChange,
+  style,
+  rows = 2,
+  className = 'lkpd-inline-textarea',
+  ...props
+}) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const adjustHeight = () => {
+    const el = textareaRef.current;
+    if (el && el.scrollHeight > 0) {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustHeight();
+  }, [value]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      rows={rows}
+      value={value}
+      onChange={(e) => {
+        adjustHeight();
+        onChange?.(e);
+      }}
+      className={className}
+      style={{
+        overflow: 'hidden',
+        resize: 'none',
+        ...style,
+      }}
+      {...props}
+    />
+  );
+};
+
 const ARCHETYPES: {
   id: LKPDPresetType;
   label: string;
@@ -87,10 +134,32 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
 }) => {
   const activeProfile = schoolProfile || getSchoolProfile();
 
-  // Current working LKPD and active preset
-  const [currentDoc, setCurrentDoc] = useState<LKPDDokumen>(lkpd);
-  const [currentPreset, setCurrentPreset] = useState<LKPDPresetType>(lkpd.presetType || 'kasus');
-  const [konteksInput, setKonteksInput] = useState<string>(lkpd.konteksAktual || '');
+  const tpKey = lkpd.tpId || lkpd.tpKode || customTP?.id || 'tp-1';
+  const initialPreset: LKPDPresetType = lkpd.presetType || 'kasus';
+
+  // Current working LKPD and active preset with lazy restoration from localStorage
+  const [currentDoc, setCurrentDoc] = useState<LKPDDokumen>(() => {
+    try {
+      const key = `lkpd_${tpKey}_${initialPreset}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return lkpd;
+  });
+
+  const [currentPreset, setCurrentPreset] = useState<LKPDPresetType>(
+    () => currentDoc.presetType || initialPreset
+  );
+  const [konteksInput, setKonteksInput] = useState<string>(
+    () => currentDoc.konteksAktual || lkpd.konteksAktual || ''
+  );
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string>('Tersimpan otomatis');
   const [showTeacherGuide, setShowTeacherGuide] = useState<boolean>(false);
@@ -100,7 +169,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
-  const tpId = currentDoc.tpId || customTP?.id || 'tp-1';
+  const tpId = currentDoc.tpId || tpKey;
 
   const effectiveTP: CustomTPItem = customTP || {
     id: tpId,
@@ -118,6 +187,32 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 2800);
   };
+
+  // Synchronize if prop lkpd changes to a different TP while mounted
+  const prevTpRef = useRef(tpKey);
+  useEffect(() => {
+    if (prevTpRef.current !== tpKey) {
+      prevTpRef.current = tpKey;
+      try {
+        const key = `lkpd_${tpKey}_${lkpd.presetType || 'kasus'}`;
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object') {
+            setCurrentDoc(parsed);
+            setCurrentPreset(parsed.presetType || lkpd.presetType || 'kasus');
+            setKonteksInput(parsed.konteksAktual || lkpd.konteksAktual || '');
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      setCurrentDoc(lkpd);
+      setCurrentPreset(lkpd.presetType || 'kasus');
+      setKonteksInput(lkpd.konteksAktual || '');
+    }
+  }, [tpKey, lkpd]);
 
   // Auto-save debounce (400ms) with key lkpd_${tpId}_${presetType}
   useEffect(() => {
@@ -147,6 +242,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
           setCurrentDoc(parsed);
+          setKonteksInput(parsed.konteksAktual || konteksInput);
           showToast(`Draft preset "${presetId}" berhasil dimuat.`);
           return;
         }
@@ -232,6 +328,15 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
     setIsExportingImage(true);
     showToast('📸 Menyiapkan gambar LKPD resolusi tinggi...');
     try {
+      // Ensure all textareas are calculated to scrollHeight before snapshot
+      const textareas = sheetRef.current.querySelectorAll<HTMLTextAreaElement>('textarea');
+      textareas.forEach((ta) => {
+        if (ta.scrollHeight > 0) {
+          ta.style.height = 'auto';
+          ta.style.height = `${ta.scrollHeight}px`;
+        }
+      });
+
       const cleanName = `LKPD_${currentDoc.materiPokok.replace(/[^a-zA-Z0-9]/g, '_')}_${currentPreset}`;
       await exportElementToImage(sheetRef.current, cleanName);
       showToast('Gambar LKPD berhasil disimpan! Siap dibagikan ke WhatsApp.');
@@ -240,6 +345,19 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
     } finally {
       setIsExportingImage(false);
     }
+  };
+
+  const handlePrintClick = () => {
+    if (sheetRef.current) {
+      const textareas = sheetRef.current.querySelectorAll<HTMLTextAreaElement>('textarea');
+      textareas.forEach((ta) => {
+        if (ta.scrollHeight > 0) {
+          ta.style.height = 'auto';
+          ta.style.height = `${ta.scrollHeight}px`;
+        }
+      });
+    }
+    onPrint();
   };
 
   const handleExportDocxClick = async () => {
@@ -518,7 +636,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
               <Image size={14} /> {isExportingImage ? 'Memproses...' : 'Unduh Gambar (.png)'}
             </button>
 
-            <button onClick={onPrint} className="btn btn-sm btn-success">
+            <button onClick={handlePrintClick} className="btn btn-sm btn-success">
               <Printer size={14} /> Cetak / PDF
             </button>
           </div>
@@ -793,7 +911,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
           </div>
 
           <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 8 }}>
-            <textarea
+            <AutoExpandingTextarea
               rows={4}
               value={currentDoc.stimulusKasus.teks}
               onChange={(e) => updateStimulus('teks', e.target.value)}
@@ -873,7 +991,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
               <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a', display: 'block', marginBottom: 4 }}>
                 Hipotesis Awal (Dugaan Sementara Kelompok):
               </span>
-              <textarea
+              <AutoExpandingTextarea
                 rows={2}
                 value={currentDoc.eksperimenData.hipotesisAwal}
                 onChange={(e) => updateEksperimen({ hipotesisAwal: e.target.value })}
@@ -995,7 +1113,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                     <Plus size={10} /> Tambah
                   </button>
                 </div>
-                <textarea
+                <AutoExpandingTextarea
                   rows={2}
                   value={currentDoc.diferensiasiData.tingkatDasar.instruksi}
                   onChange={(e) => {
@@ -1062,7 +1180,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                     <Plus size={10} /> Tambah
                   </button>
                 </div>
-                <textarea
+                <AutoExpandingTextarea
                   rows={2}
                   value={currentDoc.diferensiasiData.tingkatMenengah.instruksi}
                   onChange={(e) => {
@@ -1129,7 +1247,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                     <Plus size={10} /> Tambah
                   </button>
                 </div>
-                <textarea
+                <AutoExpandingTextarea
                   rows={2}
                   value={currentDoc.diferensiasiData.tingkatMahir.instruksi}
                   onChange={(e) => {
@@ -1192,7 +1310,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a', display: 'block', marginBottom: 4 }}>
                   Tujuan Produk Akhir Proyek:
                 </span>
-                <textarea
+                <AutoExpandingTextarea
                   rows={2}
                   value={currentDoc.proyekData.tujuanProyek}
                   onChange={(e) => updateProyek({ tujuanProyek: e.target.value })}
@@ -1204,7 +1322,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a', display: 'block', marginBottom: 4 }}>
                   Tahapan & Alokasi Waktu:
                 </span>
-                <textarea
+                <AutoExpandingTextarea
                   rows={2}
                   value={currentDoc.proyekData.tahapanWaktu}
                   onChange={(e) => updateProyek({ tahapanWaktu: e.target.value })}
@@ -1387,7 +1505,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                 )}
               </div>
 
-              <textarea
+              <AutoExpandingTextarea
                 rows={2}
                 value={act.instruksi}
                 onChange={(e) => updateStepInstruksi(idx, e.target.value)}
@@ -1467,7 +1585,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                 )}
               </div>
 
-              <textarea
+              <AutoExpandingTextarea
                 rows={2}
                 value={pa.pertanyaan}
                 onChange={(e) => updateQuestion(idx, { pertanyaan: e.target.value })}
@@ -1502,7 +1620,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                   <div style={{ fontSize: 11, fontWeight: 800, color: '#065f46', textTransform: 'uppercase', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span>💡 Kunci Jawaban / Panduan Guru:</span>
                   </div>
-                  <textarea
+                  <AutoExpandingTextarea
                     rows={2}
                     value={pa.panduanJawabanSingkat || ''}
                     onChange={(e) => updateQuestion(idx, { panduanJawabanSingkat: e.target.value })}
@@ -1533,7 +1651,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
 
           {currentDoc.kesimpulanRefleksi.map((kr, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <textarea
+              <AutoExpandingTextarea
                 rows={2}
                 value={kr}
                 onChange={(e) => updateReflection(i, e.target.value)}

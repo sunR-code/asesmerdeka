@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig } from 'vitest/config';
+import type { Plugin } from 'vite';
 
 function devApiPlugin(): Plugin {
   return {
@@ -53,6 +54,10 @@ function devApiPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [react(), devApiPlugin()],
+  test: {
+    include: ['src/**/*.{test,spec}.?(c|m)[jt]s?(x)'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/tests/**'],
+  },
   build: {
     rolldownOptions: {
       output: {
