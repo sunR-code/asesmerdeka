@@ -23,6 +23,7 @@ import {
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
 import type { UserQuota } from '../../types/assessment';
 import { isLicensed, getTierBadgeLabel, getTierDisplayName } from '../../utils/licenseManager';
+import { BrandLogo } from '../BrandLogo';
 
 export type SidebarTabId =
   | 'tp_list'
@@ -231,22 +232,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div
-              style={{
-                width: 38,
-                height: 38,
-                borderRadius: 12,
-                background: 'linear-gradient(135deg, #2563eb 0%, #0d9488 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 14px rgba(37, 99, 235, 0.28)',
-                color: '#ffffff',
-                flexShrink: 0,
-              }}
-            >
-              <Sparkles size={20} />
-            </div>
+            <BrandLogo size={38} />
             <div>
               <div
                 style={{

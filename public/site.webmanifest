@@ -1,0 +1,17 @@
+{
+  "name": "AsesMerdeka — Studio Perangkat Ajar & Asesmen Kurikulum Merdeka",
+  "short_name": "AsesMerdeka",
+  "description": "Generator Asesmen Formatif, Sumatif, AKM, Modul Ajar, LKPD, dan Administrasi Guru Kurikulum Merdeka.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

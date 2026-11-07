@@ -7,10 +7,11 @@ function devApiPlugin(): Plugin {
     name: 'dev-api-middleware',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (req.url === '/api/activate-license' && req.method === 'POST') {
+        if ((req.url === '/api/activate-license' || req.url === '/api/gemini') && req.method === 'POST') {
           try {
+            const modulePath = req.url === '/api/gemini' ? './api/gemini.js' : './api/activate-license.js';
             // @ts-ignore -- dev server dynamic import
-            const { default: handler } = await import('./api/activate-license.js');
+            const { default: handler } = await import(modulePath);
             let body = '';
             req.on('data', (chunk) => {
               body += chunk;
@@ -59,6 +60,7 @@ export default defineConfig({
     exclude: ['**/node_modules/**', '**/dist/**', '**/tests/**'],
   },
   build: {
+    chunkSizeWarningLimit: 800,
     rolldownOptions: {
       output: {
         manualChunks(id) {

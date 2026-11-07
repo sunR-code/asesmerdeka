@@ -2,6 +2,7 @@ import React from 'react';
 import { Sparkles, Key, FileText, CheckCircle2, ShieldCheck, FolderOpen, BookOpen, Table2, School, PlusCircle, Layers } from 'lucide-react';
 import type { UserQuota } from '../types/assessment';
 import { isLicensed, getTierBadgeLabel } from '../utils/licenseManager';
+import { BrandLogo } from './BrandLogo';
 
 export type AppTab =
   | 'class_hub'
@@ -78,18 +79,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           onClick={() => setActiveTab('class_hub')}
           style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
         >
-          <div style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            background: 'linear-gradient(135deg, #2563eb 0%, #0d9488 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 3px 10px rgba(37, 99, 235, 0.25)'
-          }}>
-            <Sparkles size={19} color="#ffffff" />
-          </div>
+          <BrandLogo size={36} />
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.4px' }}>
