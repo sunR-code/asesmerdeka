@@ -41,7 +41,9 @@ export const ClassSetupStepView: React.FC<ClassSetupStepViewProps> = ({
   onConfirmClassSetup,
   onToast,
 }) => {
-  const [showIdentitySettings, setShowIdentitySettings] = useState(false);
+  const [showIdentitySettings, setShowIdentitySettings] = useState(
+    () => !schoolProfile.namaSekolah || !schoolProfile.namaGuru
+  );
   const [showMadrasah, setShowMadrasah] = useState(
     schoolProfile.mataPelajaranUtama.includes('(MI)') ||
       schoolProfile.mataPelajaranUtama.includes('(MTs)') ||
@@ -494,7 +496,7 @@ export const ClassSetupStepView: React.FC<ClassSetupStepViewProps> = ({
                 5. Identitas Sekolah & Format Kop Surat Dokumen
               </div>
               <div style={{ fontSize: 12, color: '#64748b' }}>
-                {schoolProfile.namaSekolah || 'Sekolah'} • Guru: {schoolProfile.namaGuru || 'Guru Pengampu'}
+                {schoolProfile.namaSekolah || 'Nama Sekolah belum diisi'} • Guru: {schoolProfile.namaGuru || 'Nama Guru belum diisi'}
               </div>
             </div>
           </div>

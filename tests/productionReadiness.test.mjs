@@ -177,11 +177,21 @@ test('AUD-004: Perubahan nama sekolah memigrasikan data kelas harian agar tidak 
   globalThis.localStorage.clear();
 
   const initialProfile = schoolProfileStorage.getSchoolProfile();
-  const oldKey = 'asesmerdeka_harian_SMP_Negeri_1_Merdeka_Belajar_Matematika_8_VIII_A_sem1';
-  globalThis.localStorage.setItem(oldKey, JSON.stringify({ marker: 'DATA_PRESENSI_PENTING' }));
+  // Saat profil awal namaSekolah masih kosong (''), key default memakai fallback 'sekolah'
+  const defaultEmptyKey = 'asesmerdeka_harian_sekolah_Matematika_8_VIII_A_sem1';
+  globalThis.localStorage.setItem(defaultEmptyKey, JSON.stringify({ marker: 'DATA_PRESENSI_PENTING' }));
+
+  const firstNamedProfile = {
+    ...initialProfile,
+    namaSekolah: 'SMP Negeri 1 Merdeka Belajar',
+  };
+  schoolProfileStorage.saveSchoolProfile(firstNamedProfile);
+
+  const firstNamedKey = 'asesmerdeka_harian_SMP_Negeri_1_Merdeka_Belajar_Matematika_8_VIII_A_sem1';
+  assert.ok(globalThis.localStorage.getItem(firstNamedKey), 'Data kelas harian harus bermigrasi dari key kosong ke nama sekolah pertama');
 
   const updatedProfile = {
-    ...initialProfile,
+    ...firstNamedProfile,
     namaSekolah: 'SMP Negeri 2 Nusantara',
   };
   schoolProfileStorage.saveSchoolProfile(updatedProfile);
@@ -650,6 +660,20 @@ test('AUD-211: Serverless Cloud Sync (/api/cloud-sync) menyimpan dan memulihkan 
   );
   assert.equal(pullGuruA.result.body.entries.mapel, 'Matematika');
 });
+
+test('AUD-212: Profil sekolah & data kop default pada perangkat baru dimulai dalam keadaan kosong (tidak berisi nama dummy)', () => {
+  globalThis.localStorage.clear();
+  const defaultProf = schoolProfileStorage.getSchoolProfile();
+  assert.equal(defaultProf.instansiDinas, '');
+  assert.equal(defaultProf.namaSekolah, '');
+  assert.equal(defaultProf.alamatSekolah, '');
+  assert.equal(defaultProf.kotaSekolah, '');
+  assert.equal(defaultProf.namaGuru, '');
+  assert.equal(defaultProf.nipGuru, '');
+  assert.equal(defaultProf.namaKepalaSekolah, '');
+  assert.equal(defaultProf.nipKepalaSekolah, '');
+});
+
 
 
 

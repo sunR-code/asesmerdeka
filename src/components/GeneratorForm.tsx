@@ -92,8 +92,8 @@ export const GeneratorForm: React.FC<GeneratorFormProps> = ({
   const [sertakanRubrik, setSertakanRubrik] = useState(true);
   
   // Info Sekolah
-  const [namaSekolah, setNamaSekolah] = useState(schoolProfile?.namaSekolah || 'SMP Negeri 1 Merdeka Belajar');
-  const [namaGuru, setNamaGuru] = useState(schoolProfile?.namaGuru || 'Fajar Hidayat, S.Pd.');
+  const [namaSekolah, setNamaSekolah] = useState(schoolProfile?.namaSekolah || '');
+  const [namaGuru, setNamaGuru] = useState(schoolProfile?.namaGuru || '');
 
   // Helper: otomatis perbarui saran topik & TP saat guru memilih mapel/jenjang/kelas
   const syncSuggestedMateri = (targetMapel: string, targetFase: JenjangFase, targetKelas: string) => {

@@ -987,7 +987,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
               </div>
               <div style={{ marginBottom: 56 }}>Guru Mata Pelajaran</div>
               <div style={{ fontWeight: 700, textDecoration: 'underline' }}>
-                {assessment.namaPenyusun || activeProfile.namaGuru}
+                {assessment.namaPenyusun || activeProfile.namaGuru || '......................................................'}
               </div>
               <div style={{ fontSize: 11, color: '#475569' }}>
                 {activeProfile.nipGuru ? `NIP. ${activeProfile.nipGuru}` : 'NIP. -'}

@@ -418,7 +418,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               </div>
               <div style={{ marginBottom: 54 }}>Guru Mata Pelajaran</div>
               <div style={{ fontWeight: 700, textDecoration: 'underline' }}>
-                {modul.namaGuru || activeProfile.namaGuru}
+                {modul.namaGuru || activeProfile.namaGuru || '......................................................'}
               </div>
               <div style={{ fontSize: 11, color: '#475569' }}>
                 {activeProfile.nipGuru ? `NIP. ${activeProfile.nipGuru}` : 'NIP. -'}
