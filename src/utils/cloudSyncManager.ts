@@ -3,7 +3,7 @@ import {
   importBackupDataJson,
   setConfirmedClassSetup,
 } from './schoolProfileStorage';
-import { getUserQuota, isLicensed } from './licenseManager';
+import { getUserQuota, isLicensed, normalizeLicenseCodeInput } from './licenseManager';
 
 const STORAGE_KEY_TEACHER_PIN = 'asesmerdeka_cloud_teacher_pin_v1';
 const STORAGE_KEY_LAST_SYNC_AT = 'asesmerdeka_cloud_last_sync_at_v1';
@@ -46,7 +46,7 @@ function setLastCloudSyncAt(isoStr: string): void {
 }
 
 export function isSchoolCollectiveLicenseCode(rawCode?: string): boolean {
-  const clean = (rawCode || '').trim().toUpperCase();
+  const clean = normalizeLicenseCodeInput(rawCode || '');
   return (
     clean.includes('SEKOLAH') ||
     clean.includes('SMAN') ||
@@ -85,7 +85,7 @@ export async function pushWorkspaceToCloud(
   message: string;
 }> {
   const quota = getUserQuota();
-  const licenseCode = (explicitLicenseCode || quota.licenseKey || '').trim().toUpperCase();
+  const licenseCode = normalizeLicenseCodeInput(explicitLicenseCode || quota.licenseKey || '');
   const teacherPin = (
     explicitTeacherPin !== undefined ? explicitTeacherPin : getSavedTeacherSyncPin()
   ).trim();
@@ -159,7 +159,7 @@ export async function pullWorkspaceFromCloud(
   message: string;
 }> {
   const quota = getUserQuota();
-  const licenseCode = (explicitLicenseCode || quota.licenseKey || '').trim().toUpperCase();
+  const licenseCode = normalizeLicenseCodeInput(explicitLicenseCode || quota.licenseKey || '');
   const teacherPin = (
     explicitTeacherPin !== undefined ? explicitTeacherPin : getSavedTeacherSyncPin()
   ).trim();

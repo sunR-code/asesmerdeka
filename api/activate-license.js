@@ -3,6 +3,68 @@
  * Memverifikasi kode lisensi ke API resmi Mayar.id secara aman (API Key terlindungi di sisi server).
  */
 
+function computeHash36(input) {
+  let h1 = 0xdeadbeef ^ input.length;
+  let h2 = 0x41c6ce57 ^ input.length;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const combined = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+  return combined.toString(36).toUpperCase();
+}
+
+function normalizeLicenseCode(raw) {
+  return String(raw || '')
+    .replace(/[\u2010-\u2015\u2212]/g, '-')
+    .replace(/[^A-Za-z0-9-]/g, '')
+    .toUpperCase();
+}
+
+function verifyInternalSerialOrDeviceCode(cleanCode, deviceId) {
+  if (!cleanCode) return null;
+
+  if (cleanCode === 'ASES-GURU-M001-4829') {
+    return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 2 };
+  }
+
+  if (deviceId) {
+    const cleanDev = String(deviceId).trim().toUpperCase();
+    const expectedDevCheck = computeHash36(`ASESMERDEKA-PRO-DEVICE:${cleanDev}:2026`).slice(0, 6);
+    if (cleanCode === `PRO-MERDEKA-${expectedDevCheck}`) {
+      return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 1 };
+    }
+  }
+
+  const parts = cleanCode.split('-');
+  if (parts.length === 4 && parts[0] === 'PRO' && parts[1] === 'MERDEKA') {
+    const body = parts[2];
+    const providedCheck = parts[3];
+    if (body.length >= 4 && providedCheck.length >= 4) {
+      const expectedCheck = computeHash36(`SERIAL:${body}:ASESMERDEKA_2026`).slice(0, providedCheck.length);
+      if (providedCheck === expectedCheck) {
+        const isSchool =
+          body.startsWith('SEKOLAH') ||
+          body.startsWith('SMAN') ||
+          body.startsWith('SMPN') ||
+          body.startsWith('SDN') ||
+          body.startsWith('SCH');
+        return {
+          valid: true,
+          planType: isSchool ? 'sekolah' : 'individu',
+          tier: isSchool ? 'sekolah' : 'guru',
+          maxSeats: isSchool ? 25 : 2,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 export default async function handler(req, res) {
   // Hanya izinkan metode POST
   if (req.method !== 'POST') {
@@ -12,11 +74,27 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-    const rawCode = (body.licenseCode || '').trim();
+    const rawCode = normalizeLicenseCode(body.licenseCode || '');
     const _deviceId = (body.deviceId || '').trim();
 
     if (!rawCode) {
       return res.status(400).json({ valid: false, message: 'Kode lisensi tidak boleh kosong.' });
+    }
+
+    // 0. Cek apakah kode lisensi adalah Kode Resmi Internal / Mitra (PRO-MERDEKA-... atau ASES-GURU-M001-4829)
+    const internalMatch = verifyInternalSerialOrDeviceCode(rawCode, _deviceId);
+    if (internalMatch) {
+      return res.status(200).json({
+        valid: true,
+        planType: internalMatch.planType,
+        tier: internalMatch.tier,
+        maxSeats: internalMatch.maxSeats,
+        message:
+          internalMatch.planType === 'sekolah'
+            ? 'Lisensi Kolektif Sekolah (25 Guru) berhasil diverifikasi dan aktif.'
+            : 'Lisensi Guru Mandiri berhasil diverifikasi dan aktif.',
+        details: rawCode,
+      });
     }
 
     const apiKey = process.env.MAYAR_API_KEY;
