@@ -419,9 +419,9 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
         </div>
 
         {/* Identitas Siswa & Mata Pelajaran */}
-        <div style={{
+        <div className="doc-identity-grid" style={{
           display: 'grid',
-          gridTemplateColumns: '1.2fr 1fr',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
           gap: 16,
           background: '#f8fafc',
           padding: '14px 20px',

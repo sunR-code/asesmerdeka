@@ -24,41 +24,36 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 }) => {
   return (
     <header
-      className="no-print"
+      className="app-top-header no-print"
       style={{
-        background: 'rgba(255, 255, 255, 0.88)',
+        background: 'rgba(255, 255, 255, 0.9)',
         backdropFilter: 'blur(12px)',
         borderBottom: '1px solid rgba(226, 232, 240, 0.85)',
         padding: '12px 24px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        gap: 12,
         position: 'sticky',
         top: 0,
         zIndex: 40,
         boxShadow: '0 2px 10px rgba(15, 23, 42, 0.02)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className="app-top-header-left" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
         <button
           type="button"
           onClick={onToggleMobileSidebar}
-          style={{
-            display: 'none',
-            background: '#f8fafc',
-            border: '1px solid #cbd5e1',
-            borderRadius: 8,
-            padding: '6px 8px',
-            cursor: 'pointer',
-          }}
           className="mobile-sidebar-toggle"
+          aria-label="Buka menu navigasi"
           title="Buka menu navigasi"
         >
-          <Menu size={18} />
+          <Menu size={20} />
         </button>
 
-        <div>
+        <div style={{ minWidth: 0, flex: 1 }}>
           <h1
+            className="app-top-header-title"
             style={{
               fontSize: 18,
               fontWeight: 900,
@@ -70,16 +65,20 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             {pageTitle}
           </h1>
           {pageSubtitle && (
-            <p style={{ fontSize: 12.5, color: '#64748b', marginTop: 2, fontWeight: 500 }}>
+            <p
+              className="app-top-header-subtitle"
+              style={{ fontSize: 12.5, color: '#64748b', marginTop: 2, fontWeight: 500 }}
+            >
               {pageSubtitle}
             </p>
           )}
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div className="app-top-header-right" style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         {/* Status Penyimpanan Otomatis Real-time */}
         <div
+          className="header-pill-autosave"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -93,7 +92,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             color: '#065f46',
             boxShadow: '0 1px 3px rgba(5, 150, 105, 0.08)',
           }}
-          title="Semua perubahan data langsung tersimpan aman secara otomatis di peramban komputer Anda"
+          title="Semua perubahan data langsung tersimpan aman secara otomatis di peramban Anda"
         >
           <span
             className="animate-pulse-subtle"
@@ -106,7 +105,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             }}
           />
           <ShieldCheck size={14} color="#059669" />
-          <span>Data Tersimpan Aman</span>
+          <span className="header-pill-autosave-text">Data Tersimpan Aman</span>
         </div>
 
         {/* Sekolah Pill Button */}
@@ -115,6 +114,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           whileHover={{ y: -1 }}
           whileTap={{ scale: 0.98 }}
           onClick={onOpenSchoolModal}
+          className="header-pill-school"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -131,8 +131,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           }}
           title="Klik untuk mengubah Kop & Identitas Sekolah"
         >
-          <School size={14} color="#2563eb" />
-          <span>{schoolProfile.namaSekolah || 'Set Kop Sekolah'}</span>
+          <School size={14} color="#2563eb" style={{ flexShrink: 0 }} />
+          <span className="header-pill-school-text">{schoolProfile.namaSekolah || 'Set Kop Sekolah'}</span>
         </motion.button>
 
         {/* Lisensi PRO Status Pill */}
@@ -142,6 +142,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             whileHover={{ y: -1 }}
             whileTap={{ scale: 0.98 }}
             onClick={onOpenLicenseModal}
+            className="header-pill-license"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -162,8 +163,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             }}
             title={isPro ? 'Lisensi Resmi Aktif Permanen' : 'Aktivasi Lisensi Resmi via Mayar'}
           >
-            <Sparkles size={14} color={isPro ? '#059669' : '#2563eb'} />
-            <span>{isPro ? 'Lisensi Aktif' : 'Aktivasi Lisensi'}</span>
+            <Sparkles size={14} color={isPro ? '#059669' : '#2563eb'} style={{ flexShrink: 0 }} />
+            <span className="header-pill-license-text">{isPro ? 'Lisensi Aktif' : 'Aktivasi Lisensi'}</span>
           </motion.button>
         )}
       </div>

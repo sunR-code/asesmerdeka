@@ -25,3 +25,4 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({ size = 38 }) => {
     />
   );
 };
+

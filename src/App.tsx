@@ -10,6 +10,7 @@ import {
   AppFooter,
   FloatingProPromoBar,
   AppToastBanner,
+  MobileBottomNav,
 } from './components/layout/AppChrome';
 import { ClassSemesterHub } from './components/ClassSemesterHub';
 import { LicenseModal } from './components/LicenseModal';
@@ -380,7 +381,7 @@ export function App() {
   );
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: '#f8fafc' }}>
+    <div className="app-shell" style={{ minHeight: '100vh', display: 'flex', background: '#f8fafc' }}>
       <AppSidebar
         activeTab={activeTab}
         onSelectTab={(tab: SidebarTabId) => {
@@ -397,7 +398,7 @@ export function App() {
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
       />
 
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <div className="app-content-column" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <TopHeader
           pageTitle={headerInfo.title}
           pageSubtitle={headerInfo.subtitle}
@@ -408,7 +409,7 @@ export function App() {
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
         />
 
-        <main style={{ flex: 1, padding: '24px 28px 80px', maxWidth: 1240, width: '100%', margin: '0 auto' }}>
+        <main className="app-main-container" style={{ flex: 1, padding: '24px 28px 80px', maxWidth: 1240, width: '100%', margin: '0 auto' }}>
           <AppErrorBanner message={errorMessage} onDismiss={() => setErrorMessage(null)} />
 
           <BackToHubButton
@@ -575,6 +576,15 @@ export function App() {
         visible={quota.tier === 'free' && isViewingDoc && !dismissPromoBar}
         onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
         onDismiss={() => setDismissPromoBar(true)}
+      />
+
+      <MobileBottomNav
+        activeTab={activeTab}
+        onSelectTab={(tab) => {
+          setActiveTab(tab);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onOpenMobileMenu={() => setIsMobileSidebarOpen(true)}
       />
 
       <ClassSelectorModal

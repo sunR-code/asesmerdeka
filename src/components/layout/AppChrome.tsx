@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertCircle, ArrowLeft, Crown } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Crown, BookOpen, Users, Sparkles, ShieldCheck, Menu } from 'lucide-react';
+import type { SidebarTabId } from './AppSidebar';
 
 export const AppErrorBanner: React.FC<{
   message: string | null;
@@ -133,7 +134,7 @@ export const FloatingProPromoBar: React.FC<{
           initial={{ opacity: 0, y: 20, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 20, scale: 0.98 }}
-          className="no-print v21-glass-pro-card"
+          className="no-print v21-glass-pro-card floating-pro-promo-bar"
           style={{
             position: 'fixed',
             bottom: 18,
@@ -225,7 +226,7 @@ export const AppToastBanner: React.FC<{ message: string | null }> = ({ message }
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 12, scale: 0.96 }}
           transition={{ duration: 0.18 }}
-          className="no-print"
+          className="no-print app-toast-banner"
           style={{
             position: 'fixed',
             bottom: 24,
@@ -250,5 +251,65 @@ export const AppToastBanner: React.FC<{ message: string | null }> = ({ message }
         </motion.div>
       )}
     </AnimatePresence>
+  );
+};
+
+export const MobileBottomNav: React.FC<{
+  activeTab: string;
+  onSelectTab: (tab: SidebarTabId) => void;
+  onOpenMobileMenu: () => void;
+}> = ({ activeTab, onSelectTab, onOpenMobileMenu }) => {
+  const isPersiapan = ['tp_list', 'atp', 'prota', 'promes', 'modul_ajar', 'lkpd'].includes(activeTab);
+  const isHarian = ['presensi', 'jurnal', 'nilai', 'rapor'].includes(activeTab);
+  const isSoalAi = ['generator', 'rangkuman_gen', 'worksheet', 'kisi_kisi', 'teacher_guide', 'rangkuman_view', 'bank'].includes(activeTab);
+  const isSupervisi = activeTab === 'supervisi' || activeTab === 'ujian_semester' || activeTab === 'p5_project';
+
+  return (
+    <nav className="mobile-bottom-nav no-print" aria-label="Navigasi Cepat HP">
+      <button
+        type="button"
+        onClick={() => onSelectTab('tp_list')}
+        className={`mobile-bottom-nav-item ${isPersiapan ? 'is-active' : ''}`}
+      >
+        <BookOpen size={19} />
+        <span>Materi & TP</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onSelectTab('presensi')}
+        className={`mobile-bottom-nav-item ${isHarian ? 'is-active' : ''}`}
+      >
+        <Users size={19} />
+        <span>Kelas Harian</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onSelectTab('generator')}
+        className={`mobile-bottom-nav-item ${isSoalAi ? 'is-active' : ''}`}
+      >
+        <Sparkles size={19} />
+        <span>Soal AI</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onSelectTab('supervisi')}
+        className={`mobile-bottom-nav-item ${isSupervisi ? 'is-active' : ''}`}
+      >
+        <ShieldCheck size={19} />
+        <span>Supervisi</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={onOpenMobileMenu}
+        className="mobile-bottom-nav-item"
+      >
+        <Menu size={19} />
+        <span>Menu</span>
+      </button>
+    </nav>
   );
 };

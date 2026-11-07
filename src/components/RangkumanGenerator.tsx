@@ -248,7 +248,7 @@ export const RangkumanGenerator: React.FC<RangkumanGeneratorProps> = ({
           <label className="form-label" style={{ marginBottom: 10, fontSize: 14 }}>
             Pilih Sumber Materi yang Ingin Dirangkum:
           </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
             <button
               type="button"
               onClick={() => setModeInput('keinginan_user')}

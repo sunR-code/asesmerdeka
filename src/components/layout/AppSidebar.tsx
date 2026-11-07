@@ -19,6 +19,7 @@ import {
   HeartHandshake,
   Crown,
   UserCheck,
+  X,
 } from 'lucide-react';
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
 import type { UserQuota } from '../../types/assessment';
@@ -196,6 +197,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       {/* Mobile Drawer Backdrop */}
       {isMobileOpen && (
         <div
+          className="mobile-sidebar-backdrop no-print"
           onClick={onCloseMobile}
           style={{
             position: 'fixed',
@@ -208,6 +210,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       )}
 
       <aside
+        className={`app-sidebar no-print ${isMobileOpen ? 'is-mobile-open' : ''}`}
         style={{
           width: 288,
           background: '#ffffff',
@@ -270,6 +273,18 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               </div>
             </div>
           </div>
+
+          {onCloseMobile && (
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              className="mobile-sidebar-close"
+              aria-label="Tutup menu navigasi"
+              title="Tutup menu"
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
 
         {/* 2. Profil Guru & Kelas Aktif Switcher (V21 Style Card) */}
