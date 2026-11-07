@@ -4,50 +4,9 @@ import type {
   ButirSoal,
 } from '../types/assessment';
 import type { RangkumanRequest, RangkumanDokumen } from '../types/summary';
-import { getSavedGeminiKey } from '../utils/licenseManager';
 import { buildSmartCurriculumRangkuman } from '../utils/rangkumanKnowledgeEngine';
 import { buildSmartCurriculumAsesmen, buildSingleRegeneratedQuestion } from '../utils/asesmenKnowledgeEngine';
-
-const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-const GEMINI_TIMEOUT_MS = 30_000;
-
-async function callGeminiJSON(prompt: string, apiKey: string, temperature = 0.4): Promise<any> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(GEMINI_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Google Gemini API Error (${response.status})`);
-    }
-
-    const result = await response.json();
-    const textOutput = result.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!textOutput || typeof textOutput !== 'string') {
-      throw new Error('Tidak ada respon konten yang diterima dari model AI.');
-    }
-
-    const cleanJson = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanJson);
-  } finally {
-    clearTimeout(timer);
-  }
-}
+import { callGeminiStructuredJSON } from './geminiClient';
 
 export function normalizeButirSoal(raw: any, index: number, fallback?: ButirSoal): ButirSoal | null {
   if (!raw || typeof raw !== 'object') return fallback || null;
@@ -126,21 +85,15 @@ export function normalizeButirSoal(raw: any, index: number, fallback?: ButirSoal
 }
 
 export async function generateAsesmen(request: GenerationRequest): Promise<AsesmenDokumen> {
-  const apiKey = request.geminiApiKey || getSavedGeminiKey();
-
-  if (apiKey) {
-    try {
-      return await generateWithGeminiAPI(request, apiKey);
-    } catch (err: any) {
-      console.warn('Gemini API call failed, falling back to smart curriculum assessment engine:', err);
-      return buildSmartCurriculumAsesmen(request);
-    }
+  try {
+    return await generateWithGeminiAPI(request);
+  } catch (err: any) {
+    console.warn('Gemini AI generation failed, falling back to smart curriculum assessment engine:', err);
+    return buildSmartCurriculumAsesmen(request);
   }
-
-  return buildSmartCurriculumAsesmen(request);
 }
 
-async function generateWithGeminiAPI(req: GenerationRequest, apiKey: string): Promise<AsesmenDokumen> {
+async function generateWithGeminiAPI(req: GenerationRequest): Promise<AsesmenDokumen> {
   const isSMA =
     req.jenjangFase.includes('SMA') ||
     req.jenjangFase.includes('SMK') ||
@@ -191,7 +144,11 @@ WAJIB FORMAT OUTPUT HANYA JSON MURNI (tanpa teks pengantar) dengan struktur sche
 }
 `;
 
-  const parsed = await callGeminiJSON(prompt, apiKey, 0.4);
+  const parsed = await callGeminiStructuredJSON({
+    prompt,
+    temperature: 0.4,
+    geminiApiKey: req.geminiApiKey,
+  });
   const fallbackDoc = buildSmartCurriculumAsesmen(req);
 
   const rawSoalList = Array.isArray(parsed?.soalList) ? parsed.soalList : [];
@@ -241,23 +198,18 @@ export async function regenerateSingleQuestion(
   targetSoal: ButirSoal,
   geminiApiKey?: string
 ): Promise<ButirSoal> {
-  const apiKey = geminiApiKey || getSavedGeminiKey();
-
-  if (apiKey) {
-    try {
-      return await regenerateSingleQuestionWithGemini(assessment, targetSoal, apiKey);
-    } catch (e) {
-      console.warn('API error during single question regen, fallback to smart curriculum engine:', e);
-    }
+  try {
+    return await regenerateSingleQuestionWithGemini(assessment, targetSoal, geminiApiKey);
+  } catch (e) {
+    console.warn('AI error during single question regen, fallback to smart curriculum engine:', e);
+    return buildSingleRegeneratedQuestion(assessment, targetSoal);
   }
-
-  return buildSingleRegeneratedQuestion(assessment, targetSoal);
 }
 
 async function regenerateSingleQuestionWithGemini(
   assessment: AsesmenDokumen,
   targetSoal: ButirSoal,
-  apiKey: string
+  geminiApiKey?: string
 ): Promise<ButirSoal> {
   const prompt = `
 Anda adalah Pakar Asesmen Kurikulum Merdeka.
@@ -270,28 +222,26 @@ Tipe Soal yang Diminta: ${targetSoal.tipe} (Wajib bertipe ini)
 WAJIB FORMAT OUTPUT HANYA JSON MURNI dari 1 objek butir soal (tanpa array atau teks pengantar).
 `;
 
-  const parsed = await callGeminiJSON(prompt, apiKey, 0.6);
+  const parsed = await callGeminiStructuredJSON({
+    prompt,
+    temperature: 0.6,
+    geminiApiKey,
+  });
   const fallback = buildSingleRegeneratedQuestion(assessment, targetSoal);
   const normalized = normalizeButirSoal(parsed, targetSoal.nomor - 1, fallback);
   return normalized || fallback;
 }
 
 export async function generateRangkumanMateri(request: RangkumanRequest): Promise<RangkumanDokumen> {
-  const apiKey = request.geminiApiKey || getSavedGeminiKey();
-
-  if (apiKey) {
-    try {
-      return await generateRangkumanWithGemini(request, apiKey);
-    } catch (err: any) {
-      console.warn('Gemini API call failed for summary, using smart curriculum engine:', err);
-      return buildSmartCurriculumRangkuman(request);
-    }
+  try {
+    return await generateRangkumanWithGemini(request);
+  } catch (err: any) {
+    console.warn('Gemini API call failed for summary, using smart curriculum engine:', err);
+    return buildSmartCurriculumRangkuman(request);
   }
-
-  return buildSmartCurriculumRangkuman(request);
 }
 
-async function generateRangkumanWithGemini(req: RangkumanRequest, apiKey: string): Promise<RangkumanDokumen> {
+async function generateRangkumanWithGemini(req: RangkumanRequest): Promise<RangkumanDokumen> {
   let contextSource = '';
   if (req.modeInput === 'upload') {
     contextSource = `
@@ -318,7 +268,11 @@ ${contextSource}
 Harus berupa JSON MURNI dengan properti: judul, ringkasanSatuKalimat, petaKonsep, rumusAtauPola, poinUtama, contohKonkret, tipsUjian, faktaMenarik, glosarium, kuisKilat, pesanInspirasi.
 `;
 
-  const parsed = await callGeminiJSON(prompt, apiKey, 0.35);
+  const parsed = await callGeminiStructuredJSON({
+    prompt,
+    temperature: 0.35,
+    geminiApiKey: req.geminiApiKey,
+  });
   const fallbackDoc = buildSmartCurriculumRangkuman(req);
 
   const validPoinUtama =

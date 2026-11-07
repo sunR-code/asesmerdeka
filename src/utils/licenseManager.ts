@@ -1,4 +1,44 @@
-import type { UserQuota } from '../types/assessment';
+import type { UserQuota, LicenseTier } from '../types/assessment';
+
+export function isLicensed(tier?: LicenseTier | string): boolean {
+  return tier === 'biasa' || tier === 'sekolah' || tier === 'pro' || tier === 'sekolah_pro';
+}
+
+export function isProAiTier(tier?: LicenseTier | string): boolean {
+  return tier === 'pro' || tier === 'sekolah_pro';
+}
+
+export function getTierDisplayName(tier?: LicenseTier | string): string {
+  switch (tier) {
+    case 'biasa':
+      return 'Guru Mandiri (Biasa)';
+    case 'sekolah':
+      return 'Kolektif Sekolah (25 Guru)';
+    case 'pro':
+      return 'Guru Mandiri PRO (AI Cerdas)';
+    case 'sekolah_pro':
+      return 'Kolektif Sekolah PRO (AI Cerdas)';
+    case 'free':
+    default:
+      return 'Uji Coba Gratis';
+  }
+}
+
+export function getTierBadgeLabel(tier?: LicenseTier | string): string {
+  switch (tier) {
+    case 'biasa':
+      return 'BIASA';
+    case 'sekolah':
+      return 'SEKOLAH';
+    case 'pro':
+      return 'PRO';
+    case 'sekolah_pro':
+      return 'SEKOLAH PRO';
+    case 'free':
+    default:
+      return 'UJI COBA';
+  }
+}
 
 const STORAGE_KEY_QUOTA = 'asesmerdeka_user_quota';
 const STORAGE_KEY_DEVICE = 'asesmerdeka_device_id';
@@ -621,7 +661,7 @@ export function getUserQuota(): UserQuota {
 
       // Wajib verifikasi integritas signature + hardware fingerprint terlebih dahulu
       if (storedSig === expectedSig) {
-        if (parsed.tier === 'pro') {
+        if (isLicensed(parsed.tier)) {
           const activeDev = parsed.deviceId || deviceId;
           if (parsed.licenseKey && isValidLicenseCode(parsed.licenseKey, activeDev)) {
             return parsed;
@@ -682,7 +722,7 @@ function saveQuotaWithSignature(quota: UserQuota): void {
 
 export function deductQuota(): { success: boolean; quota: UserQuota; message?: string } {
   const current = getUserQuota();
-  if (current.tier === 'pro') {
+  if (isLicensed(current.tier)) {
     return { success: true, quota: current };
   }
 
@@ -691,7 +731,7 @@ export function deductQuota(): { success: boolean; quota: UserQuota; message?: s
       success: false,
       quota: current,
       message:
-        'Kuota Uji Coba Gratis Bapak/Ibu (3/3) telah habis digunakan. Silakan aktifkan Lisensi Guru PRO (Sekali Beli Rp 99.000) untuk akses penuh selamanya tanpa batas kuota.',
+        'Kuota Uji Coba Gratis Bapak/Ibu (3/3) telah habis digunakan. Silakan aktifkan Lisensi Guru Mandiri (Biasa) atau Lisensi Sekolah untuk akses penuh selamanya tanpa batas kuota.',
     };
   }
 
@@ -713,7 +753,7 @@ export function deductQuota(): { success: boolean; quota: UserQuota; message?: s
  */
 export function refundQuota(): UserQuota {
   const current = getUserQuota();
-  if (current.tier === 'pro') return current;
+  if (isLicensed(current.tier)) return current;
 
   const deviceId = current.deviceId || getOrCreateDeviceId();
   const nextRemaining = Math.min(FREE_TRIAL_CREDITS, current.remainingCredits + 1);
@@ -761,20 +801,39 @@ export function activateLicense(licenseCode: string): {
     };
   }
 
-  const proQuota: UserQuota = {
-    tier: 'pro',
+  // Deteksi Tier Lisensi dari jenis kode
+  let targetTier: LicenseTier = 'biasa';
+  if (cleanCode.includes('SEKOLAH-PRO') || cleanCode.includes('SCH-PRO')) {
+    targetTier = 'sekolah_pro';
+  } else if (cleanCode.includes('PRO-AI') || cleanCode.includes('PLUS') || cleanCode.includes('GURU-PRO')) {
+    targetTier = 'pro';
+  } else if (
+    seatCheck.maxSeats > 5 ||
+    cleanCode.includes('SEKOLAH') ||
+    cleanCode.includes('SMAN') ||
+    cleanCode.includes('SMPN') ||
+    cleanCode.includes('SDN')
+  ) {
+    targetTier = 'sekolah';
+  } else {
+    targetTier = 'biasa';
+  }
+
+  const activeQuota: UserQuota = {
+    tier: targetTier,
     remainingCredits: 999999,
     maxCredits: 999999,
     deviceId,
     licenseKey: cleanCode,
     lastResetDate: getTodayDateStr(),
   };
-  saveQuotaWithSignature(proQuota);
+  saveQuotaWithSignature(activeQuota);
 
+  const tierDisplayName = getTierDisplayName(targetTier);
   return {
     success: true,
-    message: `Selamat! Lisensi PRO Lifetime berhasil diaktifkan dan dikunci pada perangkat ini (Slot Perangkat: ${seatCheck.usedSeats}/${seatCheck.maxSeats}).`,
-    quota: proQuota,
+    message: `Selamat! Lisensi ${tierDisplayName} Lifetime berhasil diaktifkan dan dikunci pada perangkat ini (Slot Perangkat: ${seatCheck.usedSeats}/${seatCheck.maxSeats}).`,
+    quota: activeQuota,
     usedSeats: seatCheck.usedSeats,
     maxSeats: seatCheck.maxSeats,
   };

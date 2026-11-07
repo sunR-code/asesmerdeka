@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
 import type { UserQuota } from '../../types/assessment';
+import { isLicensed, getTierBadgeLabel, getTierDisplayName } from '../../utils/licenseManager';
 
 export type SidebarTabId =
   | 'tp_list'
@@ -185,7 +186,9 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     if (onCloseMobile) onCloseMobile();
   };
 
-  const isPro = quota.tier === 'pro';
+  const isUnlocked = isLicensed(quota.tier);
+  const badgeLabel = getTierBadgeLabel(quota.tier);
+  const tierTitle = getTierDisplayName(quota.tier);
 
   return (
     <>
@@ -257,19 +260,22 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 }}
               >
                 Ases<span style={{ color: '#2563eb' }}>Merdeka</span>
-                {isPro && (
+                {isUnlocked && (
                   <span
                     style={{
                       fontSize: 10,
                       fontWeight: 800,
-                      background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                      background:
+                        quota.tier === 'pro' || quota.tier === 'sekolah_pro'
+                          ? 'linear-gradient(135deg, #8b5cf6, #6366f1)'
+                          : 'linear-gradient(135deg, #f59e0b, #d97706)',
                       color: '#ffffff',
                       padding: '1px 5px',
                       borderRadius: 4,
                       letterSpacing: '0.4px',
                     }}
                   >
-                    PRO
+                    {badgeLabel}
                   </span>
                 )}
               </div>
@@ -523,9 +529,9 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Crown size={15} color={isPro ? '#fbbf24' : '#a5b4fc'} />
+                <Crown size={15} color={isUnlocked ? '#fbbf24' : '#a5b4fc'} />
                 <span style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.02em' }}>
-                  {isPro ? 'LISENSI RESMI PRO' : 'ASESMERDEKA PRO'}
+                  {isUnlocked ? `LISENSI ${badgeLabel}` : 'ASESMERDEKA'}
                 </span>
               </div>
               <span
@@ -534,17 +540,17 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   fontWeight: 800,
                   padding: '2px 6px',
                   borderRadius: 4,
-                  background: isPro ? '#059669' : 'rgba(255, 255, 255, 0.16)',
+                  background: isUnlocked ? '#059669' : 'rgba(255, 255, 255, 0.16)',
                   color: '#ffffff',
                 }}
               >
-                {isPro ? 'AKTIF' : 'UJI COBA'}
+                {isUnlocked ? 'AKTIF' : 'UJI COBA'}
               </span>
             </div>
 
             <p style={{ fontSize: 11, color: '#cbd5e1', lineHeight: 1.4, margin: '2px 0 8px' }}>
-              {isPro
-                ? 'Semua fitur otomatisasi, unduh ZIP & generator tak terbatas.'
+              {isUnlocked
+                ? `${tierTitle} — Akses penuh dokumen & otomatisasi tak terbatas.`
                 : `Sisa kuota: ${quota.remainingCredits} dari ${quota.maxCredits} dokumen.`}
             </p>
 
@@ -555,7 +561,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 padding: '7px 10px',
                 borderRadius: 8,
                 border: 'none',
-                background: isPro
+                background: isUnlocked
                   ? 'rgba(255, 255, 255, 0.18)'
                   : 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
                 color: '#ffffff',
@@ -566,11 +572,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 6,
-                boxShadow: isPro ? 'none' : '0 2px 8px rgba(99, 102, 241, 0.35)',
+                boxShadow: isUnlocked ? 'none' : '0 2px 8px rgba(99, 102, 241, 0.35)',
               }}
             >
               <Key size={13} />
-              {isPro ? 'Kelola Lisensi & Perangkat' : 'Aktivasi Lisensi Resmi'}
+              {isUnlocked ? 'Kelola Lisensi & Perangkat' : 'Aktivasi Lisensi Resmi'}
             </button>
           </motion.div>
 

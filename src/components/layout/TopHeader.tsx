@@ -160,10 +160,10 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 ? '0 2px 8px rgba(16, 185, 129, 0.16)'
                 : '0 2px 8px rgba(37, 99, 235, 0.12)',
             }}
-            title={isPro ? 'Lisensi Guru PRO Aktif Permanen' : 'Upgrade Guru PRO Sekali Beli via Mayar'}
+            title={isPro ? 'Lisensi Resmi Aktif Permanen' : 'Aktivasi Lisensi Resmi via Mayar'}
           >
             <Sparkles size={14} color={isPro ? '#059669' : '#2563eb'} />
-            <span>{isPro ? 'PRO Lifetime' : 'PRO Sekali Beli'}</span>
+            <span>{isPro ? 'Lisensi Aktif' : 'Aktivasi Lisensi'}</span>
           </motion.button>
         )}
       </div>

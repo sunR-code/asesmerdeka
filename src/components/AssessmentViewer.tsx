@@ -28,6 +28,7 @@ import type { SchoolProfile } from '../utils/schoolProfileStorage';
 import { getSchoolProfile } from '../utils/schoolProfileStorage';
 import { exportToDocx, exportKisiKisiToDocx } from '../utils/docxExporter';
 import { exportElementToImage } from '../utils/imageExporter';
+import { isLicensed } from '../utils/licenseManager';
 import { regenerateSingleQuestion } from '../services/aiGenerator';
 
 interface AssessmentViewerProps {
@@ -242,7 +243,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
     showToast(`Butir Soal No. ${nextNomor} ditambahkan. Silakan edit isinya.`);
   };
 
-  const isPro = quota.tier === 'pro';
+  const isPro = isLicensed(quota.tier);
 
   return (
     <div className="animate-fade-in" style={{ maxWidth: 950, margin: '24px auto', padding: '0 16px' }}>

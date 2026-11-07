@@ -75,8 +75,9 @@ export default async function handler(req, res) {
       return res.status(200).json({
         valid: true,
         planType: 'individu',
+        tier: 'biasa',
         maxSeats: 2,
-        message: 'Lisensi Guru PRO (Individu) berhasil diverifikasi dan aktif.',
+        message: 'Lisensi Guru Mandiri (Biasa) berhasil diverifikasi dan aktif.',
         details: resIndividu.data?.licenseCode,
       });
     }
@@ -87,6 +88,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         valid: true,
         planType: 'sekolah',
+        tier: 'sekolah',
         maxSeats: 25,
         message: 'Lisensi Kolektif Sekolah (25 Guru) berhasil diverifikasi dan aktif.',
         details: resSchool.data?.licenseCode,

@@ -17,7 +17,7 @@ import { SchoolProfileModal } from './components/SchoolProfileModal';
 import type { AsesmenDokumen, GenerationRequest, UserQuota } from './types/assessment';
 import type { RangkumanDokumen, RangkumanRequest } from './types/summary';
 import type { ModulAjarDokumen, LKPDDokumen } from './types/perangkatAjar';
-import { getUserQuota, deductQuota, refundQuota } from './utils/licenseManager';
+import { getUserQuota, deductQuota, refundQuota, isLicensed } from './utils/licenseManager';
 import { generateAsesmen, generateRangkumanMateri } from './services/aiGenerator';
 import { getBankSoal, saveToBankSoal, deleteFromBankSoal } from './utils/bankSoalStorage';
 import { saveToBankRangkuman } from './utils/bankRangkumanStorage';
@@ -404,7 +404,7 @@ export function App() {
           schoolProfile={schoolProfile}
           onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
           onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
-          isPro={quota.tier === 'pro'}
+          isPro={isLicensed(quota.tier)}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
         />
 

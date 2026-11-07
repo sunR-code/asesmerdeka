@@ -32,6 +32,9 @@ import {
   saveMayarProductId,
   getMayarSchoolProductId,
   saveMayarSchoolProductId,
+  isLicensed,
+  getTierDisplayName,
+  getTierBadgeLabel,
 } from '../utils/licenseManager';
 import {
   ONE_TIME_PLANS,
@@ -136,9 +139,12 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
 
   if (!isOpen) return null;
 
-  const isPro = quota.tier === 'pro';
-  const currentPlan = ONE_TIME_PLANS[selectedPlanId];
-  const activeSeatInfo = isPro && quota.licenseKey ? getLicenseSeatStatus(quota.licenseKey) : null;
+  const isUnlocked = isLicensed(quota.tier);
+  const isPro = isUnlocked;
+  const currentPlan = ONE_TIME_PLANS[selectedPlanId] || ONE_TIME_PLANS['pro_individu'];
+  const activeSeatInfo = isUnlocked && quota.licenseKey ? getLicenseSeatStatus(quota.licenseKey) : null;
+  const tierName = getTierDisplayName(quota.tier);
+  const badgeName = getTierBadgeLabel(quota.tier);
 
   const handlePayViaMayar = () => {
     setStatusMessage(null);
@@ -324,15 +330,15 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                 justifyContent: 'center',
               }}
             >
-              {isPro ? <ShieldCheck size={22} color="#059669" /> : <CreditCard size={20} color="#2563eb" />}
+              {isUnlocked ? <ShieldCheck size={22} color="#059669" /> : <CreditCard size={20} color="#2563eb" />}
             </div>
             <div>
               <h2 style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-main)' }}>
-                {isPro ? 'Lisensi Guru PRO Aktif Permanen (Lifetime)' : 'Upgrade Guru PRO — Cukup Sekali Beli'}
+                {isUnlocked ? `Lisensi ${tierName} Aktif Permanen` : 'Aktivasi Lisensi Resmi — Cukup Sekali Beli'}
               </h2>
               <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                {isPro
-                  ? `Kode Aktif: ${quota.licenseKey || 'PRO-LIFETIME'} • Terkunci di Perangkat Ini (${
+                {isUnlocked
+                  ? `Status: LISENSI ${badgeName} AKTIF • Kode: ${quota.licenseKey || 'RESMI'} (${
                       activeSeatInfo ? `${Math.max(1, activeSeatInfo.usedSeats)}/${activeSeatInfo.maxSeats}` : '1/1'
                     } Perangkat)`
                   : `Sisa Kuota Uji Coba Gratis: ${quota.remainingCredits}/${quota.maxCredits} Kredit (Sekali Pakai)`}
@@ -381,7 +387,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
           <div>
             <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>
               ID Perangkat Lisensi (Anti-Kloning) • Status:{' '}
-              {isPro ? 'PRO LIFETIME TERKUNCI' : `UJI COBA GRATIS (${quota.remainingCredits}/${quota.maxCredits})`}
+              {isUnlocked ? `LISENSI ${badgeName} TERKUNCI` : `UJI COBA GRATIS (${quota.remainingCredits}/${quota.maxCredits})`}
             </div>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#2563eb', fontFamily: 'monospace' }}>
               {quota.deviceId}
@@ -434,38 +440,48 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
         {/* LAYAR UTAMA: PILIH PAKET MAYAR.ID + INPUT KODE LISENSI DALAM 1 HALAMAN RINGKAS */}
         {activeSubTab === 'order' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* 1. Pilihan 2 Paket Sekali Beli */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-              {(['pro_individu', 'pro_sekolah'] as OneTimePlanId[]).map((planKey) => {
+            {/* 1. Pilihan 4 Paket (Biasa, Sekolah, Pro AI, Sekolah Pro) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+              {(['pro_individu', 'pro_sekolah', 'pro_ai', 'sekolah_pro'] as OneTimePlanId[]).map((planKey) => {
                 const plan = ONE_TIME_PLANS[planKey];
                 const isSelected = selectedPlanId === planKey;
                 const isSchoolPlan = planKey === 'pro_sekolah';
+                const isAIPro = plan.isComingSoon;
+
+                let cardBorder = '1px solid var(--border-subtle)';
+                let cardBg = '#ffffff';
+                if (isSelected) {
+                  cardBorder = isSchoolPlan ? '2px solid #059669' : isAIPro ? '2px solid #7c3aed' : '2px solid #2563eb';
+                  cardBg = isSchoolPlan ? '#ecfdf5' : isAIPro ? '#faf5ff' : '#eff6ff';
+                }
 
                 return (
                   <div
                     key={plan.id}
-                    onClick={() => setSelectedPlanId(plan.id)}
+                    onClick={() => {
+                      if (!plan.isComingSoon) {
+                        setSelectedPlanId(plan.id);
+                      }
+                    }}
                     style={{
-                      border: isSelected
-                        ? `2px solid ${isSchoolPlan ? '#059669' : '#2563eb'}`
-                        : '1px solid var(--border-subtle)',
-                      background: isSelected ? (isSchoolPlan ? '#ecfdf5' : '#eff6ff') : '#ffffff',
+                      border: cardBorder,
+                      background: cardBg,
                       padding: '16px',
                       borderRadius: 'var(--radius-md)',
-                      cursor: 'pointer',
+                      cursor: plan.isComingSoon ? 'default' : 'pointer',
                       position: 'relative',
                       transition: 'all 0.15s ease',
+                      opacity: plan.isComingSoon ? 0.9 : 1,
                     }}
                   >
                     <span
-                      className={isSchoolPlan ? 'badge badge-emerald' : 'badge'}
                       style={{
                         fontSize: 10,
                         fontWeight: 800,
                         padding: '3px 8px',
                         borderRadius: 99,
-                        background: isSchoolPlan ? '#d1fae5' : '#dbeafe',
-                        color: isSchoolPlan ? '#065f46' : '#1e40af',
+                        background: isSchoolPlan ? '#d1fae5' : isAIPro ? '#ede9fe' : '#dbeafe',
+                        color: isSchoolPlan ? '#065f46' : isAIPro ? '#6d28d9' : '#1e40af',
                         display: 'inline-block',
                         marginBottom: 8,
                       }}
@@ -478,9 +494,9 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '6px 0 4px' }}>
                       <span
                         style={{
-                          fontSize: 22,
+                          fontSize: 20,
                           fontWeight: 900,
-                          color: isSchoolPlan ? '#059669' : '#2563eb',
+                          color: isSchoolPlan ? '#059669' : isAIPro ? '#7c3aed' : '#2563eb',
                         }}
                       >
                         {plan.priceFormatted}
@@ -498,16 +514,16 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                       <span style={{ fontSize: 11, color: '#0f172a', fontWeight: 700 }}>• Sekali Bayar</span>
                     </div>
 
-                    <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.4 }}>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.4 }}>
                       {plan.subtitle}
                     </p>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11.5, color: '#334155' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: '#334155' }}>
                       {plan.features.map((feat, idx) => (
                         <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                           <CheckCircle2
                             size={13}
-                            color={isSchoolPlan ? '#059669' : '#2563eb'}
+                            color={isSchoolPlan ? '#059669' : isAIPro ? '#7c3aed' : '#2563eb'}
                             style={{ marginTop: 2, flexShrink: 0 }}
                           />
                           <span>{feat}</span>
@@ -525,6 +541,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                 type="button"
                 onClick={handlePayViaMayar}
                 className="btn btn-primary"
+                disabled={Boolean(currentPlan.isComingSoon)}
                 style={{
                   width: '100%',
                   padding: '13px 20px',
@@ -532,6 +549,8 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                   fontWeight: 800,
                   display: 'flex',
                   alignItems: 'center',
+                  opacity: currentPlan.isComingSoon ? 0.6 : 1,
+                  cursor: currentPlan.isComingSoon ? 'not-allowed' : 'pointer',
                   justifyContent: 'center',
                   gap: 8,
                 }}

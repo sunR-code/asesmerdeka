@@ -1,6 +1,7 @@
 import React from 'react';
 import { Sparkles, Key, FileText, CheckCircle2, ShieldCheck, FolderOpen, BookOpen, Table2, School, PlusCircle, Layers } from 'lucide-react';
 import type { UserQuota } from '../types/assessment';
+import { isLicensed, getTierBadgeLabel } from '../utils/licenseManager';
 
 export type AppTab =
   | 'class_hub'
@@ -261,16 +262,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               gap: 6,
               padding: '5px 12px',
               borderRadius: 99,
-              background: quota.tier === 'pro' ? '#ecfdf5' : '#eff6ff',
-              border: quota.tier === 'pro' ? '1px solid #a7f3d0' : '1px solid #bfdbfe',
+              background: isLicensed(quota.tier) ? '#ecfdf5' : '#eff6ff',
+              border: isLicensed(quota.tier) ? '1px solid #a7f3d0' : '1px solid #bfdbfe',
               transition: 'all 0.2s'
             }}
-            title="Kuota di-refresh otomatis setiap hari. Klik untuk info Lisensi Guru Pro"
+            title="Klik untuk info status lisensi & aktivasi"
           >
-            {quota.tier === 'pro' ? (
+            {isLicensed(quota.tier) ? (
               <>
                 <ShieldCheck size={15} color="#059669" />
-                <span style={{ fontSize: 12, fontWeight: 800, color: '#047857' }}>GURU PRO</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: '#047857' }}>
+                  LISENSI {getTierBadgeLabel(quota.tier)}
+                </span>
               </>
             ) : (
               <>

@@ -10,11 +10,7 @@ import type {
 } from '../types/perangkatAjar';
 import { buildSmartLKPD } from './perangkatAjarEngine';
 import { deductQuota, refundQuota } from './paymentGateway';
-import { getSavedGeminiKey } from './licenseManager';
-
-const GEMINI_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-const GEMINI_TIMEOUT_MS = 30_000;
+import { callGeminiStructuredJSON } from '../services/geminiClient';
 
 export interface ContextualLKPDResult {
   lkpd: LKPDDokumen;
@@ -163,44 +159,6 @@ KETENTUAN KELUARAN (OUTPUT JSON):
   ]
 }
 `.trim();
-}
-
-async function callGeminiForLKPD(prompt: string, apiKey: string): Promise<any> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(GEMINI_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.45,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Google Gemini API Error (${response.status})`);
-    }
-
-    const result = await response.json();
-    const textOutput = result.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!textOutput || typeof textOutput !== 'string') {
-      throw new Error('Tidak ada respon konten yang diterima dari model Gemini.');
-    }
-
-    const cleanJson = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanJson);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function normalizeAIResponseToLKPD(
@@ -440,17 +398,8 @@ export async function generateContextualLKPDWithAI(
   topikKonteks: string = ''
 ): Promise<ContextualLKPDResult> {
   const fallback = buildSmartLKPD(tp, profile, presetType, topikKonteks);
-  const apiKey = getSavedGeminiKey();
 
-  // 1. Jika API Key tidak tersedia, langsung fallback ke mesin heuristik tanpa potong kuota
-  if (!apiKey) {
-    return {
-      lkpd: fallback,
-      usedFallback: true,
-    };
-  }
-
-  // 2. Deduksi kuota lisensi guru sebelum eksekusi AI
+  // 1. Deduksi kuota lisensi guru sebelum eksekusi AI
   const quotaResult = deductQuota();
   if (!quotaResult.success) {
     return {
@@ -462,10 +411,13 @@ export async function generateContextualLKPDWithAI(
     };
   }
 
-  // 3. Panggil Google Gemini API
+  // 2. Panggil Google Gemini AI (via Serverless Function /api/gemini atau BYOK)
   try {
     const prompt = buildLKPDGeminiPrompt(tp, profile, presetType, topikKonteks);
-    const parsed = await callGeminiForLKPD(prompt, apiKey);
+    const parsed = await callGeminiStructuredJSON({
+      prompt,
+      temperature: 0.45,
+    });
     const lkpd = normalizeAIResponseToLKPD(parsed, tp, profile, presetType, topikKonteks, fallback);
 
     return {

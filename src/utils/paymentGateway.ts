@@ -1,15 +1,15 @@
-import { activateLicense, deductQuota, getUserQuota, refundQuota } from './licenseManager';
+import { activateLicense, deductQuota, getUserQuota, refundQuota, isLicensed } from './licenseManager';
 import type { UserQuota } from '../types/assessment';
 
 export { deductQuota, refundQuota };
 
 export function getQuotaRemaining(): number {
   const quota = getUserQuota();
-  if (quota.tier === 'pro') return Infinity;
+  if (isLicensed(quota.tier)) return Infinity;
   return quota.remainingCredits;
 }
 
-export type OneTimePlanId = 'pro_individu' | 'pro_sekolah';
+export type OneTimePlanId = 'pro_individu' | 'pro_sekolah' | 'pro_ai' | 'sekolah_pro';
 
 export type PaymentMethodId =
   | 'qris'
@@ -31,6 +31,7 @@ export interface OneTimePlan {
   targetAudience: string;
   features: string[];
   paymentLinkEnv?: string;
+  isComingSoon?: boolean;
 }
 
 export interface PaymentMethodOption {
@@ -97,26 +98,26 @@ export function saveMayarPaymentLinks(individuUrl: string, sekolahUrl: string): 
 export const ONE_TIME_PLANS: Record<OneTimePlanId, OneTimePlan> = {
   pro_individu: {
     id: 'pro_individu',
-    name: 'Lisensi Guru PRO (Individu)',
-    badge: 'Paling Laris • Sekali Beli',
+    name: 'Lisensi Guru Mandiri (Biasa)',
+    badge: 'Paling Populer • Sekali Beli',
     originalPrice: 249000,
     price: 99000,
     priceFormatted: 'Rp 99.000',
     originalPriceFormatted: 'Rp 249.000',
-    subtitle: 'Sekali bayar untuk akses selamanya (Lifetime) — Tanpa biaya bulanan',
-    targetAudience: '1 Guru (Aktif Permanen di Perangkat Ini)',
+    subtitle: 'Sekali bayar akses selamanya (Lifetime) — Didukung Gemini Flash AI Cepat',
+    targetAudience: '1 Guru Mandiri (Dukungan 2 Perangkat: Laptop + HP)',
     features: [
       'Akses Selamanya (Sekali Beli, Tanpa Tagihan Bulanan)',
-      'Pembuatan Soal Evaluasi AI & Rangkuman Tanpa Batas Kuota',
+      'Generator Soal Evaluasi, Rangkuman, & LKPD Tanpa Batas Kuota',
       'Ekspor Word (.docx) Resmi & Paket Supervisi (.zip) Bebas Watermark',
-      'Naskah Ujian STS/SAS, Modul Ajar, LKPD, P5 & e-Rapor Lengkap',
+      'Modul Ajar, ATP, Prota, Promes, Presensi, & Jurnal Lengkap',
     ],
     paymentLinkEnv: (import.meta as any).env?.VITE_PAYMENT_LINK_INDIVIDU || '',
   },
   pro_sekolah: {
     id: 'pro_sekolah',
-    name: 'Lisensi Kolektif Sekolah / MGMP',
-    badge: 'Hemat 70% • Dana BOS / KKG',
+    name: 'Lisensi Kolektif Sekolah',
+    badge: 'Hemat 70% • Dana BOS / SPJ',
     originalPrice: 1499000,
     price: 749000,
     priceFormatted: 'Rp 749.000',
@@ -124,12 +125,48 @@ export const ONE_TIME_PLANS: Record<OneTimePlanId, OneTimePlan> = {
     subtitle: 'Sekali bayar untuk 25 Guru — Dilengkapi Kwitansi Resmi SPJ Sekolah',
     targetAudience: 'Hingga 25 Guru / Perangkat dalam 1 Sekolah atau Komunitas MGMP',
     features: [
-      'Lisensi PRO Permanen untuk 25 Guru (Hanya ~Rp 29.900 / guru)',
-      'Bebas Kuota Harian untuk Seluruh Mata Pelajaran & Jenjang',
+      'Lisensi Guru Mandiri Permanen untuk 25 Guru (Hanya ~Rp 29.900 / guru)',
+      'Bebas Kuota Dokumen untuk Seluruh Mata Pelajaran & Jenjang',
       'Kwitansi & Faktur Pembelian Digital Resmi untuk SPJ Dana BOS',
       'Kustomisasi Penuh Kop Surat & Identitas Instansi Sekolah',
     ],
     paymentLinkEnv: (import.meta as any).env?.VITE_PAYMENT_LINK_SEKOLAH || '',
+  },
+  pro_ai: {
+    id: 'pro_ai',
+    name: 'Lisensi Guru Mandiri PRO',
+    badge: 'Segera Hadir • Model AI Cerdas',
+    originalPrice: 399000,
+    price: 199000,
+    priceFormatted: 'Rp 199.000',
+    originalPriceFormatted: 'Rp 399.000',
+    subtitle: 'Didukung Gemini Pro AI dengan penalaran mendalam & analisis soal HOTS kompleks',
+    targetAudience: 'Guru Profesional & Penulis Soal Standar AKM / Olimpiade',
+    features: [
+      'Model AI Gemini Pro untuk Penalaran Logika & HOTS Tingkat Tinggi',
+      'Kualitas Narasi Stimulus & Pembahasan Soal Jauh Lebih Mendalam',
+      'Seluruh Fitur Lisensi Biasa Tanpa Batas Kuota & Bebas Watermark',
+      'Prioritas Pemrosesan AI dengan Respon Optimal',
+    ],
+    isComingSoon: true,
+  },
+  sekolah_pro: {
+    id: 'sekolah_pro',
+    name: 'Lisensi Kolektif Sekolah PRO',
+    badge: 'Segera Hadir • AI Enterprise',
+    originalPrice: 2999000,
+    price: 1499000,
+    priceFormatted: 'Rp 1.499.000',
+    originalPriceFormatted: 'Rp 2.999.000',
+    subtitle: 'Kecerdasan Gemini Pro AI untuk 25 Guru dalam 1 Instansi Sekolah',
+    targetAudience: 'Sekolah Penggerak & Lembaga Pendidikan Unggulan',
+    features: [
+      'Model Gemini Pro AI untuk 25 Guru di Sekolah Anda',
+      'SPJ & Kwitansi Resmi Pembelian Berbadan Hukum Dana BOS',
+      'Dukungan Prioritas Dedicated dan Pelatihan Guru',
+      'Kustomisasi Kurikulum Berdiferensiasi & P5 Sekolah Penuh',
+    ],
+    isComingSoon: true,
   },
 };
 

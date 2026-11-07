@@ -126,8 +126,10 @@ export interface GenerationRequest {
   sourceRangkuman?: RangkumanDokumen;
 }
 
+export type LicenseTier = 'free' | 'biasa' | 'sekolah' | 'pro' | 'sekolah_pro';
+
 export interface UserQuota {
-  tier: 'free' | 'pro';
+  tier: LicenseTier;
   remainingCredits: number;
   maxCredits: number;
   deviceId: string;
