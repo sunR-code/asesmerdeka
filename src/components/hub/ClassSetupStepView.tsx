@@ -152,14 +152,36 @@ export const ClassSetupStepView: React.FC<ClassSetupStepViewProps> = ({
                 marginBottom: 10,
               }}
             >
-              <Sparkles size={13} color="#2563eb" /> Langkah 1 • Pengaturan Kelas & Dokumen
+              <Sparkles size={13} color="#2563eb" /> Langkah 1 dari 3 • Mulai Ruang Kerja Semester
             </span>
             <h1 style={{ fontSize: 22, fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px', margin: '4px 0 6px' }}>
-              Atur Kelas & Mata Pelajaran Bapak/Ibu Guru
+              Selamat Datang! Pilih Kelas & Mata Pelajaran Bapak/Ibu Guru
             </h1>
-            <p style={{ fontSize: 13.5, color: '#475569', lineHeight: 1.5, maxWidth: 640 }}>
-              Pilih jenjang, tingkat kelas, dan mata pelajaran di bawah. AsesMerdeka akan menyusun peta Capaian Pembelajaran (CP) dan Alur Tujuan Pembelajaran (ATP) 1 semester secara otomatis.
+            <p style={{ fontSize: 13.5, color: '#475569', lineHeight: 1.55, maxWidth: 650 }}>
+              Cukup pilih jenjang, kelas, dan mata pelajaran yang Bapak/Ibu ampu di bawah ini. AsesMerdeka akan langsung menyusun <strong>Peta Materi & TP, ATP, Prota, Promes, Modul Ajar, LKPD, Soal AI, hingga Buku Nilai & Rapor</strong> secara otomatis!
             </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+              {[
+                '1️⃣ Pilih Kelas & Mapel (Halaman Ini)',
+                '2️⃣ Kelola Bab, Modul, LKPD & Soal AI',
+                '3️⃣ Unduh 9 Dokumen Siap Supervisi 1-Klik',
+              ].map((stepText, idx) => (
+                <span
+                  key={idx}
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    padding: '4px 10px',
+                    borderRadius: 8,
+                    background: idx === 0 ? '#dbeafe' : '#ffffff',
+                    color: idx === 0 ? '#1e40af' : '#475569',
+                    border: idx === 0 ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+                  }}
+                >
+                  {stepText}
+                </span>
+              ))}
+            </div>
           </div>
 
           <div
@@ -390,11 +412,11 @@ export const ClassSetupStepView: React.FC<ClassSetupStepViewProps> = ({
             );
           })}
 
-          <form onSubmit={handleAddCustomRombel} style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+          <form onSubmit={handleAddCustomRombel} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' }}>
             <input
               type="text"
               className="form-input"
-              style={{ fontSize: 12, padding: '5px 10px', width: 170 }}
+              style={{ fontSize: 12, padding: '5px 10px', width: 170, minWidth: 140 }}
               value={customRombelInput}
               onChange={(e) => setCustomRombelInput(e.target.value)}
               placeholder="+ Rombel (mis: X TKJ 1)"
@@ -537,17 +559,21 @@ export const ClassSetupStepView: React.FC<ClassSetupStepViewProps> = ({
           whileHover={{ scale: 1.02 }}
           whileTap={cardTapMotion}
           onClick={onConfirmClassSetup}
-          className="btn btn-primary"
+          className="btn btn-primary onboarding-confirm-btn"
           style={{
-            padding: '14px 36px',
+            padding: '14px 28px',
             fontSize: 15,
             fontWeight: 900,
             borderRadius: 14,
             boxShadow: '0 8px 24px rgba(37, 99, 235, 0.35)',
             letterSpacing: '-0.2px',
+            width: '100%',
+            maxWidth: 560,
           }}
         >
-          <CheckCircle2 size={18} /> Simpan & Tampilkan Materi {schoolProfile.mataPelajaranUtama} (Kelas {schoolProfile.rombelAktif}) <ArrowRight size={17} />
+          <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
+          <span>Mulai Kelola Materi {schoolProfile.mataPelajaranUtama} (Kelas {schoolProfile.rombelAktif})</span>
+          <ArrowRight size={17} style={{ flexShrink: 0 }} />
         </motion.button>
       </motion.div>
     </motion.div>

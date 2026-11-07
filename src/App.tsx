@@ -28,7 +28,13 @@ import {
   createDefaultInitialAssessment,
 } from './utils/storageInitializer';
 import { buildSmartModulAjar, buildSmartLKPD } from './utils/perangkatAjarEngine';
-import { getSchoolProfile, jenjangToDefaultFase, getSavedCustomTPList } from './utils/schoolProfileStorage';
+import {
+  getSchoolProfile,
+  jenjangToDefaultFase,
+  getSavedCustomTPList,
+  hasConfirmedClassSetup,
+  setConfirmedClassSetup,
+} from './utils/schoolProfileStorage';
 import type { SchoolProfile, CustomTPItem } from './utils/schoolProfileStorage';
 import { getKelasHarianData } from './utils/kelasHarianStorage';
 import { getSemesterCurriculumPlan } from './utils/kurikulumCatalog';
@@ -100,6 +106,7 @@ export function App() {
   const [isLoadingRangkuman, setIsLoadingRangkuman] = useState(false);
   const [quota, setQuota] = useState<UserQuota>(() => getUserQuota());
   const [schoolProfile, setSchoolProfile] = useState<SchoolProfile>(() => getSchoolProfile());
+  const [isClassConfirmed, setIsClassConfirmed] = useState<boolean>(() => hasConfirmedClassSetup());
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
   const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
@@ -158,6 +165,11 @@ export function App() {
         tahunAjaran: newProf.tahunAjaran,
       });
     }
+  };
+
+  const handleConfirmClassChange = (confirmed: boolean) => {
+    setIsClassConfirmed(confirmed);
+    setConfirmedClassSetup(confirmed);
   };
 
   const handleGenerate = async (req: GenerationRequest) => {
@@ -377,7 +389,8 @@ export function App() {
   const headerInfo = getTabHeaderInfo(
     activeTab,
     schoolProfile,
-    activeKelasHarian.daftarSiswa.length
+    activeKelasHarian.daftarSiswa.length,
+    isClassConfirmed
   );
 
   return (
@@ -385,6 +398,7 @@ export function App() {
       <AppSidebar
         activeTab={activeTab}
         onSelectTab={(tab: SidebarTabId) => {
+          handleConfirmClassChange(true);
           setActiveTab(tab);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
@@ -434,10 +448,13 @@ export function App() {
                 onCustomRangkumanForm={handleSelectTPForRangkuman}
                 isGeneratingAssessment={isLoading}
                 isGeneratingRangkuman={isLoadingRangkuman}
-                initialConfirmed={true}
+                initialConfirmed={isClassConfirmed}
+                onConfirmChange={handleConfirmClassChange}
                 activeSubTab={activeTab as any}
-                onSelectSubTab={(tab) => setActiveTab(tab as any)}
-                onOpenClassModal={() => setIsClassModalOpen(true)}
+                onSelectSubTab={(tab) => {
+                  handleConfirmClassChange(true);
+                  setActiveTab(tab as any);
+                }}
               />
             </div>
           )}
@@ -581,6 +598,7 @@ export function App() {
       <MobileBottomNav
         activeTab={activeTab}
         onSelectTab={(tab) => {
+          handleConfirmClassChange(true);
           setActiveTab(tab);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
@@ -591,7 +609,10 @@ export function App() {
         isOpen={isClassModalOpen}
         onClose={() => setIsClassModalOpen(false)}
         schoolProfile={schoolProfile}
-        onUpdateProfile={syncProfileUpdate}
+        onUpdateProfile={(prof) => {
+          syncProfileUpdate(prof);
+          handleConfirmClassChange(true);
+        }}
         onToast={triggerAppToast}
       />
 

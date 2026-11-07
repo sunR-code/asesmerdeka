@@ -823,6 +823,15 @@ body {
     padding: 14px 12px !important;
   }
 
+  .hub-main-bento-card {
+    padding: 16px 14px !important;
+  }
+
+  .onboarding-confirm-btn {
+    padding: 13px 18px !important;
+    font-size: 13.5px !important;
+  }
+
   /* Touch-friendly inputs (16px prevents iOS Safari zoom-on-focus) */
   .form-input,
   .form-select,

@@ -4,8 +4,15 @@ import type { AppTab } from '../../App';
 export function getTabHeaderInfo(
   activeTab: AppTab,
   schoolProfile: SchoolProfile,
-  studentCount: number
+  studentCount: number,
+  isClassConfirmed: boolean = true
 ): { title: string; subtitle: string } {
+  if (!isClassConfirmed && activeTab === 'tp_list') {
+    return {
+      title: '👋 Selamat Datang di AsesMerdeka Studio',
+      subtitle: 'Langkah 1: Pilih jenjang, kelas, & mata pelajaran Bapak/Ibu Guru untuk memulai ruang kerja',
+    };
+  }
   switch (activeTab) {
     case 'tp_list':
       return {

@@ -81,7 +81,6 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
   onConfirmChange,
   activeSubTab,
   onSelectSubTab: _onSelectSubTab,
-  onOpenClassModal,
 }) => {
   const [isClassConfirmed, setIsClassConfirmed] = useState<boolean>(initialConfirmed);
   const [activeMainMode, setActiveMainMode] = useState<'persiapan' | 'harian' | 'supervisi'>('persiapan');
@@ -276,7 +275,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
   };
 
   return (
-    <div style={{ maxWidth: 980, margin: '24px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 980, margin: '8px auto 24px', padding: '0 4px' }}>
       <AnimatePresence>
         {toastMsg && (
           <motion.div
@@ -307,12 +306,10 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
         )}
       </AnimatePresence>
 
-      {!activeSubTab && (
-        <HubStepIndicatorBar
-          isClassConfirmed={isClassConfirmed}
-          onSetConfirmedState={setConfirmedState}
-        />
-      )}
+      <HubStepIndicatorBar
+        isClassConfirmed={isClassConfirmed}
+        onSetConfirmedState={setConfirmedState}
+      />
 
       {!isClassConfirmed && (
         <ClassSetupStepView
@@ -326,38 +323,33 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
 
       {isClassConfirmed && (
         <div>
-          {!activeSubTab && (
-            <HubActiveClassBanner
-              schoolProfile={schoolProfile}
-              onSelectRombel={(rombel) => {
-                updateAndPersistProfile({ rombelAktif: rombel });
-                triggerToast(`Rombel aktif: Kelas ${rombel}`);
-              }}
-              onChangeClassClick={() => {
-                if (onOpenClassModal) {
-                  onOpenClassModal();
-                } else {
-                  setConfirmedState(false);
-                }
-              }}
-            />
-          )}
+          <HubActiveClassBanner
+            schoolProfile={schoolProfile}
+            onSelectRombel={(rombel) => {
+              updateAndPersistProfile({ rombelAktif: rombel });
+              triggerToast(`Rombel aktif: Kelas ${rombel}`);
+            }}
+            onChangeClassClick={() => {
+              setConfirmedState(false);
+            }}
+          />
 
           <div
-            className="v21-bento-card"
+            className="v21-bento-card hub-main-bento-card"
             style={{
               padding: '24px 26px',
               background: '#ffffff',
             }}
           >
-            {!activeSubTab && (
-              <HubWorkspaceModeSwitcher
-                activeMainMode={activeMainMode}
-                perangkatSubTab={perangkatSubTab}
-                onSelectMainMode={setActiveMainMode}
-                onSelectSubTab={setPerangkatSubTab}
-              />
-            )}
+            <HubWorkspaceModeSwitcher
+              activeMainMode={activeMainMode}
+              perangkatSubTab={perangkatSubTab}
+              onSelectMainMode={setActiveMainMode}
+              onSelectSubTab={(tab) => {
+                setPerangkatSubTab(tab);
+                if (_onSelectSubTab) _onSelectSubTab(tab);
+              }}
+            />
 
             <motion.div
               key={perangkatSubTab}

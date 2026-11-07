@@ -493,6 +493,30 @@ test('AUD-209: Motion Presets Dashboard V21 terdefinisi dengan parameter spring 
   assert.ok(motionPresets.staggerContainerVariants.visible.transition.staggerChildren > 0);
 });
 
+test('AUD-210: Perangkat baru menampilkan Langkah 1 (Pilih Kelas & Mapel) terlebih dahulu sebelum Daftar Bab/TP', () => {
+  globalThis.localStorage.clear();
+  assert.equal(
+    schoolProfileStorage.hasConfirmedClassSetup(),
+    false,
+    'Perangkat baru wajib memulai dari Langkah 1 (hasConfirmedClassSetup = false)'
+  );
+
+  schoolProfileStorage.setConfirmedClassSetup(true);
+  assert.equal(
+    schoolProfileStorage.hasConfirmedClassSetup(),
+    true,
+    'Setelah guru memilih kelas & klik mulai, status terkonfirmasi disimpan'
+  );
+
+  schoolProfileStorage.setConfirmedClassSetup(false);
+  assert.equal(
+    schoolProfileStorage.hasConfirmedClassSetup(),
+    false,
+    'Guru dapat kembali ke Langkah 1 kapan saja untuk mengganti pengaturan kelas'
+  );
+});
+
+
 
 
 

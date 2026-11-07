@@ -34,6 +34,31 @@ export interface SchoolProfile {
 
 const PROFILE_STORAGE_KEY = 'asesmerdeka_school_profile_v1';
 const CUSTOM_TP_STORAGE_KEY = 'asesmerdeka_custom_tp_map_v1';
+const ONBOARDING_CONFIRMED_KEY = 'asesmerdeka_onboarding_confirmed_v1';
+
+export function hasConfirmedClassSetup(): boolean {
+  try {
+    const confirmedFlag = localStorage.getItem(ONBOARDING_CONFIRMED_KEY);
+    if (confirmedFlag === 'true') return true;
+    // Jika pengguna lama sudah pernah menyimpan profil sekolah di perangkat ini, anggap sudah onboarding
+    const existingProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
+    return existingProfile !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function setConfirmedClassSetup(confirmed: boolean): void {
+  try {
+    if (confirmed) {
+      localStorage.setItem(ONBOARDING_CONFIRMED_KEY, 'true');
+    } else {
+      localStorage.removeItem(ONBOARDING_CONFIRMED_KEY);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
 
 const DEFAULT_PROFILE: SchoolProfile = {
   instansiDinas: 'PEMERINTAH PROVINSI / KABUPATEN DINAS PENDIDIKAN',
@@ -210,6 +235,7 @@ export function resetCustomTPList(
 const ALLOWED_BACKUP_PREFIXES = [
   PROFILE_STORAGE_KEY,
   CUSTOM_TP_STORAGE_KEY,
+  ONBOARDING_CONFIRMED_KEY,
   'asesmerdeka_harian_',
   'asesmerdeka_bank_soal',
   'asesmerdeka_bank_rangkuman',
