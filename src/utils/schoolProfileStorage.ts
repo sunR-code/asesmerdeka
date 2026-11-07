@@ -239,6 +239,7 @@ const ALLOWED_BACKUP_PREFIXES = [
   'asesmerdeka_harian_',
   'asesmerdeka_bank_soal',
   'asesmerdeka_bank_rangkuman',
+  'lkpd_',
 ];
 
 function isAllowedBackupKey(key: string): boolean {

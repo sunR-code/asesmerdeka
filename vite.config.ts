@@ -7,11 +7,21 @@ function devApiPlugin(): Plugin {
     name: 'dev-api-middleware',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if ((req.url === '/api/activate-license' || req.url === '/api/gemini') && req.method === 'POST') {
+        if (
+          (req.url === '/api/activate-license' ||
+            req.url === '/api/gemini' ||
+            req.url === '/api/cloud-sync') &&
+          req.method === 'POST'
+        ) {
           try {
-            const modulePath = req.url === '/api/gemini' ? './api/gemini.js' : './api/activate-license.js';
+            const modulePath =
+              req.url === '/api/gemini'
+                ? './api/gemini.js'
+                : req.url === '/api/cloud-sync'
+                ? './api/cloud-sync.js'
+                : './api/activate-license.js';
             // @ts-ignore -- dev server dynamic import
-            const { default: handler } = await import(modulePath);
+            const { default: handler } = await import(/* @vite-ignore */ modulePath);
             let body = '';
             req.on('data', (chunk) => {
               body += chunk;

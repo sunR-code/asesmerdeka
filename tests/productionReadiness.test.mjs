@@ -516,6 +516,142 @@ test('AUD-210: Perangkat baru menampilkan Langkah 1 (Pilih Kelas & Mapel) terleb
   );
 });
 
+test('AUD-211: Serverless Cloud Sync (/api/cloud-sync) menyimpan dan memulihkan riwayat lintas perangkat (HP <-> Laptop) serta memisahkan guru pada Lisensi Sekolah', async () => {
+  const { default: cloudSyncHandler } = await import('../api/cloud-sync.js');
+
+  function makeMockRes() {
+    let statusCode = 200;
+    let body = null;
+    return {
+      status(code) {
+        statusCode = code;
+        return this;
+      },
+      setHeader() {
+        return this;
+      },
+      json(data) {
+        body = data;
+        return this;
+      },
+      get result() {
+        return { statusCode, body };
+      },
+    };
+  }
+
+  // 1. Lisensi Guru Mandiri (Individu): Push dari HP lalu Pull dari Komputer dengan 1 Kode Lisensi
+  const individuLicense = 'PRO-MERDEKA-MAYAR001-1EN8';
+  const hpEntries = {
+    asesmerdeka_school_profile_v1: {
+      namaSekolah: 'SMPN 5 Sinkronisasi Cloud',
+      jenjang: 'SMP/MTs',
+      kelasUtama: '9',
+      mataPelajaranUtama: 'IPA',
+    },
+    asesmerdeka_onboarding_confirmed_v1: 'true',
+  };
+
+  const pushRes = makeMockRes();
+  await cloudSyncHandler(
+    {
+      method: 'POST',
+      body: {
+        action: 'push',
+        licenseCode: individuLicense,
+        deviceId: 'DEV-HP-GURU',
+        entries: hpEntries,
+      },
+    },
+    pushRes
+  );
+  assert.equal(pushRes.result.statusCode, 200);
+  assert.equal(pushRes.result.body.ok, true);
+
+  const pullRes = makeMockRes();
+  await cloudSyncHandler(
+    {
+      method: 'POST',
+      body: {
+        action: 'pull',
+        licenseCode: individuLicense,
+        deviceId: 'DEV-LAPTOP-GURU',
+      },
+    },
+    pullRes
+  );
+  assert.equal(pullRes.result.statusCode, 200);
+  assert.equal(pullRes.result.body.ok, true);
+  assert.equal(pullRes.result.body.found, true);
+  assert.equal(
+    pullRes.result.body.entries.asesmerdeka_school_profile_v1.namaSekolah,
+    'SMPN 5 Sinkronisasi Cloud'
+  );
+
+  // 2. Lisensi Kolektif Sekolah (25 Guru): Wajib menyertakan Nama/PIN Guru agar data 25 guru tidak saling menimpa
+  const schoolLicense = 'PRO-MERDEKA-SEKOLAH01-ABCD';
+  const noPinRes = makeMockRes();
+  await cloudSyncHandler(
+    {
+      method: 'POST',
+      body: {
+        action: 'push',
+        licenseCode: schoolLicense,
+        entries: hpEntries,
+      },
+    },
+    noPinRes
+  );
+  assert.equal(noPinRes.result.statusCode, 400);
+  assert.equal(noPinRes.result.body.requiresPin, true);
+
+  // Guru A (FAJAR) menyimpan data Matematika, Guru B (SITI) menyimpan data Bahasa Inggris pada Kode Sekolah yang sama
+  const pushGuruA = makeMockRes();
+  await cloudSyncHandler(
+    {
+      method: 'POST',
+      body: {
+        action: 'push',
+        licenseCode: schoolLicense,
+        teacherPin: 'FAJAR',
+        entries: { mapel: 'Matematika' },
+      },
+    },
+    pushGuruA
+  );
+  assert.equal(pushGuruA.result.statusCode, 200);
+
+  const pushGuruB = makeMockRes();
+  await cloudSyncHandler(
+    {
+      method: 'POST',
+      body: {
+        action: 'push',
+        licenseCode: schoolLicense,
+        teacherPin: 'SITI',
+        entries: { mapel: 'Bahasa Inggris' },
+      },
+    },
+    pushGuruB
+  );
+  assert.equal(pushGuruB.result.statusCode, 200);
+
+  const pullGuruA = makeMockRes();
+  await cloudSyncHandler(
+    {
+      method: 'POST',
+      body: {
+        action: 'pull',
+        licenseCode: schoolLicense,
+        teacherPin: 'FAJAR',
+      },
+    },
+    pullGuruA
+  );
+  assert.equal(pullGuruA.result.body.entries.mapel, 'Matematika');
+});
+
+
 
 
 

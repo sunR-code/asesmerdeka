@@ -42,6 +42,14 @@ import {
   saveMayarPaymentLinks,
   type OneTimePlanId,
 } from '../utils/paymentGateway';
+import {
+  getSavedTeacherSyncPin,
+  saveTeacherSyncPin,
+  getLastCloudSyncAt,
+  isSchoolCollectiveLicenseCode,
+  pushWorkspaceToCloud,
+  pullWorkspaceFromCloud,
+} from '../utils/cloudSyncManager';
 
 const GOOGLE_APPS_SCRIPT_TEMPLATE = `// Tempel kode ini di Google Sheet -> Extensions -> Apps Script -> Deploy as Web App (Anyone)
 function doPost(e) {
@@ -84,6 +92,7 @@ interface LicenseModalProps {
   onClose: () => void;
   quota: UserQuota;
   onUpdateQuota: (newQuota: UserQuota) => void;
+  onRestoredFromCloud?: () => void;
 }
 
 export const LicenseModal: React.FC<LicenseModalProps> = ({
@@ -91,8 +100,12 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   onClose,
   quota,
   onUpdateQuota,
+  onRestoredFromCloud,
 }) => {
   const [licenseInput, setLicenseInput] = useState('');
+  const [teacherPinInput, setTeacherPinInput] = useState(() => getSavedTeacherSyncPin());
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => getLastCloudSyncAt());
   const [apiKeyInput, setApiKeyInput] = useState(() => getSavedGeminiKey());
   const [statusMessage, setStatusMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [copiedDevice, setCopiedDevice] = useState(false);
@@ -212,13 +225,40 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
       }
 
       const res = activateLicense(trimmed);
-      setStatusMessage({
-        text: res.message,
-        isError: !res.success,
-      });
       if (res.success) {
         onUpdateQuota(res.quota);
         setLicenseInput('');
+        if (teacherPinInput.trim()) {
+          saveTeacherSyncPin(teacherPinInput.trim());
+        }
+
+        // 3. Otomatis cek apakah ada riwayat pengisian dari perangkat sebelumnya (misal dari HP ke Laptop)
+        const pullRes = await pullWorkspaceFromCloud(trimmed, teacherPinInput.trim());
+        if (pullRes.ok && pullRes.found && pullRes.restoredCount > 0) {
+          setLastSyncTime(pullRes.updatedAt || new Date().toISOString());
+          setStatusMessage({
+            text: `${res.message} ${pullRes.message}`,
+            isError: false,
+          });
+          if (onRestoredFromCloud) {
+            onRestoredFromCloud();
+          }
+        } else {
+          // Jika belum ada data di cloud, unggah data perangkat saat ini sebagai data awal lisensi
+          const pushRes = await pushWorkspaceToCloud(trimmed, teacherPinInput.trim());
+          if (pushRes.ok && pushRes.updatedAt) {
+            setLastSyncTime(pushRes.updatedAt);
+          }
+          setStatusMessage({
+            text: `${res.message} Sinkronisasi Cloud antar perangkat (HP ↔ Laptop) kini aktif otomatis!`,
+            isError: false,
+          });
+        }
+      } else {
+        setStatusMessage({
+          text: res.message,
+          isError: true,
+        });
       }
     } finally {
       setIsActivating(false);
@@ -596,25 +636,153 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                 Setiap kode lisensi otomatis mengunci sidik jari perangkat (maksimal {maxIndividuSeats} perangkat pribadi untuk kode Individu) dan tidak dapat diperjualbelikan ulang.
               </p>
 
-              <form onSubmit={handleActivate} style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Contoh: PRO-MERDEKA-MAYAR001-1EN8"
-                  value={licenseInput}
-                  onChange={(e) => setLicenseInput(e.target.value)}
-                  style={{ fontSize: 13, fontFamily: 'monospace' }}
-                  required
-                />
-                <button
-                  type="submit"
-                  disabled={isActivating}
-                  className="btn btn-success"
-                  style={{ whiteSpace: 'nowrap', padding: '0 18px', fontWeight: 800 }}
-                >
-                  {isActivating ? 'Memverifikasi...' : 'Aktivasi Permanen'}
-                </button>
+              <form onSubmit={handleActivate} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Contoh: PRO-MERDEKA-MAYAR001-1EN8"
+                    value={licenseInput}
+                    onChange={(e) => setLicenseInput(e.target.value)}
+                    style={{ fontSize: 13, fontFamily: 'monospace', flex: 1, minWidth: 210 }}
+                    required
+                  />
+                  <button
+                    type="submit"
+                    disabled={isActivating}
+                    className="btn btn-success"
+                    style={{ whiteSpace: 'nowrap', padding: '10px 18px', fontWeight: 800 }}
+                  >
+                    {isActivating ? 'Memverifikasi & Sinkron...' : 'Aktivasi & Sinkronkan'}
+                  </button>
+                </div>
+
+                {/* Jika kode sekolah atau sedang memilih paket sekolah, tampilkan input Nama/PIN Guru untuk pemisah data Cloud */}
+                {(isSchoolCollectiveLicenseCode(licenseInput) ||
+                  selectedPlanId === 'pro_sekolah' ||
+                  quota.tier === 'sekolah') && (
+                  <div
+                    style={{
+                      background: '#ecfdf5',
+                      border: '1px solid #a7f3d0',
+                      borderRadius: 8,
+                      padding: '10px 12px',
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: 11.5,
+                        fontWeight: 800,
+                        color: '#065f46',
+                        marginBottom: 4,
+                      }}
+                    >
+                      👤 Nama Singkat / PIN Pribadi Guru (Khusus Lisensi Sekolah 25 Guru):
+                    </label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Contoh: FAJAR_MATEMATIKA atau FAJAR88"
+                      value={teacherPinInput}
+                      onChange={(e) => {
+                        setTeacherPinInput(e.target.value);
+                        saveTeacherSyncPin(e.target.value);
+                      }}
+                      style={{ fontSize: 12.5, padding: '7px 10px', background: '#ffffff' }}
+                      required={isSchoolCollectiveLicenseCode(licenseInput)}
+                    />
+                    <div style={{ fontSize: 11, color: '#047857', marginTop: 4 }}>
+                      Digunakan agar riwayat kelas & soal Anda di HP dan Laptop tersinkronisasi khusus milik Anda sendiri tanpa tertukar dengan 24 guru lain di sekolah.
+                    </div>
+                  </div>
+                )}
               </form>
+
+              {/* Panel Sinkronisasi Cloud Antar Perangkat (HP <-> Laptop) ketika Lisensi Aktif */}
+              {isUnlocked && quota.licenseKey && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    paddingTop: 12,
+                    borderTop: '1px dashed #cbd5e1',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>
+                      ☁️ Sinkronisasi Riwayat Antar Perangkat (HP ↔ Komputer)
+                    </span>
+                    {lastSyncTime && (
+                      <span style={{ fontSize: 11, color: '#059669', fontWeight: 700 }}>
+                        Tersinkron: {new Date(lastSyncTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+
+                  {quota.tier === 'sekolah' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#475569' }}>ID/PIN Guru:</span>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Misal: FAJAR88"
+                        value={teacherPinInput}
+                        onChange={(e) => {
+                          setTeacherPinInput(e.target.value);
+                          saveTeacherSyncPin(e.target.value);
+                        }}
+                        style={{ fontSize: 12, padding: '5px 10px', maxWidth: 180 }}
+                      />
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      disabled={isSyncingCloud}
+                      onClick={async () => {
+                        setIsSyncingCloud(true);
+                        try {
+                          const res = await pushWorkspaceToCloud(quota.licenseKey, teacherPinInput);
+                          if (res.ok && res.updatedAt) setLastSyncTime(res.updatedAt);
+                          setStatusMessage({ text: res.message, isError: !res.ok });
+                        } finally {
+                          setIsSyncingCloud(false);
+                        }
+                      }}
+                      className="btn btn-sm btn-primary"
+                      style={{ fontSize: 12 }}
+                    >
+                      ☁️ Simpan Riwayat ke Cloud Sekarang
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSyncingCloud}
+                      onClick={async () => {
+                        setIsSyncingCloud(true);
+                        try {
+                          const res = await pullWorkspaceFromCloud(quota.licenseKey, teacherPinInput);
+                          if (res.ok && res.updatedAt) setLastSyncTime(res.updatedAt);
+                          setStatusMessage({ text: res.message, isError: !res.ok });
+                          if (res.ok && res.found && onRestoredFromCloud) {
+                            onRestoredFromCloud();
+                          }
+                        } finally {
+                          setIsSyncingCloud(false);
+                        }
+                      }}
+                      className="btn btn-sm btn-outline"
+                      style={{ fontSize: 12, background: '#ffffff' }}
+                    >
+                      🔄 Ambil Riwayat dari Perangkat Lain (HP/Laptop)
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Panel Mitra / Admin (Hanya muncul jika mengetik "@admin" di kolom lisensi di atas) */}

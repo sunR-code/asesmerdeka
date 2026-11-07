@@ -33,6 +33,7 @@ import {
   getKelasHarianData,
   saveKelasHarianData,
 } from '../utils/kelasHarianStorage';
+import { pushWorkspaceToCloud } from '../utils/cloudSyncManager';
 import type { KelasHarianData } from '../types/kelasHarian';
 
 export type PerangkatSubTabType =
@@ -50,6 +51,7 @@ interface ClassSemesterHubProps {
   schoolProfile: SchoolProfile;
   onUpdateProfile: (profile: SchoolProfile) => void;
   onOpenSchoolModal: () => void;
+  onOpenLicenseModal?: () => void;
   onInstantGenerateAssessment: (tp: CustomTPItem, profile: SchoolProfile) => Promise<void>;
   onInstantGenerateRangkuman: (tp: CustomTPItem, profile: SchoolProfile) => Promise<void>;
   onOpenModulAjar: (tp: CustomTPItem, profile: SchoolProfile) => void;
@@ -69,6 +71,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
   schoolProfile,
   onUpdateProfile,
   onOpenSchoolModal,
+  onOpenLicenseModal,
   onInstantGenerateAssessment,
   onInstantGenerateRangkuman,
   onOpenModulAjar,
@@ -161,6 +164,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
   const handleUpdateKelasHarian = (updated: KelasHarianData) => {
     setKelasHarian(updated);
     saveKelasHarianData(schoolProfile, updated);
+    pushWorkspaceToCloud().catch(() => {});
   };
 
   const triggerToast = (msg: string) => {
@@ -208,6 +212,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     setIsCustomTP(true);
     setEditingTPId(null);
     setDraftTP(null);
+    pushWorkspaceToCloud().catch(() => {});
     triggerToast(`Materi Bab/TP ${draftTP.kode} berhasil disimpan.`);
   };
 
@@ -316,6 +321,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
           schoolProfile={schoolProfile}
           updateAndPersistProfile={updateAndPersistProfile}
           onOpenSchoolModal={onOpenSchoolModal}
+          onOpenLicenseModal={onOpenLicenseModal}
           onConfirmClassSetup={handleConfirmClassSetup}
           onToast={triggerToast}
         />

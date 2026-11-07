@@ -10,6 +10,7 @@ import {
   BookOpen,
   Calendar,
   Sparkles,
+  Key,
 } from 'lucide-react';
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
 import { angkaKeRomawiKelas } from '../../utils/schoolProfileStorage';
@@ -27,6 +28,7 @@ interface ClassSetupStepViewProps {
   schoolProfile: SchoolProfile;
   updateAndPersistProfile: (patch: Partial<SchoolProfile>) => void;
   onOpenSchoolModal: () => void;
+  onOpenLicenseModal?: () => void;
   onConfirmClassSetup: () => void;
   onToast: (msg: string) => void;
 }
@@ -35,6 +37,7 @@ export const ClassSetupStepView: React.FC<ClassSetupStepViewProps> = ({
   schoolProfile,
   updateAndPersistProfile,
   onOpenSchoolModal,
+  onOpenLicenseModal,
   onConfirmClassSetup,
   onToast,
 }) => {
@@ -182,6 +185,38 @@ export const ClassSetupStepView: React.FC<ClassSetupStepViewProps> = ({
                 </span>
               ))}
             </div>
+
+            {onOpenLicenseModal && (
+              <div
+                style={{
+                  marginTop: 14,
+                  padding: '10px 14px',
+                  borderRadius: 12,
+                  background: 'linear-gradient(135deg, #f0fdf4 0%, #eff6ff 100%)',
+                  border: '1px solid #86efac',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontSize: 12.5, color: '#065f46', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <Key size={15} color="#059669" style={{ flexShrink: 0 }} />
+                  <span>
+                    Sudah mengisi di HP atau punya <strong>Kode Lisensi</strong>? Tidak perlu isi ulang dari awal!
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenLicenseModal}
+                  className="btn btn-sm btn-success"
+                  style={{ fontSize: 12, padding: '6px 12px', fontWeight: 800 }}
+                >
+                  ☁️ Masukkan Lisensi & Pulihkan Riwayat →
+                </button>
+              </div>
+            )}
           </div>
 
           <div

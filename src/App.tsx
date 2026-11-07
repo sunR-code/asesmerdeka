@@ -38,6 +38,7 @@ import {
 import type { SchoolProfile, CustomTPItem } from './utils/schoolProfileStorage';
 import { getKelasHarianData } from './utils/kelasHarianStorage';
 import { getSemesterCurriculumPlan } from './utils/kurikulumCatalog';
+import { pushWorkspaceToCloud } from './utils/cloudSyncManager';
 
 const GeneratorForm = lazy(() =>
   import('./components/GeneratorForm').then((m) => ({ default: m.GeneratorForm }))
@@ -170,6 +171,27 @@ export function App() {
   const handleConfirmClassChange = (confirmed: boolean) => {
     setIsClassConfirmed(confirmed);
     setConfirmedClassSetup(confirmed);
+  };
+
+  // Otomatis sinkronkan perubahan profil kelas/soal ke Cloud (debounced 2.5 detik) jika pengguna memiliki Kode Lisensi aktif
+  useEffect(() => {
+    if (!isLicensed(quota.tier) || !quota.licenseKey) return;
+    const timer = setTimeout(() => {
+      pushWorkspaceToCloud().catch(() => {});
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [schoolProfile, bankList.length, isClassConfirmed, quota.tier, quota.licenseKey]);
+
+  const handleReloadFromCloudRestore = () => {
+    const refreshedProf = getSchoolProfile();
+    setSchoolProfile(refreshedProf);
+    setIsClassConfirmed(hasConfirmedClassSetup());
+    const refreshedBank = getBankSoal();
+    if (refreshedBank.length > 0) {
+      setBankList(refreshedBank);
+      setCurrentAssessment(refreshedBank[0]);
+    }
+    triggerAppToast('☁️ Seluruh riwayat kelas, nilai & bank soal dari perangkat Anda berhasil dimuat!');
   };
 
   const handleGenerate = async (req: GenerationRequest) => {
@@ -440,6 +462,7 @@ export function App() {
                 schoolProfile={schoolProfile}
                 onUpdateProfile={syncProfileUpdate}
                 onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
+                onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
                 onInstantGenerateAssessment={handleInstantGenerateAssessmentFromTP}
                 onInstantGenerateRangkuman={handleInstantGenerateRangkumanFromTP}
                 onOpenModulAjar={handleOpenModulAjar}
@@ -628,6 +651,7 @@ export function App() {
         onClose={() => setIsLicenseModalOpen(false)}
         quota={quota}
         onUpdateQuota={(newQ) => setQuota(newQ)}
+        onRestoredFromCloud={handleReloadFromCloudRestore}
       />
 
       <AppToastBanner message={appToast} />
