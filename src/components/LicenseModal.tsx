@@ -440,7 +440,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
         {/* LAYAR UTAMA: PILIH PAKET MAYAR.ID + INPUT KODE LISENSI DALAM 1 HALAMAN RINGKAS */}
         {activeSubTab === 'order' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* 1. Pilihan 4 Paket (Biasa, Sekolah, Pro AI, Sekolah Pro) */}
+            {/* 1. Pilihan 4 Paket (Guru Mandiri, Sekolah, Guru PRO, Sekolah PRO) */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
               {(['pro_individu', 'pro_sekolah', 'pro_ai', 'sekolah_pro'] as OneTimePlanId[]).map((planKey) => {
                 const plan = ONE_TIME_PLANS[planKey];

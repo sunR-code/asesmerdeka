@@ -4,7 +4,7 @@
  * Menjaga GEMINI_API_KEY tetap rahasia (Secret) di Vercel tanpa bocor ke browser client.
  *
  * Mendukung pemilihan model cerdas berdasarkan level lisensi pengguna:
- * - Tier 'biasa' / 'sekolah' / 'free' -> gemini-2.5-flash (Cepat, efisien)
+ * - Tier 'guru' / 'sekolah' / 'free' -> gemini-2.5-flash (Cepat, efisien)
  * - Tier 'pro' / 'sekolah_pro' -> gemini-1.5-pro (Model penalaran mendalam)
  */
 
@@ -19,7 +19,7 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-    const { prompt, contents, generationConfig, temperature = 0.4, tier = 'biasa' } = body;
+    const { prompt, contents, generationConfig, temperature = 0.4, tier = 'guru' } = body;
 
     // Prioritaskan GEMINI_API_KEY (Server Secret), fallback ke VITE_GEMINI_API_KEY jika ada
     const apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '').trim();
@@ -89,3 +89,4 @@ export default async function handler(req, res) {
     });
   }
 }
+

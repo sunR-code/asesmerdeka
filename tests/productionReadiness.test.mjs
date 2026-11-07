@@ -160,10 +160,10 @@ test('AUD-002: Aktivasi Lisensi Guru Pro menerima kode perangkat maupun kode kol
   const validCode = licenseManager.computeLicenseCodeForDevice(deviceId);
   const validAttempt = licenseManager.activateLicense(validCode);
   assert.equal(validAttempt.success, true);
-  assert.equal(validAttempt.quota.tier, 'biasa');
+  assert.equal(validAttempt.quota.tier, 'guru');
 
   const reloaded = licenseManager.getUserQuota();
-  assert.equal(reloaded.tier, 'biasa');
+  assert.equal(reloaded.tier, 'guru');
   assert.equal(reloaded.licenseKey, validCode);
 
   // Uji juga batch 25 kode sekolah untuk kemitraan Bibi
@@ -329,7 +329,7 @@ test('AUD-201: PaymentGateway menolak verifikasi pembayaran tanpa kode lisensi y
   const validDeviceKey = licenseManager.computeLicenseCodeForDevice(deviceId);
   const validVerify = paymentGateway.verifyGatewayReceiptCode(validDeviceKey);
   assert.equal(validVerify.success, true);
-  assert.equal(validVerify.quota.tier, 'biasa');
+  assert.equal(validVerify.quota.tier, 'guru');
 });
 
 test('AUD-202: PIN Admin diverifikasi dengan one-way hash dan tidak tersimpan plaintext di kode sumber', () => {

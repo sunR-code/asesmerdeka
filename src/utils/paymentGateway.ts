@@ -98,7 +98,7 @@ export function saveMayarPaymentLinks(individuUrl: string, sekolahUrl: string): 
 export const ONE_TIME_PLANS: Record<OneTimePlanId, OneTimePlan> = {
   pro_individu: {
     id: 'pro_individu',
-    name: 'Lisensi Guru Mandiri (Biasa)',
+    name: 'Lisensi Guru Mandiri',
     badge: 'Paling Populer • Sekali Beli',
     originalPrice: 249000,
     price: 99000,
@@ -145,7 +145,7 @@ export const ONE_TIME_PLANS: Record<OneTimePlanId, OneTimePlan> = {
     features: [
       'Model AI Gemini Pro untuk Penalaran Logika & HOTS Tingkat Tinggi',
       'Kualitas Narasi Stimulus & Pembahasan Soal Jauh Lebih Mendalam',
-      'Seluruh Fitur Lisensi Biasa Tanpa Batas Kuota & Bebas Watermark',
+      'Seluruh Fitur Lisensi Guru Mandiri Tanpa Batas Kuota & Bebas Watermark',
       'Prioritas Pemrosesan AI dengan Respon Optimal',
     ],
     isComingSoon: true,

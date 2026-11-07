@@ -1,7 +1,7 @@
 import type { UserQuota, LicenseTier } from '../types/assessment';
 
 export function isLicensed(tier?: LicenseTier | string): boolean {
-  return tier === 'biasa' || tier === 'sekolah' || tier === 'pro' || tier === 'sekolah_pro';
+  return tier === 'guru' || tier === 'biasa' || tier === 'sekolah' || tier === 'pro' || tier === 'sekolah_pro';
 }
 
 export function isProAiTier(tier?: LicenseTier | string): boolean {
@@ -10,8 +10,9 @@ export function isProAiTier(tier?: LicenseTier | string): boolean {
 
 export function getTierDisplayName(tier?: LicenseTier | string): string {
   switch (tier) {
+    case 'guru':
     case 'biasa':
-      return 'Guru Mandiri (Biasa)';
+      return 'Guru Mandiri';
     case 'sekolah':
       return 'Kolektif Sekolah (25 Guru)';
     case 'pro':
@@ -26,12 +27,13 @@ export function getTierDisplayName(tier?: LicenseTier | string): string {
 
 export function getTierBadgeLabel(tier?: LicenseTier | string): string {
   switch (tier) {
+    case 'guru':
     case 'biasa':
-      return 'BIASA';
+      return 'GURU MANDIRI';
     case 'sekolah':
       return 'SEKOLAH';
     case 'pro':
-      return 'PRO';
+      return 'GURU PRO';
     case 'sekolah_pro':
       return 'SEKOLAH PRO';
     case 'free':
@@ -731,7 +733,7 @@ export function deductQuota(): { success: boolean; quota: UserQuota; message?: s
       success: false,
       quota: current,
       message:
-        'Kuota Uji Coba Gratis Bapak/Ibu (3/3) telah habis digunakan. Silakan aktifkan Lisensi Guru Mandiri (Biasa) atau Lisensi Sekolah untuk akses penuh selamanya tanpa batas kuota.',
+        'Kuota Uji Coba Gratis Bapak/Ibu (3/3) telah habis digunakan. Silakan aktifkan Lisensi Guru Mandiri atau Lisensi Sekolah untuk akses penuh selamanya tanpa batas kuota.',
     };
   }
 
@@ -802,7 +804,7 @@ export function activateLicense(licenseCode: string): {
   }
 
   // Deteksi Tier Lisensi dari jenis kode
-  let targetTier: LicenseTier = 'biasa';
+  let targetTier: LicenseTier = 'guru';
   if (cleanCode.includes('SEKOLAH-PRO') || cleanCode.includes('SCH-PRO')) {
     targetTier = 'sekolah_pro';
   } else if (cleanCode.includes('PRO-AI') || cleanCode.includes('PLUS') || cleanCode.includes('GURU-PRO')) {
@@ -816,7 +818,7 @@ export function activateLicense(licenseCode: string): {
   ) {
     targetTier = 'sekolah';
   } else {
-    targetTier = 'biasa';
+    targetTier = 'guru';
   }
 
   const activeQuota: UserQuota = {

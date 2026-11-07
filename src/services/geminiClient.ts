@@ -121,7 +121,7 @@ async function callVercelServerlessGemini(
  */
 export async function callGeminiStructuredJSON(params: GeminiCallParams): Promise<any> {
   const currentQuota = getUserQuota();
-  const userTier: LicenseTier = params.tier || currentQuota.tier || 'biasa';
+  const userTier: LicenseTier = params.tier || currentQuota.tier || 'guru';
   const customKey = params.geminiApiKey || getSavedGeminiKey();
 
   // 1. Prioritas BYOK Klien (Kunci Kustom Pengguna)

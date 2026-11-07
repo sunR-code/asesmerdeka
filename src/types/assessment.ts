@@ -126,7 +126,7 @@ export interface GenerationRequest {
   sourceRangkuman?: RangkumanDokumen;
 }
 
-export type LicenseTier = 'free' | 'biasa' | 'sekolah' | 'pro' | 'sekolah_pro';
+export type LicenseTier = 'free' | 'guru' | 'sekolah' | 'pro' | 'sekolah_pro';
 
 export interface UserQuota {
   tier: LicenseTier;

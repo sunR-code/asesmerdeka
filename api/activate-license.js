@@ -75,9 +75,9 @@ export default async function handler(req, res) {
       return res.status(200).json({
         valid: true,
         planType: 'individu',
-        tier: 'biasa',
+        tier: 'guru',
         maxSeats: 2,
-        message: 'Lisensi Guru Mandiri (Biasa) berhasil diverifikasi dan aktif.',
+        message: 'Lisensi Guru Mandiri berhasil diverifikasi dan aktif.',
         details: resIndividu.data?.licenseCode,
       });
     }
