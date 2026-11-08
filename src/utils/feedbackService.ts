@@ -494,7 +494,7 @@ export function formatReportsForAiMarkdown(reports: FeedbackReport[]): string {
         `  - Device ID: ${context.deviceId || '-'}`,
         `  - Status Lisensi: ${context.isPro ? 'Guru Pro' : 'Free / Preview'}`,
         `- **Deskripsi Kendala:**`,
-        `  > ${item.description.replace(/\n/g, '\n  > ')}`,
+        `  > ${(item.description || '').replace(/\n/g, '\n  > ')}`,
         ''
       );
     });
