@@ -870,8 +870,13 @@ body {
 
 /* Extra-compact phones (<= 420px) */
 @media (max-width: 420px) {
-  .header-pill-school-text {
+  .header-pill-school-text,
+  .header-pill-help-text {
     display: none;
+  }
+
+  .header-pill-help {
+    padding: 6px 8px !important;
   }
 
   .header-pill-license-text {
