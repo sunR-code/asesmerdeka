@@ -256,7 +256,7 @@ function fetchOfflineAdminLicenses(
     const rawQuota = storage?.getItem('asesmerdeka_user_quota');
     if (rawQuota) {
       const quota = JSON.parse(rawQuota);
-      const activeCode = normalizeLicenseCodeInput(quota?.licenseCode || '');
+      const activeCode = normalizeLicenseCodeInput(quota?.licenseKey || quota?.licenseCode || '');
       if (activeCode && map.has(activeCode)) {
         const item = map.get(activeCode)!;
         const dev = String(quota.deviceId || '').trim().toUpperCase();

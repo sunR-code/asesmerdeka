@@ -25,8 +25,7 @@ import {
   deductQuota,
   refundQuota,
   isLicensed,
-  verifyMayarLicenseOnline,
-  revokeLicenseToPreviewMode,
+  verifyActiveLicenseWithServer,
 } from './utils/licenseManager';
 import { generateAsesmen, generateRangkumanMateri } from './services/aiGenerator';
 import { getBankSoal, saveToBankSoal, deleteFromBankSoal } from './utils/bankSoalStorage';
@@ -245,23 +244,23 @@ export function App() {
     setConfirmedClassSetup(confirmed);
   };
 
-  // Verifikasi kursi perangkat aktif ke Cloud Redis saat aplikasi dibuka:
-  // Jika perangkat ke-3 mencoba memakai lisensi yang sudah penuh (2/2) atau lisensi telah dihapus Admin,
+  // Verifikasi status keabsahan lisensi ke Cloud Serverless/Redis saat aplikasi dibuka:
+  // Jika lisensi telah dihapus/dicabut oleh Admin, atau perangkat telah di-unbind,
   // otomatis nonaktifkan ke Mode Pratinjau
   useEffect(() => {
     if (!isLicensed(quota.tier) || !quota.licenseKey) return;
     let active = true;
-    verifyMayarLicenseOnline(quota.licenseKey, quota.deviceId)
+    verifyActiveLicenseWithServer()
       .then((res) => {
         if (!active) return;
-        if (res.seatLimitExceeded || res.revoked || !res.valid) {
-          const revoked = revokeLicenseToPreviewMode();
-          setQuota(revoked);
+        if (!res.valid) {
+          const reset = getUserQuota();
+          setQuota(reset);
           setSchoolProfile(getSchoolProfile());
           setIsClassConfirmed(hasConfirmedClassSetup());
           setErrorMessage(
             res.message ||
-              'Lisensi dinonaktifkan pada perangkat ini oleh Administrator.'
+              'Lisensi pada perangkat ini telah dinonaktifkan atau dihapus oleh Administrator.'
           );
           setIsLicenseModalOpen(true);
         }

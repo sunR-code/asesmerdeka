@@ -111,28 +111,59 @@ export async function isLicenseRevokedInRedis(cleanCode) {
   const code = normalizeLicenseCode(cleanCode);
   if (!code) return false;
 
+  if (localRevokedLicensesSet.has(code)) return true;
+  const localRegDeleted = localLicenseRegistryStore.some((l) => l.code === code && l.deleted);
+  if (localRegDeleted) return true;
+
   const { url, token, configured } = getRedisCredentials();
   if (!configured) {
-    return localRevokedLicensesSet.has(code);
+    return false;
   }
 
+  // 1. Cek daftar hitam eksplisit (REVOKED_REDIS_KEY)
   const endpoint = `${url.replace(/\/$/, '')}/get/${encodeURIComponent(REVOKED_REDIS_KEY)}`;
   try {
     const res = await fetch(endpoint, {
       method: 'GET',
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return localRevokedLicensesSet.has(code);
-    const data = await res.json().catch(() => null);
-    if (!data?.result) return localRevokedLicensesSet.has(code);
-    const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
-    if (Array.isArray(parsed)) {
-      return parsed.includes(code);
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data?.result) {
+        const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+        if (Array.isArray(parsed) && parsed.includes(code)) {
+          return true;
+        }
+      }
     }
-    return false;
   } catch {
-    return localRevokedLicensesSet.has(code);
+    // ignore
   }
+
+  // 2. Cek registri Cloud Redis (REGISTRY_REDIS_KEY) jika ditandai deleted: true
+  try {
+    const regEndpoint = `${url.replace(/\/$/, '')}/get/${encodeURIComponent('asesmerdeka:admin:license_registry:v1')}`;
+    const regRes = await fetch(regEndpoint, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (regRes.ok) {
+      const regData = await regRes.json().catch(() => null);
+      if (regData?.result) {
+        const parsed = typeof regData.result === 'string' ? JSON.parse(regData.result) : regData.result;
+        if (Array.isArray(parsed)) {
+          const item = parsed.find((l) => l.code === code);
+          if (item && item.deleted) {
+            return true;
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return false;
 }
 
 export async function revokeLicenseInRedis(cleanCode) {

@@ -658,6 +658,22 @@ export function isLegacyRevokedCode(rawCode?: string): boolean {
   return clean.startsWith('PRO-MERDEKA-') || clean.startsWith('ASES-');
 }
 
+export function isLocallyRevokedLicense(rawCode?: string): boolean {
+  try {
+    const clean = normalizeLicenseCodeInput(rawCode || '');
+    if (!clean) return false;
+    const rawDeleted = localStorage.getItem('asesmerdeka_deleted_licenses_v1');
+    if (!rawDeleted) return false;
+    const deletedList = JSON.parse(rawDeleted);
+    if (Array.isArray(deletedList) && deletedList.includes(clean)) {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 export function purgeDeviceFromLegacyLicense(): void {
   try {
     localStorage.removeItem(STORAGE_KEY_QUOTA);
@@ -679,6 +695,11 @@ export function isValidLicenseCode(rawCode: string, deviceId: string): boolean {
 
   // Tolak permanen seluruh kode lama (PRO-MERDEKA-... atau ASES-...)
   if (isLegacyRevokedCode(cleanCode)) {
+    return false;
+  }
+
+  // Tolak jika lisensi telah dihapus/dicabut oleh Admin
+  if (isLocallyRevokedLicense(cleanCode)) {
     return false;
   }
 
@@ -757,9 +778,12 @@ export function getUserQuota(): UserQuota {
     try {
       const parsed = JSON.parse(raw) as UserQuota;
 
-      // Jika perangkat ini sebelumnya mengaktifkan kode lama (PRO-MERDEKA-... atau ASES-...),
-      // bersihkan seluruh status lisensi & profil agar perangkat kembali kosong seperti baru pertama kali buka!
-      if (parsed.licenseKey && isLegacyRevokedCode(parsed.licenseKey)) {
+      // Jika perangkat ini sebelumnya mengaktifkan kode lama atau lisensi yang telah dihapus/dicabut oleh Admin,
+      // bersihkan seluruh status lisensi & profil agar perangkat kembali ke Mode Pratinjau (Free)!
+      if (
+        parsed.licenseKey &&
+        (isLegacyRevokedCode(parsed.licenseKey) || isLocallyRevokedLicense(parsed.licenseKey))
+      ) {
         purgeDeviceFromLegacyLicense();
         const resetQuota: UserQuota = {
           tier: 'free',
@@ -1010,6 +1034,15 @@ export async function verifyActiveLicenseWithServer(): Promise<{
 
   const cleanCode = normalizeLicenseCodeInput(currentQuota.licenseKey);
   const activeDevice = currentQuota.deviceId || getOrCreateDeviceId();
+
+  if (isLocallyRevokedLicense(cleanCode)) {
+    revokeLicenseToPreviewMode();
+    return {
+      valid: false,
+      revoked: true,
+      message: 'Kode lisensi ini telah dicabut atau dinonaktifkan oleh Administrator.',
+    };
+  }
 
   try {
     const res = await fetch('/api/activate-license', {
