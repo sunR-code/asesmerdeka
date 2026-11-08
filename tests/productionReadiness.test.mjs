@@ -1988,6 +1988,56 @@ test('AUD-223: Client service sharedCurriculumService mengelola cache lokal dan 
   }
 });
 
+test('AUD-224: Modul Ajar AI Generator Engine merangkai prompt 5 model Kurikulum Merdeka dan memiliki fallback aman', async () => {
+  const modulAiService = loadTsModule('src/utils/modulAjarAiService.ts');
+
+  // 1. Uji daftar model pembelajaran Kurikulum Merdeka
+  assert.ok(modulAiService.MODUL_AJAR_MODELS.length >= 5);
+  const pblModel = modulAiService.MODUL_AJAR_MODELS.find((m) => m.id === 'pbl');
+  assert.ok(pblModel);
+  assert.ok(pblModel.label.includes('Problem-Based Learning'));
+
+  // 2. Uji penyusunan prompt instruksi pedagogis
+  const mockTP = {
+    id: 'tp-1',
+    kode: '8.1',
+    elemen: 'Geometri',
+    materiPokok: 'Teorema Pythagoras',
+    tujuanPembelajaran: 'Menemukan dan membuktikan teorema Pythagoras serta menerapkannya dalam menyelesaikan masalah kontekstual',
+    alokasiJP: 8,
+  };
+  const mockProfile = {
+    namaSekolah: 'SMP Negeri 1 Merdeka',
+    jenjang: 'SMP',
+    kelasUtama: '8',
+    mataPelajaranUtama: 'Matematika',
+  };
+
+  const pblPrompt = modulAiService.buildModulAjarGeminiPrompt(mockTP, mockProfile, 'pbl', 'Desain Rangka Jembatan Tradisional');
+  assert.ok(pblPrompt.includes('Problem-Based Learning'));
+  assert.ok(pblPrompt.includes('Desain Rangka Jembatan Tradisional'));
+  assert.ok(pblPrompt.includes('Teorema Pythagoras'));
+  assert.ok(pblPrompt.includes('pemahamanBermakna'));
+  assert.ok(pblPrompt.includes('pertanyaanPemantik'));
+  assert.ok(pblPrompt.includes('kegiatanPembelajaran'));
+
+  // 3. Uji fallback ketika offline / API tidak tersedia
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => {
+      throw new Error('Network error: Gemini API unreachable');
+    };
+    const result = await modulAiService.generateContextualModulAjarWithAI(mockTP, mockProfile, 'pbl', 'Jembatan');
+    assert.equal(result.usedFallback, true);
+    assert.ok(result.modul);
+    assert.equal(result.modul.materiPokok, 'Teorema Pythagoras');
+    assert.ok(result.modul.kegiatanPembelajaran.length > 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
 
 
 
