@@ -959,6 +959,194 @@ test('AUD-215: API feedback-reports menangani POST laporan baru, menolak GET/PAT
   );
 });
 
+test('AUD-216: Feedback client service menangani kategori meta, offline-first storage fallback, dan AI markdown formatting', async () => {
+  const feedbackService = loadTsModule('src/utils/feedbackService.ts');
+  const {
+    FEEDBACK_CATEGORY_META,
+    FEEDBACK_CATEGORIES,
+    STORAGE_KEY_OFFLINE_FEEDBACK,
+    getOfflineFeedbackReports,
+    saveOfflineFeedbackReports,
+    clearOfflineFeedbackReports,
+    addOfflineFeedbackReport,
+    updateOfflineReportStatus,
+    removeOfflineReport,
+    submitFeedbackReport,
+    formatReportsForAiMarkdown,
+  } = feedbackService;
+
+  // 1. Verifikasi konfigurasi kategori & label meta
+  assert.equal(STORAGE_KEY_OFFLINE_FEEDBACK, 'asesmerdeka_offline_feedback_reports_v1');
+  assert.equal(FEEDBACK_CATEGORIES.length, 5);
+  assert.equal(FEEDBACK_CATEGORY_META.fitur_error.label, 'Fitur Error / Macet');
+  assert.equal(FEEDBACK_CATEGORY_META.fitur_error.icon, '🚨');
+  assert.equal(FEEDBACK_CATEGORY_META.data_dummy.label, 'Masih Ada Data Dummy');
+  assert.equal(FEEDBACK_CATEGORY_META.data_dummy.icon, '🧩');
+  assert.equal(FEEDBACK_CATEGORY_META.ui_tampilan.label, 'Tampilan / UI Kurang Pas');
+  assert.equal(FEEDBACK_CATEGORY_META.ui_tampilan.icon, '📱');
+  assert.equal(FEEDBACK_CATEGORY_META.unduh_dokumen.label, 'Masalah Unduh Word / ZIP');
+  assert.equal(FEEDBACK_CATEGORY_META.unduh_dokumen.icon, '📄');
+  assert.equal(FEEDBACK_CATEGORY_META.saran_fitur.label, 'Saran Fitur Baru');
+  assert.equal(FEEDBACK_CATEGORY_META.saran_fitur.icon, '💡');
+
+  // 2. Verifikasi offline storage handling
+  clearOfflineFeedbackReports();
+  assert.deepEqual(getOfflineFeedbackReports(), []);
+
+  saveOfflineFeedbackReports([]);
+  assert.deepEqual(getOfflineFeedbackReports(), []);
+
+  const local1 = addOfflineFeedbackReport({
+    category: 'fitur_error',
+    description: 'Tombol simpan tidak merespons di Safari HP',
+    contact: '0811223344',
+    context: { activeTab: 'harian', kelas: '5', mapel: 'IPAS', deviceId: 'DEV-OFFLINE-01', isPro: true },
+  });
+  assert.ok(local1.id.startsWith('LOCAL-REP-'));
+  assert.equal(local1.status, 'baru');
+  assert.equal(getOfflineFeedbackReports().length, 1);
+
+  // Update status lokal
+  updateOfflineReportStatus(local1.id, 'ditinjau');
+  assert.equal(getOfflineFeedbackReports()[0].status, 'ditinjau');
+
+  // Hapus laporan lokal
+  removeOfflineReport(local1.id);
+  assert.deepEqual(getOfflineFeedbackReports(), []);
+
+  // 3. Verifikasi validasi klien submitFeedbackReport
+  const invalidRes = await submitFeedbackReport({
+    category: '',
+    description: '  ',
+    context: {},
+  });
+  assert.equal(invalidRes.ok, false);
+  assert.equal(invalidRes.message, 'Kategori dan deskripsi kendala wajib diisi.');
+
+  // 4. Verifikasi offline fallback saat jaringan terputus (fetch gagal)
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => {
+      throw new Error('Failed to fetch: No internet connection');
+    };
+
+    clearOfflineFeedbackReports();
+    const offlineSubmitRes = await submitFeedbackReport({
+      category: 'ui_tampilan',
+      description: 'Tabel nilai meluber ke kanan di layar ponsel',
+      contact: 'guru@sekolah.sch.id',
+      context: {
+        activeTab: 'rekap',
+        jenjang: 'SMP',
+        kelas: '8',
+        mapel: 'Matematika',
+        deviceId: 'HP-GURU-001',
+        isPro: false,
+      },
+    });
+
+    assert.equal(offlineSubmitRes.ok, true);
+    assert.equal(
+      offlineSubmitRes.message,
+      'Laporan disimpan secara lokal (offline) dan akan disinkronkan saat terhubung kembali.'
+    );
+    assert.ok(offlineSubmitRes.report);
+    assert.ok(offlineSubmitRes.report.id.startsWith('LOCAL-REP-'));
+    assert.equal(getOfflineFeedbackReports().length, 1);
+    assert.equal(getOfflineFeedbackReports()[0].category, 'ui_tampilan');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  // 5. Verifikasi format AI Markdown Generator
+  const mockReports = [
+    {
+      id: 'REP-001',
+      createdAt: '2026-11-08T08:00:00.000Z',
+      category: 'fitur_error',
+      description: 'Gagal mengekspor berkas Word modul ajar',
+      contact: 'Pak Budi (0812345678)',
+      context: {
+        activeTab: 'perangkat',
+        jenjang: 'SD',
+        kelas: '4',
+        mapel: 'Bahasa Indonesia',
+        deviceId: 'DEV-TEST-001',
+        isPro: true,
+      },
+      status: 'baru',
+    },
+    {
+      id: 'REP-002',
+      createdAt: '2026-11-08T08:15:00.000Z',
+      category: 'data_dummy',
+      description: 'Masih muncul nama siswa "Budi Santoso" padahal sudah import excel',
+      contact: '',
+      context: {
+        activeTab: 'harian',
+        jenjang: 'SMA',
+        kelas: '10',
+        mapel: 'Biologi',
+        deviceId: 'DEV-TEST-002',
+        isPro: false,
+      },
+      status: 'ditinjau',
+    },
+    {
+      id: 'REP-003',
+      createdAt: '2026-11-08T08:30:00.000Z',
+      category: 'saran_fitur',
+      description: 'Mohon tambahkan opsi cetak PDF langsung tanpa lewat Word',
+      contact: 'Ibu Siti',
+      context: {
+        activeTab: 'rekap',
+        jenjang: 'SMP',
+        kelas: '7',
+        mapel: 'Informatika',
+        deviceId: 'DEV-TEST-003',
+        isPro: true,
+      },
+      status: 'selesai',
+    },
+  ];
+
+  const mdOutput = formatReportsForAiMarkdown(mockReports);
+
+  // Periksa header & statistik
+  assert.ok(mdOutput.includes('# 📋 Rangkuman Laporan Kendala Guru'));
+  assert.ok(mdOutput.includes('Total Laporan:** 3'));
+  assert.ok(mdOutput.includes('Baru: 1'));
+  assert.ok(mdOutput.includes('Ditinjau: 1'));
+  assert.ok(mdOutput.includes('Selesai: 1'));
+
+  // Periksa seksi pengelompokan
+  assert.ok(mdOutput.includes('## 🔴 Laporan Baru (Prioritas Perbaikan) (1)'));
+  assert.ok(mdOutput.includes('## 🟡 Laporan Sedang Ditinjau (1)'));
+  assert.ok(mdOutput.includes('## 🟢 Laporan Selesai Ditangani (1)'));
+
+  // Periksa isi laporan 1 (Baru)
+  assert.ok(mdOutput.includes('🚨 Fitur Error / Macet'));
+  assert.ok(mdOutput.includes('REP-001'));
+  assert.ok(mdOutput.includes('Tanggal / Waktu:** 2026-11-08T08:00:00.000Z'));
+  assert.ok(mdOutput.includes('Halaman / Tab: perangkat'));
+  assert.ok(mdOutput.includes('Mata Pelajaran: Bahasa Indonesia'));
+  assert.ok(mdOutput.includes('Jenjang / Kelas: SD / 4'));
+  assert.ok(mdOutput.includes('Device ID: DEV-TEST-001'));
+  assert.ok(mdOutput.includes('Status Lisensi: Guru Pro'));
+  assert.ok(mdOutput.includes('> Gagal mengekspor berkas Word modul ajar'));
+
+  // Periksa isi laporan 2 (Ditinjau)
+  assert.ok(mdOutput.includes('🧩 Masih Ada Data Dummy'));
+  assert.ok(mdOutput.includes('REP-002'));
+  assert.ok(mdOutput.includes('Status Lisensi: Free / Preview'));
+  assert.ok(mdOutput.includes('> Masih muncul nama siswa "Budi Santoso"'));
+
+  // Periksa laporan kosong
+  const emptyMd = formatReportsForAiMarkdown([]);
+  assert.ok(emptyMd.includes('Total Laporan:** 0'));
+  assert.ok(emptyMd.includes('Tidak ada laporan kendala yang ditemukan.'));
+});
+
 
 
 
