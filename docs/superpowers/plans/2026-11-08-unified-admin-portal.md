@@ -89,16 +89,16 @@
 - Create: `src/components/admin/AdminLicenseTab.tsx`
 - Create: `src/components/admin/AdminSettingsTab.tsx`
 
-- [ ] **Step 3.1: Implement High-Security Lock Screen in `AdminPortal.tsx`**
+- [x] **Step 3.1: Implement High-Security Lock Screen in `AdminPortal.tsx`**
   - Dedicated full-screen dark/navy minimalist lock screen.
   - Shield lock icon, PIN input with auto-focus, error message feedback.
   - Safe return button: `← Kembali ke Aplikasi Guru`.
 
-- [ ] **Step 3.2: Implement Portal Dashboard Shell & Navigation**
+- [x] **Step 3.2: Implement Portal Dashboard Shell & Navigation**
   - Top header bar with branding, live database status pill, Quick Lock button ("🔒 Kunci"), and Return button ("← Kembali ke Aplikasi Guru").
   - 3 main tabs: `🔑 Kelola Lisensi Khusus`, `📋 Kotak Masuk Guru`, `⚙️ Pengaturan Pembayaran`.
 
-- [ ] **Step 3.3: Implement `AdminLicenseTab.tsx`**
+- [x] **Step 3.3: Implement `AdminLicenseTab.tsx`**
   - **Generator Section**: Select plan type (Guru Mandiri 2 dev, Solo 1 dev, Kolektif Sekolah 25 dev, Guru PRO, Sekolah PRO), Buyer Label text input, Batch quantity (1-100), and "Buat Lisensi Resmi" button.
   - **Filter & Search Bar**: Search input by code or buyer name; filter pills: `Semua`, `Aktif (Terkunci)`, `Belum Aktif`.
   - **License Table / Card List**:
@@ -106,15 +106,15 @@
     - Actions: `🔄 Reset Kunci Perangkat`, `📋 Salin Kode`, `🗑️ Hapus`.
     - Modal/Confirmation for Reset & Delete.
 
-- [ ] **Step 3.4: Integrate Unified Teacher Feedback Reports Tab**
+- [x] **Step 3.4: Integrate Unified Teacher Feedback Reports Tab**
   - Embed the feedback report inbox in Tab 2, with status filtering, status update dropdowns, deletion, and "📋 Salin Rangkuman untuk AI".
 
-- [ ] **Step 3.5: Implement `AdminSettingsTab.tsx`**
+- [x] **Step 3.5: Implement `AdminSettingsTab.tsx`**
   - Payment Links for Mayar (Individual & School), Product IDs, default seats, and Cloud Tracker URL with instant validation and save feedback.
 
-- [ ] **Step 3.6: Verify styling conforms to native design system (no Tailwind)**
+- [x] **Step 3.6: Verify styling conforms to native design system (no Tailwind)**
 
-- [ ] **Step 3.7: Commit Task 3**
+- [x] **Step 3.7: Commit Task 3**
   - Commit message: `feat(ui): create dedicated full-screen AdminPortal with license manager and device reset`
 
 ---
