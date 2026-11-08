@@ -78,65 +78,8 @@ export const BackToHubButton: React.FC<{
   );
 };
 
-export interface AppFooterProps {
-  onOpenClassModal: () => void;
-  onOpenSchoolModal: () => void;
-  onOpenLicenseModal: () => void;
-  onOpenHelpModal?: () => void;
-}
-
-export const AppFooter: React.FC<AppFooterProps> = ({
-  onOpenClassModal,
-  onOpenSchoolModal,
-  onOpenLicenseModal,
-  onOpenHelpModal,
-}) => (
-  <footer
-    className="no-print"
-    style={{
-      borderTop: '1px solid rgba(226, 232, 240, 0.8)',
-      background: '#ffffff',
-      padding: '16px 28px',
-      fontSize: 12,
-      color: '#64748b',
-    }}
-  >
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: 12,
-      }}
-    >
-      <div>
-        © 2026 <strong>AsesMerdeka Studio</strong> — Platform Administrasi & Pembelajaran Guru Terintegrasi
-      </div>
-      <div style={{ display: 'flex', gap: 14 }}>
-        <span style={{ color: '#2563eb', cursor: 'pointer', fontWeight: 700 }} onClick={onOpenClassModal}>
-          Ganti Kelas/Mapel
-        </span>
-        <span style={{ color: '#cbd5e1' }}>•</span>
-        <span style={{ color: '#0d9488', cursor: 'pointer', fontWeight: 700 }} onClick={onOpenSchoolModal}>
-          Kop Sekolah
-        </span>
-        <span style={{ color: '#cbd5e1' }}>•</span>
-        <span style={{ color: '#7c3aed', cursor: 'pointer', fontWeight: 700 }} onClick={onOpenLicenseModal}>
-          Lisensi PRO
-        </span>
-        {onOpenHelpModal && (
-          <>
-            <span style={{ color: '#cbd5e1' }}>•</span>
-            <span style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 700 }} onClick={onOpenHelpModal}>
-              Bantuan & Lapor
-            </span>
-          </>
-        )}
-      </div>
-    </div>
-  </footer>
-);
+export { AppFooter } from '../AppFooter';
+export type { AppFooterProps } from '../AppFooter';
 
 export const FloatingProPromoBar: React.FC<{
   visible: boolean;

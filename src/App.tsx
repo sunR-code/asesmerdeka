@@ -16,6 +16,7 @@ import { ClassSemesterHub } from './components/ClassSemesterHub';
 import { LicenseModal } from './components/LicenseModal';
 import { SchoolProfileModal } from './components/SchoolProfileModal';
 import { HelpFeedbackModal } from './components/HelpFeedbackModal';
+import { AdminPortal } from './components/admin/AdminPortal';
 import type { AsesmenDokumen, GenerationRequest, UserQuota } from './types/assessment';
 import type { RangkumanDokumen, RangkumanRequest } from './types/summary';
 import type { ModulAjarDokumen, LKPDDokumen } from './types/perangkatAjar';
@@ -101,7 +102,16 @@ export type AppTab =
   | 'modul_ajar'
   | 'lkpd';
 
+const checkIsAdminUrl = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  const page = params.get('page');
+  const admin = params.get('admin');
+  return page === 'admin' || admin === 'portal' || admin === '1';
+};
+
 export function App() {
+  const [isAdminPortalOpen, setIsAdminPortalOpen] = useState<boolean>(() => checkIsAdminUrl());
   const [activeTab, setActiveTab] = useState<AppTab>('tp_list');
   const [bankList, setBankList] = useState<AsesmenDokumen[]>(() => loadAndUpgradeBankSoal());
   const [currentAssessment, setCurrentAssessment] = useState<AsesmenDokumen | null>(() => {
@@ -177,6 +187,46 @@ export function App() {
       window.removeEventListener('asesmerdeka:require-license', handleRequireLicense);
     };
   }, [bankList.length, schoolProfile]);
+
+  const handleOpenAdminPortal = () => {
+    setIsAdminPortalOpen(true);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('page', 'admin');
+      window.history.pushState({}, '', url.toString());
+    } catch {
+      // fallback
+    }
+  };
+
+  const handleCloseAdminPortal = () => {
+    setIsAdminPortalOpen(false);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('page');
+      url.searchParams.delete('admin');
+      window.history.replaceState({}, '', url.toString());
+    } catch {
+      // fallback
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setIsAdminPortalOpen(checkIsAdminUrl());
+    };
+    const handleOpenPortalEvent = () => {
+      handleOpenAdminPortal();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('asesmerdeka:open-admin-portal', handleOpenPortalEvent);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('asesmerdeka:open-admin-portal', handleOpenPortalEvent);
+    };
+  }, []);
 
   const syncProfileUpdate = (newProf: SchoolProfile) => {
     setSchoolProfile(newProf);
@@ -472,6 +522,10 @@ export function App() {
     isClassConfirmed
   );
 
+  if (isAdminPortalOpen) {
+    return <AdminPortal onBack={handleCloseAdminPortal} />;
+  }
+
   return (
     <div className="app-shell" style={{ minHeight: '100vh', display: 'flex', background: '#f8fafc' }}>
       <AppSidebar
@@ -669,6 +723,7 @@ export function App() {
           onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
           onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
           onOpenHelpModal={() => setIsHelpModalOpen(true)}
+          onOpenAdminPortal={handleOpenAdminPortal}
         />
       </div>
 
