@@ -136,6 +136,7 @@ export function App() {
   const [currentModulAjar, setCurrentModulAjar] = useState<ModulAjarDokumen | null>(null);
   const [currentLKPD, setCurrentLKPD] = useState<LKPDDokumen | null>(null);
   const [activeLKPDTP, setActiveLKPDTP] = useState<CustomTPItem | null>(null);
+  const [activeSelectedTP, setActiveTP] = useState<CustomTPItem | null>(null);
   const [dismissPromoBar, setDismissPromoBar] = useState(false);
   const [appToast, setAppToast] = useState<string | null>(null);
 
@@ -479,6 +480,7 @@ export function App() {
   };
 
   const handleOpenModulAjar = (tp: CustomTPItem, profile: SchoolProfile) => {
+    setActiveTP(tp);
     const doc = buildSmartModulAjar(tp, profile);
     setCurrentModulAjar(doc);
     setActiveTab('modul_ajar');
@@ -486,6 +488,7 @@ export function App() {
   };
 
   const handleOpenLKPD = (tp: CustomTPItem, profile: SchoolProfile) => {
+    setActiveTP(tp);
     setActiveLKPDTP(tp);
     const doc = buildSmartLKPD(tp, profile);
     setCurrentLKPD(doc);
@@ -524,7 +527,11 @@ export function App() {
   ].includes(activeTab);
 
   const activeTP =
+    activeSelectedTP ||
     activeLKPDTP ||
+    (currentModulAjar
+      ? activeTPList.find((t) => t.kode === currentModulAjar.tpKode)
+      : undefined) ||
     (currentLKPD
       ? activeTPList.find((t) => t.id === currentLKPD.tpId || t.kode === currentLKPD.tpKode)
       : undefined) ||
@@ -696,6 +703,7 @@ export function App() {
                 <ModulAjarViewer
                   modul={currentModulAjar}
                   schoolProfile={schoolProfile}
+                  customTP={activeTP}
                   onPrint={handlePrint}
                   onBackToClassHub={() => setActiveTab('tp_list')}
                 />
