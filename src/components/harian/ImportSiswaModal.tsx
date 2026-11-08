@@ -585,7 +585,7 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
           <div style={{ fontSize: 12, color: '#64748b' }}>
             {parsedStudents.length > 0 && (
               <span>
-                ✅ <strong>{parsedStudents.length} siswa</strong> akan diterapkan ke rombel {rombelName}
+                ✅ <strong>{parsedStudents.length} siswa baru</strong> akan menggantikan daftar siswa lama/dummy di rombel {rombelName}
               </span>
             )}
           </div>

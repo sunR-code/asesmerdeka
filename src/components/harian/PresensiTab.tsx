@@ -150,19 +150,14 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
       jenisKelamin: newJK,
     };
 
-    const updatedPresensi = kelasHarian.daftarPresensi.map((p) => ({
-      ...p,
-      statusMap: {
-        ...p.statusMap,
-        [newId]: 'H' as StatusKehadiran,
-      },
-    }));
+    const updated = applyNewStudentRoster(
+      kelasHarian,
+      [...kelasHarian.daftarSiswa, newSiswa],
+      tpList,
+      false
+    );
 
-    onUpdateKelasHarian({
-      ...kelasHarian,
-      daftarSiswa: [...kelasHarian.daftarSiswa, newSiswa],
-      daftarPresensi: updatedPresensi,
-    });
+    onUpdateKelasHarian(updated);
 
     setNewNama('');
     setNewNis('');
@@ -178,10 +173,8 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
       .filter((s) => s.id !== siswaId)
       .map((s, idx) => ({ ...s, noUrut: idx + 1 }));
 
-    onUpdateKelasHarian({
-      ...kelasHarian,
-      daftarSiswa: filtered,
-    });
+    const updated = applyNewStudentRoster(kelasHarian, filtered, tpList, false);
+    onUpdateKelasHarian(updated);
     onToast(`Siswa "${nama}" telah dihapus.`);
   };
 

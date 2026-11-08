@@ -319,11 +319,11 @@ export function applyNewStudentRoster(
     noUrut: idx + 1,
   }));
 
-  // Update presensi
+  // Update presensi: ganti penuh dengan daftar siswa baru (hapus semua ID siswa dummy lama)
   const updatedPresensi = currentData.daftarPresensi.map((p) => {
     const newStatusMap: { [siswaId: string]: 'H' | 'S' | 'I' | 'A' } = {};
     daftarSiswa.forEach((s) => {
-      newStatusMap[s.id] = p.statusMap[s.id] || 'H';
+      newStatusMap[s.id] = resetExistingScores ? 'H' : p.statusMap[s.id] || 'H';
     });
     return {
       ...p,
@@ -331,14 +331,17 @@ export function applyNewStudentRoster(
     };
   });
 
-  // Update nilai
+  // Update nilai: ganti penuh dengan daftar siswa baru (hapus semua nilai siswa dummy lama)
   let updatedNilai: NilaiSiswaItem[] = [];
   if (resetExistingScores) {
     updatedNilai = generateDefaultNilai(daftarSiswa, safeTPList);
   } else {
     updatedNilai = daftarSiswa.map((siswa) => {
+      // Hanya pertahankan nilai lama jika ID sama ATAU (NIS & Nama sama persis, bukan bentrok NIS dummy)
       const existing = currentData.daftarNilai.find(
-        (n) => n.siswaId === siswa.id || n.nis === siswa.nis
+        (n) =>
+          n.siswaId === siswa.id ||
+          (n.nis === siswa.nis && n.nama.trim().toLowerCase() === siswa.nama.trim().toLowerCase())
       );
       if (existing) {
         return {
@@ -346,6 +349,7 @@ export function applyNewStudentRoster(
           siswaId: siswa.id,
           nama: siswa.nama,
           nis: siswa.nis,
+          deskripsiRapor: generateAutoDeskripsiRapor(existing.nilaiFormatif || {}, safeTPList, siswa.nama),
         };
       }
       const defaultFormatif: { [kode: string]: number } = {};
@@ -369,10 +373,25 @@ export function applyNewStudentRoster(
     });
   }
 
+  // Bersihkan nama siswa dummy pada kolom siswaTidakHadir di Jurnal Mengajar jika masih bawaan default
+  const updatedJurnal = (currentData.daftarJurnal || []).map((j) => {
+    if (
+      j.siswaTidakHadir === 'Andika Bagus (Sakit)' ||
+      j.siswaTidakHadir === 'Dimas Arya (Izin)'
+    ) {
+      return {
+        ...j,
+        siswaTidakHadir: 'Nihil (Semua Hadir)',
+      };
+    }
+    return j;
+  });
+
   return {
     ...currentData,
     daftarSiswa,
     daftarPresensi: updatedPresensi,
     daftarNilai: updatedNilai,
+    daftarJurnal: updatedJurnal,
   };
 }

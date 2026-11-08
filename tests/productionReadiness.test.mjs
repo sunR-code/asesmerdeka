@@ -756,6 +756,62 @@ test('AUD-213: Kode lisensi terenkripsi (ASM-...) tidak menampilkan nomor urut p
   assert.equal(globalThis.localStorage.getItem('asesmerdeka_class_setup_confirmed_v1'), null);
 });
 
+test('AUD-214: Impor siswa baru dari Excel otomatis menghapus seluruh 30 siswa dummy beserta presensi, nilai, dan jurnal bawaannya', () => {
+  globalThis.localStorage.clear();
+  const profile = schoolProfileStorage.getSchoolProfile();
+  const tpList = [
+    {
+      id: 'tp-1',
+      kode: '7.1',
+      elemen: 'Bilangan',
+      materiPokok: 'Bilangan Bulat',
+      tujuanPembelajaran: 'Memahami operasi bilangan bulat',
+      arahanRangkuman: 'Ringkasan bilangan bulat',
+      alokasiJP: 12,
+      mingguMulai: 1,
+      mingguSelesai: 4,
+    },
+  ];
+
+  // 1. Awalnya terdapat 30 siswa dummy bawaan (Aditia Pratama, dkk.)
+  const initialData = kelasHarianStorage.getKelasHarianData(profile, tpList);
+  assert.equal(initialData.daftarSiswa.length, 30);
+  assert.equal(initialData.daftarSiswa[0].nama, 'Aditia Pratama');
+
+  // 2. Guru mengimpor 3 siswa baru dari Excel (meskipun NIS otomatisnya sama 2425001..2425003)
+  const excelStudents = [
+    { id: 'siswa_imp_1', noUrut: 1, nis: '2425001', nama: 'Budi Santoso', jenisKelamin: 'L' },
+    { id: 'siswa_imp_2', noUrut: 2, nis: '2425002', nama: 'Citra Lestari', jenisKelamin: 'P' },
+    { id: 'siswa_imp_3', noUrut: 3, nis: '2425003', nama: 'Deni Kurniawan', jenisKelamin: 'L' },
+  ];
+
+  const afterImport = kelasHarianStorage.applyNewStudentRoster(initialData, excelStudents, tpList, false);
+
+  // Pastikan 30 siswa dummy terhapus total dan digantikan tepat oleh 3 siswa baru
+  assert.equal(afterImport.daftarSiswa.length, 3);
+  assert.deepEqual(
+    afterImport.daftarSiswa.map((s) => s.nama),
+    ['Budi Santoso', 'Citra Lestari', 'Deni Kurniawan']
+  );
+
+  // Pastikan matriks presensi hanya berisi 3 siswa baru (tidak ada ID siswa dummy lama)
+  assert.equal(Object.keys(afterImport.daftarPresensi[0].statusMap).length, 3);
+  assert.equal(afterImport.daftarPresensi[0].statusMap['siswa_1'], undefined);
+  assert.equal(afterImport.daftarPresensi[0].statusMap['siswa_imp_1'], 'H');
+
+  // Pastikan buku nilai hanya berisi 3 siswa baru dan nilai dummy lama tidak bocor karena kesamaan NIS 2425001
+  assert.equal(afterImport.daftarNilai.length, 3);
+  assert.equal(afterImport.daftarNilai[0].nama, 'Budi Santoso');
+  assert.equal(afterImport.daftarNilai[0].nilaiSTS, 80);
+
+  // Pastikan nama dummy pada Jurnal Mengajar ("Andika Bagus (Sakit)") ikut dibersihkan
+  const hasDummyInJurnal = afterImport.daftarJurnal.some(
+    (j) => j.siswaTidakHadir.includes('Andika Bagus') || j.siswaTidakHadir.includes('Dimas Arya')
+  );
+  assert.equal(hasDummyInJurnal, false);
+});
+
+
 
 
 
