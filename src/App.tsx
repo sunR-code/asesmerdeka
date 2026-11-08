@@ -144,7 +144,17 @@ export function App() {
 
   useEffect(() => {
     const handleFocus = () => setQuota(getUserQuota());
+    const handleRequireLicense = (e: Event) => {
+      const customEvt = e as CustomEvent<{ message?: string }>;
+      setErrorMessage(
+        customEvt.detail?.message ||
+          'Mode Pratinjau: Silakan aktifkan Kode Lisensi Guru Mandiri atau Lisensi Sekolah terlebih dahulu.'
+      );
+      setIsLicenseModalOpen(true);
+    };
+
     window.addEventListener('focus', handleFocus);
+    window.addEventListener('asesmerdeka:require-license', handleRequireLicense);
 
     if (bankList.length === 0) {
       createDefaultInitialAssessment(schoolProfile).then((doc) => {
@@ -153,7 +163,10 @@ export function App() {
       });
     }
 
-    return () => window.removeEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('asesmerdeka:require-license', handleRequireLicense);
+    };
   }, [bankList.length, schoolProfile]);
 
   const syncProfileUpdate = (newProf: SchoolProfile) => {
@@ -380,7 +393,16 @@ export function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => {
+    if (!isLicensed(quota.tier)) {
+      setErrorMessage(
+        'Mode Pratinjau: Silakan aktifkan Lisensi Guru Mandiri atau Lisensi Sekolah terlebih dahulu untuk mencetak / menyimpan PDF resmi.'
+      );
+      setIsLicenseModalOpen(true);
+      return;
+    }
+    window.print();
+  };
 
   const isViewingDoc =
     activeTab === 'worksheet' ||

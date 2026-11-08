@@ -21,7 +21,7 @@ export function getTierDisplayName(tier?: LicenseTier | string): string {
       return 'Kolektif Sekolah PRO (AI Cerdas)';
     case 'free':
     default:
-      return 'Uji Coba Gratis';
+      return 'Mode Pratinjau (Belum Aktivasi)';
   }
 }
 
@@ -38,7 +38,7 @@ export function getTierBadgeLabel(tier?: LicenseTier | string): string {
       return 'SEKOLAH PRO';
     case 'free':
     default:
-      return 'UJI COBA';
+      return 'PRATINJAU';
   }
 }
 
@@ -54,7 +54,7 @@ const STORAGE_KEY_MAYAR_PRODUCT_ID = 'asesmerdeka_mayar_product_id';
 const STORAGE_KEY_MAYAR_SCHOOL_PRODUCT_ID = 'asesmerdeka_mayar_school_product_id';
 const STORAGE_KEY_VERIFIED_MAYAR_CODES = 'asesmerdeka_verified_mayar_codes_v1';
 
-export const FREE_TRIAL_CREDITS = 3;
+export const FREE_TRIAL_CREDITS = 0;
 export const DEFAULT_INDIVIDU_MAX_DEVICES = 2; // 1 Laptop + 1 HP Guru (tidak bisa dijual ulang ke banyak orang)
 export const DEFAULT_SEKOLAH_MAX_DEVICES = 25; // Kuota 1 Sekolah (maksimal 25 Guru)
 export const DEFAULT_MAYAR_PRODUCT_ID = 'c1db962a-7cc5-46cc-969e-2c7c930f5bdc';
@@ -648,12 +648,6 @@ function getTrialUsedCount(deviceId: string): number {
   }
 }
 
-function setTrialUsedCount(deviceId: string, used: number): void {
-  const clamped = Math.max(0, Math.min(FREE_TRIAL_CREDITS, used));
-  const sig = computeHash36(`${deviceId}:${clamped}:trial_usage_permanent_salt`);
-  safeSetItem(STORAGE_KEY_TRIAL_USAGE, JSON.stringify({ deviceId, used: clamped, sig }));
-}
-
 export function getOrCreateDeviceId(): string {
   let deviceId = localStorage.getItem(STORAGE_KEY_DEVICE);
   if (!deviceId) {
@@ -743,26 +737,40 @@ export function deductQuota(): { success: boolean; quota: UserQuota; message?: s
     return { success: true, quota: current };
   }
 
-  if (current.remainingCredits <= 0) {
-    return {
-      success: false,
-      quota: current,
-      message:
-        'Kuota Uji Coba Gratis Bapak/Ibu (3/3) telah habis digunakan. Silakan aktifkan Lisensi Guru Mandiri atau Lisensi Sekolah untuk akses penuh selamanya tanpa batas kuota.',
-    };
+  return {
+    success: false,
+    quota: current,
+    message:
+      'Mode Pratinjau: Silakan aktifkan Kode Lisensi Guru Mandiri atau Lisensi Sekolah terlebih dahulu untuk membuat dan mengunduh dokumen tanpa batas.',
+  };
+}
+
+/**
+ * Memeriksa apakah pengguna sudah mengaktifkan lisensi sebelum menjalankan aksi (misal Unduh Word / Cetak PDF).
+ * Jika belum aktif, memicu event global agar aplikasi membuka Modal Aktivasi Lisensi.
+ */
+export function requireActiveLicenseForAction(
+  actionLabel = 'membuat atau mengunduh dokumen'
+): boolean {
+  const current = getUserQuota();
+  if (isLicensed(current.tier)) {
+    return true;
   }
 
-  const deviceId = current.deviceId || getOrCreateDeviceId();
-  const nextRemaining = current.remainingCredits - 1;
-  setTrialUsedCount(deviceId, FREE_TRIAL_CREDITS - nextRemaining);
-
-  const updated: UserQuota = {
-    ...current,
-    remainingCredits: nextRemaining,
-    maxCredits: FREE_TRIAL_CREDITS,
-  };
-  saveQuotaWithSignature(updated);
-  return { success: true, quota: updated };
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('asesmerdeka:require-license', {
+          detail: {
+            message: `Mode Pratinjau: Silakan aktifkan Lisensi Guru Mandiri atau Lisensi Sekolah terlebih dahulu untuk ${actionLabel}.`,
+          },
+        })
+      );
+    } catch {
+      // ignore in non-DOM test env
+    }
+  }
+  return false;
 }
 
 /**
@@ -771,18 +779,7 @@ export function deductQuota(): { success: boolean; quota: UserQuota; message?: s
 export function refundQuota(): UserQuota {
   const current = getUserQuota();
   if (isLicensed(current.tier)) return current;
-
-  const deviceId = current.deviceId || getOrCreateDeviceId();
-  const nextRemaining = Math.min(FREE_TRIAL_CREDITS, current.remainingCredits + 1);
-  setTrialUsedCount(deviceId, FREE_TRIAL_CREDITS - nextRemaining);
-
-  const refunded: UserQuota = {
-    ...current,
-    remainingCredits: nextRemaining,
-    maxCredits: FREE_TRIAL_CREDITS,
-  };
-  saveQuotaWithSignature(refunded);
-  return refunded;
+  return current;
 }
 
 export function activateLicense(licenseCode: string): {

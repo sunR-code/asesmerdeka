@@ -15,11 +15,15 @@ import saveAs from 'file-saver';
 import type { P5ProjectDocument } from '../types/p5Project';
 import type { SchoolProfile } from './schoolProfileStorage';
 import { getSchoolProfile } from './schoolProfileStorage';
+import { requireActiveLicenseForAction } from './licenseManager';
 
 export async function exportP5ToDocx(
   p5Doc: P5ProjectDocument,
   userProfile?: SchoolProfile
 ): Promise<void> {
+  if (!requireActiveLicenseForAction('mengunduh Modul Projek P5 (.docx)')) {
+    return;
+  }
   const profile = userProfile || getSchoolProfile();
   const children: (Paragraph | Table)[] = [];
 

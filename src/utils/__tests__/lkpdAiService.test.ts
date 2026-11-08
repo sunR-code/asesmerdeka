@@ -67,6 +67,7 @@ describe('generateContextualLKPDWithAI', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
+    licenseManager.activateLicense('PRO-MERDEKA-MAYAR001-1EN8');
   });
 
   afterEach(() => {

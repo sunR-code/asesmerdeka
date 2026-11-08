@@ -1,11 +1,15 @@
 import { toPng } from 'html-to-image';
 import saveAs from 'file-saver';
+import { requireActiveLicenseForAction } from './licenseManager';
 
 export async function exportElementToImage(
   element: HTMLElement, 
   filename = 'dokumen_asesmerdeka',
   options?: { backgroundColor?: string }
 ): Promise<void> {
+  if (!requireActiveLicenseForAction('mengunduh gambar/poster dokumen (.png)')) {
+    return;
+  }
   try {
     // Generate high resolution PNG (pixelRatio 2 ensures sharp text on mobile screens & print)
     const dataUrl = await toPng(element, {

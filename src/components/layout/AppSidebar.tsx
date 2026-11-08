@@ -545,14 +545,14 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   color: '#ffffff',
                 }}
               >
-                {isUnlocked ? 'AKTIF' : 'UJI COBA'}
+                {isUnlocked ? 'AKTIF' : 'PRATINJAU'}
               </span>
             </div>
 
             <p style={{ fontSize: 11, color: '#cbd5e1', lineHeight: 1.4, margin: '2px 0 8px' }}>
               {isUnlocked
                 ? `${tierTitle} — Akses penuh dokumen & otomatisasi tak terbatas.`
-                : `Sisa kuota: ${quota.remainingCredits} dari ${quota.maxCredits} dokumen.`}
+                : 'Mode Pratinjau — Aktifkan lisensi untuk membuat & mengunduh dokumen.'}
             </p>
 
             <button

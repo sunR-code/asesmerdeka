@@ -90,27 +90,23 @@ const schoolProfileStorage = loadTsModule('src/utils/schoolProfileStorage.ts');
 const aiGenerator = loadTsModule('src/services/aiGenerator.ts');
 const paymentGateway = loadTsModule('src/utils/paymentGateway.ts');
 
-test('AUD-002: Kuota uji coba awal pengguna Free adalah 3 kredit (sekali pakai) dan deduct/refund bekerja akurat', () => {
+test('AUD-002: Pengguna belum aktivasi (Mode Pratinjau) memiliki 0 kuota gratis dan hanya bisa melihat fitur', () => {
   globalThis.localStorage.clear();
 
   const initial = licenseManager.getUserQuota();
   assert.equal(initial.tier, 'free');
-  assert.equal(initial.remainingCredits, 3);
-  assert.equal(initial.maxCredits, 3);
+  assert.equal(initial.remainingCredits, 0);
+  assert.equal(initial.maxCredits, 0);
 
   const deducted = licenseManager.deductQuota();
-  assert.equal(deducted.success, true);
-  assert.equal(deducted.quota.remainingCredits, 2);
-
-  const refunded = licenseManager.refundQuota();
-  assert.equal(refunded.remainingCredits, 3);
+  assert.equal(deducted.success, false, 'Tanpa aktivasi lisensi, deductQuota harus ditolak (hanya pratinjau)');
+  assert.equal(deducted.quota.remainingCredits, 0);
 });
 
 test('AUD-002: Manipulasi tier="pro" di localStorage tanpa signature valid ditolak (Anti-Bypass)', () => {
   globalThis.localStorage.clear();
 
   const quota = licenseManager.getUserQuota();
-  licenseManager.deductQuota(); // sisa 2
 
   // Simulasi penyerang mengubah tier menjadi 'pro' langsung di DevTools localStorage
   const forged = {
@@ -123,27 +119,22 @@ test('AUD-002: Manipulasi tier="pro" di localStorage tanpa signature valid ditol
 
   const verified = licenseManager.getUserQuota();
   assert.equal(verified.tier, 'free', 'Tier palsu harus dikembalikan ke free');
-  assert.equal(verified.remainingCredits, 2, 'Sisa kredit uji coba harus tetap 2, bukan di-reset ke 3');
+  assert.equal(verified.remainingCredits, 0, 'Kredit pengguna belum aktivasi harus tetap 0');
 });
 
-test('AUD-002: Menghapus asesmerdeka_user_quota setelah 3 kuota uji coba habis tidak me-reset kuota', () => {
+test('AUD-002: Menghapus asesmerdeka_user_quota tetap mempertahankan status 0 kuota sampai lisensi diaktifkan', () => {
   globalThis.localStorage.clear();
-
-  for (let i = 0; i < 3; i++) {
-    const res = licenseManager.deductQuota();
-    assert.equal(res.success, true);
-  }
 
   const exhausted = licenseManager.deductQuota();
   assert.equal(exhausted.success, false);
   assert.equal(exhausted.quota.remainingCredits, 0);
 
-  // Simulasi pengguna menghapus key kuota utama untuk mencoba reset ke 3
+  // Simulasi pengguna menghapus key kuota utama
   globalThis.localStorage.removeItem('asesmerdeka_user_quota');
   globalThis.localStorage.removeItem('asesmerdeka_quota_sig');
 
   const afterDelete = licenseManager.getUserQuota();
-  assert.equal(afterDelete.remainingCredits, 0, 'Kuota uji coba tidak boleh kembali ke 3');
+  assert.equal(afterDelete.remainingCredits, 0, 'Kuota harus tetap 0 (Mode Pratinjau)');
 });
 
 test('AUD-002: Aktivasi Lisensi Guru Pro menerima kode perangkat maupun kode kolektif sekolah (25 guru)', () => {

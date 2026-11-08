@@ -381,7 +381,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                   ? `Status: LISENSI ${badgeName} AKTIF • Kode: ${quota.licenseKey || 'RESMI'} (${
                       activeSeatInfo ? `${Math.max(1, activeSeatInfo.usedSeats)}/${activeSeatInfo.maxSeats}` : '1/1'
                     } Perangkat)`
-                  : `Sisa Kuota Uji Coba Gratis: ${quota.remainingCredits}/${quota.maxCredits} Kredit (Sekali Pakai)`}
+                  : 'Mode Pratinjau (Lihat Fitur) — Aktifkan Lisensi untuk Buat & Unduh Dokumen Tanpa Batas'}
               </p>
             </div>
           </div>
@@ -427,7 +427,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
           <div>
             <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>
               ID Perangkat Lisensi (Anti-Kloning) • Status:{' '}
-              {isUnlocked ? `LISENSI ${badgeName} TERKUNCI` : `UJI COBA GRATIS (${quota.remainingCredits}/${quota.maxCredits})`}
+              {isUnlocked ? `LISENSI ${badgeName} TERKUNCI` : 'MODE PRATINJAU (BELUM AKTIVASI)'}
             </div>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#2563eb', fontFamily: 'monospace' }}>
               {quota.deviceId}

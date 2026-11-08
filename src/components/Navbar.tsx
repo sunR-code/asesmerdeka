@@ -269,7 +269,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <>
                 <Key size={14} color="#2563eb" />
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#1e40af' }}>
-                  Kuota Hari Ini: {quota.remainingCredits}/{quota.maxCredits}
+                  Mode Pratinjau
                 </span>
                 <span style={{
                   fontSize: 10,
@@ -279,7 +279,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   borderRadius: 99,
                   fontWeight: 700
                 }}>
-                  Pro
+                  Aktivasi
                 </span>
               </>
             )}
