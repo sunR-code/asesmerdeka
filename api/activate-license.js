@@ -136,14 +136,15 @@ export async function checkAndClaimServerSeat(cleanCode, deviceId, maxSeats) {
 function verifyInternalSerialOrDeviceCode(cleanCode, deviceId) {
   if (!cleanCode) return null;
 
-  if (cleanCode === 'ASES-GURU-M001-4829') {
-    return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 2 };
+  // Tolak permanen seluruh kode lama (PRO-MERDEKA-... atau ASES-...)
+  if (cleanCode.startsWith('PRO-MERDEKA-') || cleanCode.startsWith('ASES-')) {
+    return null;
   }
 
   if (deviceId) {
     const cleanDev = String(deviceId).trim().toUpperCase();
     const expectedDevCheck = computeHash36(`ASESMERDEKA-PRO-DEVICE:${cleanDev}:2026`).slice(0, 6);
-    if (cleanCode === `PRO-MERDEKA-${expectedDevCheck}`) {
+    if (cleanCode === `ASM-DV26-${expectedDevCheck}`) {
       return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 1 };
     }
   }
@@ -151,7 +152,7 @@ function verifyInternalSerialOrDeviceCode(cleanCode, deviceId) {
   const parts = cleanCode.split('-');
 
   // Format Terenkripsi Baru: ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG>
-  // Contoh: ASM-GM26-8K4X-9P2M-7Q5R (Tidak menampilkan nomor urut MAYAR001 agar tidak bisa ditebak)
+  // Contoh: ASM-GM26-1TAT-1QBM-133R (Tidak menampilkan nomor urut MAYAR001 agar tidak bisa ditebak)
   if (parts.length === 5 && parts[0] === 'ASM') {
     const prefix = parts[1];
     const cipher1 = parts[2];
@@ -191,32 +192,6 @@ function verifyInternalSerialOrDeviceCode(cleanCode, deviceId) {
     }
   }
 
-  // Format Legacy: PRO-MERDEKA-<BODY>-<4CHAR_CHECKSUM>
-  if (parts.length === 4 && parts[0] === 'PRO' && parts[1] === 'MERDEKA') {
-    const body = parts[2];
-    const providedCheck = parts[3];
-    if (body.length >= 4 && providedCheck.length >= 4) {
-      const expectedCheck = computeHash36(`SERIAL:${body}:ASESMERDEKA_2026`).slice(0, providedCheck.length);
-      if (providedCheck === expectedCheck) {
-        if (body.startsWith('SOLO') || body.startsWith('1DEV') || body.startsWith('LOCK')) {
-          return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 1 };
-        }
-        const isSchool =
-          body.startsWith('SEKOLAH') ||
-          body.startsWith('SMAN') ||
-          body.startsWith('SMPN') ||
-          body.startsWith('SDN') ||
-          body.startsWith('SCH');
-        return {
-          valid: true,
-          planType: isSchool ? 'sekolah' : 'individu',
-          tier: isSchool ? 'sekolah' : 'guru',
-          maxSeats: isSchool ? 25 : 2,
-        };
-      }
-    }
-  }
-
   return null;
 }
 
@@ -234,6 +209,17 @@ export default async function handler(req, res) {
 
     if (!rawCode) {
       return res.status(400).json({ valid: false, message: 'Kode lisensi tidak boleh kosong.' });
+    }
+
+    // Tolak permanen kode lisensi versi lama (PRO-MERDEKA-... atau ASES-...) dan instruksikan klien mereset perangkat
+    if (rawCode.startsWith('PRO-MERDEKA-') || rawCode.startsWith('ASES-')) {
+      return res.status(403).json({
+        valid: false,
+        seatLimitExceeded: true,
+        legacyRevoked: true,
+        message:
+          'Kode lisensi versi lama sudah tidak berlaku dan telah dinonaktifkan. Silakan gunakan Kode Lisensi Terenkripsi terbaru (ASM-...).',
+      });
     }
 
     // Fitur Admin untuk me-reset daftar perangkat pada kode tertentu di Upstash Redis

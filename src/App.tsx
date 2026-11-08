@@ -204,6 +204,8 @@ export function App() {
         if (res.seatLimitExceeded) {
           const revoked = revokeLicenseToPreviewMode();
           setQuota(revoked);
+          setSchoolProfile(getSchoolProfile());
+          setIsClassConfirmed(hasConfirmedClassSetup());
           setErrorMessage(
             res.message ||
               'Lisensi dinonaktifkan pada perangkat ini karena telah mencapai batas maksimal perangkat (1 Laptop + 1 HP pemilik utama).'

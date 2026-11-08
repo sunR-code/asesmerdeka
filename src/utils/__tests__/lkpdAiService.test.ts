@@ -67,7 +67,7 @@ describe('generateContextualLKPDWithAI', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
-    licenseManager.activateLicense('PRO-MERDEKA-MAYAR001-1EN8');
+    licenseManager.activateLicense('ASM-GM26-1TAT-1QBM-133R');
   });
 
   afterEach(() => {

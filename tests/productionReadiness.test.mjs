@@ -542,7 +542,7 @@ test('AUD-211: Serverless Cloud Sync (/api/cloud-sync) menyimpan dan memulihkan 
   }
 
   // 1. Lisensi Guru Mandiri (Individu): Push dari HP lalu Pull dari Komputer dengan 1 Kode Lisensi
-  const individuLicense = 'PRO-MERDEKA-MAYAR001-1EN8';
+  const individuLicense = 'ASM-GM26-1TAT-1QBM-133R';
   const hpEntries = {
     asesmerdeka_school_profile_v1: {
       namaSekolah: 'SMPN 5 Sinkronisasi Cloud',
@@ -590,7 +590,7 @@ test('AUD-211: Serverless Cloud Sync (/api/cloud-sync) menyimpan dan memulihkan 
   );
 
   // 2. Lisensi Kolektif Sekolah (25 Guru): Wajib menyertakan Nama/PIN Guru agar data 25 guru tidak saling menimpa
-  const schoolLicense = 'PRO-MERDEKA-SEKOLAH01-ABCD';
+  const schoolLicense = 'ASM-SK26-239A-25I3-UYJ8';
   const noPinRes = makeMockRes();
   await cloudSyncHandler(
     {
@@ -727,6 +727,33 @@ test('AUD-213: Kode lisensi terenkripsi (ASM-...) tidak menampilkan nomor urut p
   assert.equal(res3.result.statusCode, 403);
   assert.equal(res3.result.body.valid, false);
   assert.equal(res3.result.body.seatLimitExceeded, true);
+
+  // Kode lama PRO-MERDEKA-MAYAR001-1EN8 WAJIB DITOLAK permanen baik di klien maupun server
+  assert.equal(licenseManager.isValidLicenseCode('PRO-MERDEKA-MAYAR001-1EN8', 'DEV-LAPTOP-FAJAR'), false);
+  const resLegacy = makeMockRes();
+  await activateHandler(
+    { method: 'POST', body: { licenseCode: 'PRO-MERDEKA-MAYAR001-1EN8', deviceId: 'DEV-LAPTOP-FAJAR' } },
+    resLegacy
+  );
+  assert.equal(resLegacy.result.statusCode, 403);
+  assert.equal(resLegacy.result.body.legacyRevoked, true);
+
+  // Perangkat yang sebelumnya pernah memakai kode lama otomatis di-reset menjadi kosong saat getUserQuota dipanggil
+  globalThis.localStorage.setItem(
+    'asesmerdeka_user_quota',
+    JSON.stringify({
+      tier: 'guru',
+      remainingCredits: 999999,
+      maxCredits: 999999,
+      deviceId: 'DEV-LAPTOP-FAJAR',
+      licenseKey: 'PRO-MERDEKA-MAYAR001-1EN8',
+    })
+  );
+  globalThis.localStorage.setItem('asesmerdeka_class_setup_confirmed_v1', 'true');
+  const purgedQuota = licenseManager.getUserQuota();
+  assert.equal(purgedQuota.tier, 'free');
+  assert.equal(purgedQuota.licenseKey, undefined);
+  assert.equal(globalThis.localStorage.getItem('asesmerdeka_class_setup_confirmed_v1'), null);
 });
 
 

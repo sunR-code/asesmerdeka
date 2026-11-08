@@ -129,7 +129,7 @@ export function generateSignature(quota: UserQuota): string {
 export function computeLicenseCodeForDevice(deviceId: string): string {
   const cleanDev = deviceId.trim().toUpperCase();
   const check = computeHash36(`ASESMERDEKA-PRO-DEVICE:${cleanDev}:2026`).slice(0, 6);
-  return `PRO-MERDEKA-${check}`;
+  return `ASM-DV26-${check}`;
 }
 
 /**
@@ -240,10 +240,6 @@ export function normalizeLicenseCodeInput(rawCode: string): string {
 export function getMaxDevicesForLicenseCode(rawCode: string): number {
   const cleanCode = normalizeLicenseCodeInput(rawCode);
 
-  if (cleanCode === 'ASES-GURU-M001-4829') {
-    return getConfiguredIndividuMaxDevices();
-  }
-
   // Jika kode lisensi berasal dari Mayar yang sudah diverifikasi (Individu = 2, Sekolah = 25)
   const mayarInfo = getMayarVerifiedCodeInfo(cleanCode);
   if (mayarInfo) {
@@ -260,25 +256,9 @@ export function getMaxDevicesForLicenseCode(rawCode: string): number {
     if (prefix === 'GM26' || prefix === 'GP26') return getConfiguredIndividuMaxDevices();
   }
 
-  // Format 3 segmen adalah kode kunci 1 perangkat (PRO-MERDEKA-XXXXXX)
-  if (parts.length === 3 && parts[0] === 'PRO' && parts[1] === 'MERDEKA') {
+  // Format 3 segmen adalah kode kunci 1 perangkat (ASM-DV26-XXXXXX)
+  if (parts.length === 3 && parts[0] === 'ASM' && parts[1] === 'DV26') {
     return 1;
-  }
-
-  if (parts.length === 4 && parts[0] === 'PRO' && parts[1] === 'MERDEKA') {
-    const body = parts[2];
-    if (body.startsWith('SOLO') || body.startsWith('1DEV') || body.startsWith('LOCK')) {
-      return 1;
-    }
-    if (
-      body.startsWith('MAYAR') ||
-      body.startsWith('BIBI') ||
-      body.startsWith('INDV') ||
-      body.startsWith('GURU')
-    ) {
-      return getConfiguredIndividuMaxDevices();
-    }
-    return DEFAULT_SEKOLAH_MAX_DEVICES;
   }
 
   return 1;
@@ -663,15 +643,36 @@ export async function verifyAndClaimSeatOnline(
   return checkAndClaimLicenseSeat(cleanCode, cleanDevice);
 }
 
+export function isLegacyRevokedCode(rawCode?: string): boolean {
+  const clean = normalizeLicenseCodeInput(rawCode || '');
+  return clean.startsWith('PRO-MERDEKA-') || clean.startsWith('ASES-');
+}
+
+export function purgeDeviceFromLegacyLicense(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY_QUOTA);
+    localStorage.removeItem(STORAGE_KEY_SIG);
+    localStorage.removeItem(STORAGE_KEY_SEAT_REGISTRY);
+    localStorage.removeItem(STORAGE_KEY_VERIFIED_MAYAR_CODES);
+    localStorage.removeItem('asesmerdeka_school_profile_v1');
+    localStorage.removeItem('asesmerdeka_class_setup_confirmed_v1');
+    localStorage.removeItem('asesmerdeka_cloud_last_sync_at_v1');
+    localStorage.removeItem('asesmerdeka_cloud_teacher_pin_v1');
+  } catch {
+    // ignore
+  }
+}
+
 export function isValidLicenseCode(rawCode: string, deviceId: string): boolean {
   const cleanCode = normalizeLicenseCodeInput(rawCode);
   if (!cleanCode) return false;
 
-  if (cleanCode === 'ASES-GURU-M001-4829') {
-    return true;
+  // Tolak permanen seluruh kode lama (PRO-MERDEKA-... atau ASES-...)
+  if (isLegacyRevokedCode(cleanCode)) {
+    return false;
   }
 
-  // 1. Cek kecocokan kode spesifik perangkat (Terkunci 100% ke 1 ID Perangkat)
+  // 1. Cek kecocokan kode spesifik perangkat (Terkunci 100% ke 1 ID Perangkat: ASM-DV26-XXXXXX)
   const expectedDeviceCode = computeLicenseCodeForDevice(deviceId);
   if (cleanCode === expectedDeviceCode) {
     return true;
@@ -699,16 +700,6 @@ export function isValidLicenseCode(rawCode: string, deviceId: string): boolean {
         .padStart(4, 'X')
         .slice(0, 4);
       return cipher2 === expectedCipher2 && providedSig === expectedSig;
-    }
-  }
-
-  // 3. Cek format serial legacy: PRO-MERDEKA-<BODY>-<4CHAR_CHECKSUM>
-  if (parts.length === 4 && parts[0] === 'PRO' && parts[1] === 'MERDEKA') {
-    const body = parts[2];
-    const providedCheck = parts[3];
-    if (body.length >= 4 && providedCheck.length >= 4) {
-      const expectedCheck = computeHash36(`SERIAL:${body}:ASESMERDEKA_2026`).slice(0, providedCheck.length);
-      return providedCheck === expectedCheck;
     }
   }
 
@@ -755,6 +746,22 @@ export function getUserQuota(): UserQuota {
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as UserQuota;
+
+      // Jika perangkat ini sebelumnya mengaktifkan kode lama (PRO-MERDEKA-... atau ASES-...),
+      // bersihkan seluruh status lisensi & profil agar perangkat kembali kosong seperti baru pertama kali buka!
+      if (parsed.licenseKey && isLegacyRevokedCode(parsed.licenseKey)) {
+        purgeDeviceFromLegacyLicense();
+        const resetQuota: UserQuota = {
+          tier: 'free',
+          remainingCredits: 0,
+          maxCredits: 0,
+          deviceId,
+          lastResetDate: today,
+        };
+        saveQuotaWithSignature(resetQuota);
+        return resetQuota;
+      }
+
       const expectedSig = generateSignature(parsed);
 
       // Wajib verifikasi integritas signature + hardware fingerprint terlebih dahulu
@@ -764,6 +771,8 @@ export function getUserQuota(): UserQuota {
           if (parsed.licenseKey && isValidLicenseCode(parsed.licenseKey, activeDev)) {
             return parsed;
           }
+          // Jika kode lisensi sudah tidak valid, bersihkan perangkat kembali ke kosong
+          purgeDeviceFromLegacyLicense();
         } else {
           // Akun Free Uji Coba: tidak di-reset harian, mengacu pada kuota uji coba permanen
           const usedTrial = getTrialUsedCount(deviceId);
@@ -955,6 +964,7 @@ export function activateLicense(licenseCode: string): {
  */
 export function revokeLicenseToPreviewMode(): UserQuota {
   const deviceId = getOrCreateDeviceId();
+  purgeDeviceFromLegacyLicense();
   const revoked: UserQuota = {
     tier: 'free',
     remainingCredits: 0,
