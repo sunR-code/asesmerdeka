@@ -109,7 +109,9 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const [apiKeyInput, setApiKeyInput] = useState(() => getSavedGeminiKey());
   const [statusMessage, setStatusMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [copiedDevice, setCopiedDevice] = useState(false);
+  const [copiedLicenseKey, setCopiedLicenseKey] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
+  const [showChangeLicense, setShowChangeLicense] = useState(false);
 
   const [selectedPlanId, setSelectedPlanId] = useState<OneTimePlanId>('pro_individu');
   const [activeSubTab, setActiveSubTab] = useState<'order' | 'byok'>('order');
@@ -228,6 +230,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
       if (res.success) {
         onUpdateQuota(res.quota);
         setLicenseInput('');
+        setShowChangeLicense(false);
         if (teacherPinInput.trim()) {
           saveTeacherSyncPin(teacherPinInput.trim());
         }
@@ -464,7 +467,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
               className={`btn btn-sm ${activeSubTab === 'order' ? 'btn-primary' : 'btn-outline'}`}
               style={{ fontSize: 12 }}
             >
-              <Sparkles size={13} /> Informasi Lisensi PRO
+              <Sparkles size={13} /> Status Lisensi & Sinkronisasi Cloud
             </button>
             <button
               type="button"
@@ -477,313 +480,491 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
           </div>
         )}
 
-        {/* LAYAR UTAMA: PILIH PAKET MAYAR.ID + INPUT KODE LISENSI DALAM 1 HALAMAN RINGKAS */}
+        {/* LAYAR UTAMA: JIKA SUDAH AKTIVASI -> TAMPILKAN SERTIFIKAT LISENSI AKTIF & CLOUD SYNC */}
         {activeSubTab === 'order' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* 1. Pilihan 4 Paket (Guru Mandiri, Sekolah, Guru PRO, Sekolah PRO) */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-              {(['pro_individu', 'pro_sekolah', 'pro_ai', 'sekolah_pro'] as OneTimePlanId[]).map((planKey) => {
-                const plan = ONE_TIME_PLANS[planKey];
-                const isSelected = selectedPlanId === planKey;
-                const isSchoolPlan = planKey === 'pro_sekolah';
-                const isAIPro = plan.isComingSoon;
-
-                let cardBorder = '1px solid var(--border-subtle)';
-                let cardBg = '#ffffff';
-                if (isSelected) {
-                  cardBorder = isSchoolPlan ? '2px solid #059669' : isAIPro ? '2px solid #7c3aed' : '2px solid #2563eb';
-                  cardBg = isSchoolPlan ? '#ecfdf5' : isAIPro ? '#faf5ff' : '#eff6ff';
-                }
-
-                return (
-                  <div
-                    key={plan.id}
-                    onClick={() => {
-                      if (!plan.isComingSoon) {
-                        setSelectedPlanId(plan.id);
-                      }
-                    }}
-                    style={{
-                      border: cardBorder,
-                      background: cardBg,
-                      padding: '16px',
-                      borderRadius: 'var(--radius-md)',
-                      cursor: plan.isComingSoon ? 'default' : 'pointer',
-                      position: 'relative',
-                      transition: 'all 0.15s ease',
-                      opacity: plan.isComingSoon ? 0.9 : 1,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        padding: '3px 8px',
-                        borderRadius: 99,
-                        background: isSchoolPlan ? '#d1fae5' : isAIPro ? '#ede9fe' : '#dbeafe',
-                        color: isSchoolPlan ? '#065f46' : isAIPro ? '#6d28d9' : '#1e40af',
-                        display: 'inline-block',
-                        marginBottom: 8,
-                      }}
-                    >
-                      {plan.badge}
-                    </span>
-
-                    <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-main)' }}>{plan.name}</div>
-
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '6px 0 4px' }}>
-                      <span
-                        style={{
-                          fontSize: 20,
-                          fontWeight: 900,
-                          color: isSchoolPlan ? '#059669' : isAIPro ? '#7c3aed' : '#2563eb',
-                        }}
-                      >
-                        {plan.priceFormatted}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 12,
-                          color: '#94a3b8',
-                          textDecoration: 'line-through',
-                          fontWeight: 600,
-                        }}
-                      >
-                        {plan.originalPriceFormatted}
-                      </span>
-                      <span style={{ fontSize: 11, color: '#0f172a', fontWeight: 700 }}>• Sekali Bayar</span>
-                    </div>
-
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.4 }}>
-                      {plan.subtitle}
-                    </p>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: '#334155' }}>
-                      {plan.features.map((feat, idx) => (
-                        <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                          <CheckCircle2
-                            size={13}
-                            color={isSchoolPlan ? '#059669' : isAIPro ? '#7c3aed' : '#2563eb'}
-                            style={{ marginTop: 2, flexShrink: 0 }}
-                          />
-                          <span>{feat}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* 2. Tombol Langsung ke Checkout Resmi Mayar.id */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <button
-                type="button"
-                onClick={handlePayViaMayar}
-                className="btn btn-primary"
-                disabled={Boolean(currentPlan.isComingSoon)}
-                style={{
-                  width: '100%',
-                  padding: '13px 20px',
-                  fontSize: 14,
-                  fontWeight: 800,
-                  display: 'flex',
-                  alignItems: 'center',
-                  opacity: currentPlan.isComingSoon ? 0.6 : 1,
-                  cursor: currentPlan.isComingSoon ? 'not-allowed' : 'pointer',
-                  justifyContent: 'center',
-                  gap: 8,
-                }}
-              >
-                <ExternalLink size={17} /> Bayar Sekali {currentPlan.priceFormatted} via Payment Gateway (QRIS / Bank / E-Wallet) &rarr;
-              </button>
-              <div style={{ fontSize: 11, color: 'var(--text-dim)', textAlign: 'center' }}>
-                Mendukung QRIS (Semua Bank & E-Wallet), BRI, Mandiri, BCA, BNI, GoPay, DANA, OVO & ShopeePay melalui Mayar Payment Gateway.
-              </div>
-            </div>
-
-            {/* 3. Kolom Aktivasi Kode Lisensi (Dilengkapi Kunci Perangkat Anti-Jual Ulang) */}
-            <div
-              style={{
-                background: '#f8fafc',
-                border: '1px solid #cbd5e1',
-                borderRadius: 'var(--radius-md)',
-                padding: 16,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <Key size={15} color="#2563eb" />
-                  <h3 style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)' }}>
-                    Sudah Membayar / Punya Kode dari Mitra? Masukkan Kode Lisensi:
-                  </h3>
-                </div>
-                <span
+            {isUnlocked && (
+              <>
+                {/* 1. Kartu Sertifikat Lisensi Aktif Permanen */}
+                <div
                   style={{
-                    fontSize: 10.5,
-                    fontWeight: 700,
-                    background: '#fef3c7',
-                    color: '#92400e',
-                    padding: '2px 8px',
-                    borderRadius: 99,
-                    border: '1px solid #fde68a',
+                    background: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)',
+                    border: '2px solid #10b981',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '18px 20px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 14,
                   }}
                 >
-                  🔒 Terkunci ke Perangkat (Anti-Share)
-                </span>
-              </div>
-              <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 12 }}>
-                Setiap kode lisensi otomatis mengunci sidik jari perangkat (maksimal {maxIndividuSeats} perangkat pribadi untuk kode Individu) dan tidak dapat diperjualbelikan ulang.
-              </p>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                    <div>
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 800,
+                          padding: '3px 10px',
+                          borderRadius: 99,
+                          background: '#059669',
+                          color: '#ffffff',
+                          display: 'inline-block',
+                          marginBottom: 6,
+                          letterSpacing: '0.03em',
+                        }}
+                      >
+                        ✓ TERVERIFIKASI RESMI • AKTIF SELAMANYA (LIFETIME)
+                      </span>
+                      <div style={{ fontSize: 17, fontWeight: 900, color: '#064e3b' }}>
+                        Paket {tierName}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#047857', marginTop: 2 }}>
+                        Seluruh fitur generator AI, dokumen kurikulum, dan unduhan Word (.docx) / ZIP bebas batas kuota & tanpa watermark.
+                      </div>
+                    </div>
+                  </div>
 
-              <form onSubmit={handleActivate} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Contoh: ASM-GM26-XXXX-XXXX-XXXX"
-                    value={licenseInput}
-                    onChange={(e) => setLicenseInput(e.target.value)}
-                    style={{ fontSize: 13, fontFamily: 'monospace', flex: 1, minWidth: 210 }}
-                    required
-                  />
-                  <button
-                    type="submit"
-                    disabled={isActivating}
-                    className="btn btn-success"
-                    style={{ whiteSpace: 'nowrap', padding: '10px 18px', fontWeight: 800 }}
-                  >
-                    {isActivating ? 'Memverifikasi & Sinkron...' : 'Aktivasi & Sinkronkan'}
-                  </button>
-                </div>
-
-                {/* Jika kode sekolah atau sedang memilih paket sekolah, tampilkan input Nama/PIN Guru untuk pemisah data Cloud */}
-                {(isSchoolCollectiveLicenseCode(licenseInput) ||
-                  selectedPlanId === 'pro_sekolah' ||
-                  quota.tier === 'sekolah') && (
+                  {/* Ringkasan Kode Lisensi & Kuota Perangkat */}
                   <div
                     style={{
-                      background: '#ecfdf5',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                      gap: 10,
+                      background: '#ffffff',
                       border: '1px solid #a7f3d0',
-                      borderRadius: 8,
-                      padding: '10px 12px',
+                      borderRadius: 10,
+                      padding: '12px 14px',
                     }}
                   >
-                    <label
-                      style={{
-                        display: 'block',
-                        fontSize: 11.5,
-                        fontWeight: 800,
-                        color: '#065f46',
-                        marginBottom: 4,
-                      }}
-                    >
-                      👤 Nama Singkat / PIN Pribadi Guru (Khusus Lisensi Sekolah 25 Guru):
-                    </label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="Contoh: FAJAR_MATEMATIKA atau FAJAR88"
-                      value={teacherPinInput}
-                      onChange={(e) => {
-                        setTeacherPinInput(e.target.value);
-                        saveTeacherSyncPin(e.target.value);
-                      }}
-                      style={{ fontSize: 12.5, padding: '7px 10px', background: '#ffffff' }}
-                      required={isSchoolCollectiveLicenseCode(licenseInput)}
-                    />
-                    <div style={{ fontSize: 11, color: '#047857', marginTop: 4 }}>
-                      Digunakan agar riwayat kelas & soal Anda di HP dan Laptop tersinkronisasi khusus milik Anda sendiri tanpa tertukar dengan 24 guru lain di sekolah.
+                    <div>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                        Kode Lisensi Anda (Simpan untuk Perangkat ke-2)
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                        <code
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 900,
+                            color: '#065f46',
+                            background: '#ecfdf5',
+                            padding: '3px 8px',
+                            borderRadius: 6,
+                            border: '1px solid #a7f3d0',
+                          }}
+                        >
+                          {quota.licenseKey || 'RESMI'}
+                        </code>
+                        {quota.licenseKey && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(quota.licenseKey || '');
+                              setCopiedLicenseKey(true);
+                              setTimeout(() => setCopiedLicenseKey(false), 2000);
+                            }}
+                            className="btn btn-outline btn-sm"
+                            style={{ fontSize: 11, padding: '3px 8px', background: '#ffffff' }}
+                          >
+                            {copiedLicenseKey ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                            {copiedLicenseKey ? 'Kode Tersalin' : 'Salin Kode'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                        Kuota Perangkat Terdaftar
+                      </div>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a', marginTop: 5 }}>
+                        {activeSeatInfo
+                          ? `${Math.max(1, activeSeatInfo.usedSeats)} dari ${activeSeatInfo.maxSeats} Perangkat Aktif`
+                          : '1 Perangkat Aktif'}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#059669', fontWeight: 600 }}>
+                        {quota.tier === 'sekolah'
+                          ? 'Lisensi Kolektif Sekolah (Maks. 25 Guru/Perangkat)'
+                          : 'Dapat dipakai di Laptop/Komputer & HP Anda'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Daftar Hak Akses Aktif */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                      gap: 8,
+                      fontSize: 12,
+                      color: '#064e3b',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {[
+                      'Generator Soal Evaluasi, Kisi-kisi & Kunci Jawaban AI Tanpa Batas',
+                      'Generator Rangkuman Materi, LKPD & Modul Ajar Otomatis',
+                      'ATP, Prota, Promes, Jurnal Mengajar, Presensi & Nilai Rapor',
+                      'Unduh Word (.docx) Resmi & Paket Supervisi (.zip) Tanpa Watermark',
+                    ].map((benefit, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                        <CheckCircle2 size={14} color="#059669" style={{ marginTop: 2, flexShrink: 0 }} />
+                        <span>{benefit}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. Panel Sinkronisasi Cloud Antar Perangkat (HP <-> Laptop) */}
+                {quota.licenseKey && (
+                  <div
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '14px 16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>
+                        ☁️ Sinkronisasi Riwayat Antar Perangkat (HP ↔ Laptop/Komputer)
+                      </span>
+                      {lastSyncTime && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: '#059669',
+                            fontWeight: 700,
+                            background: '#ecfdf5',
+                            padding: '2px 8px',
+                            borderRadius: 99,
+                            border: '1px solid #a7f3d0',
+                          }}
+                        >
+                          ✓ Tersinkron: {new Date(lastSyncTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+
+                    <p style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, margin: 0 }}>
+                      Identitas sekolah, pengaturan kelas, daftar siswa, nilai harian, dan bank soal Anda tersimpan otomatis pada kode lisensi ini. Jika Anda membuka di perangkat ke-2 (HP atau Laptop), cukup masukkan kode lisensi di atas atau klik tombol di bawah untuk menyamakan data.
+                    </p>
+
+                    {quota.tier === 'sekolah' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: '#475569' }}>ID/PIN Pribadi Guru:</span>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Misal: FAJAR88"
+                          value={teacherPinInput}
+                          onChange={(e) => {
+                            setTeacherPinInput(e.target.value);
+                            saveTeacherSyncPin(e.target.value);
+                          }}
+                          style={{ fontSize: 12, padding: '5px 10px', maxWidth: 180 }}
+                        />
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        disabled={isSyncingCloud}
+                        onClick={async () => {
+                          setIsSyncingCloud(true);
+                          try {
+                            const res = await pushWorkspaceToCloud(quota.licenseKey, teacherPinInput);
+                            if (res.ok && res.updatedAt) setLastSyncTime(res.updatedAt);
+                            setStatusMessage({ text: res.message, isError: !res.ok });
+                          } finally {
+                            setIsSyncingCloud(false);
+                          }
+                        }}
+                        className="btn btn-sm btn-primary"
+                        style={{ fontSize: 12 }}
+                      >
+                        ☁️ Simpan Riwayat ke Cloud Sekarang
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isSyncingCloud}
+                        onClick={async () => {
+                          setIsSyncingCloud(true);
+                          try {
+                            const res = await pullWorkspaceFromCloud(quota.licenseKey, teacherPinInput);
+                            if (res.ok && res.updatedAt) setLastSyncTime(res.updatedAt);
+                            setStatusMessage({ text: res.message, isError: !res.ok });
+                            if (res.ok && res.found && onRestoredFromCloud) {
+                              onRestoredFromCloud();
+                            }
+                          } finally {
+                            setIsSyncingCloud(false);
+                          }
+                        }}
+                        className="btn btn-sm btn-outline"
+                        style={{ fontSize: 12, background: '#ffffff' }}
+                      >
+                        🔄 Ambil Riwayat dari Perangkat Lain (HP/Laptop)
+                      </button>
                     </div>
                   </div>
                 )}
-              </form>
 
-              {/* Panel Sinkronisasi Cloud Antar Perangkat (HP <-> Laptop) ketika Lisensi Aktif */}
-              {isUnlocked && quota.licenseKey && (
+                {/* 3. Tombol Selesai & Opsi Ganti Kode / Upgrade Paket (Tersembunyi Rapi Secara Default) */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowChangeLicense((prev) => !prev)}
+                    className="btn btn-outline btn-sm"
+                    style={{ fontSize: 11.5, color: '#475569' }}
+                  >
+                    <Key size={13} />
+                    {showChangeLicense
+                      ? 'Sembunyikan Opsi Ganti Kode / Paket Lain'
+                      : 'Ganti Kode Lisensi / Lihat Paket Sekolah'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="btn btn-success"
+                    style={{ padding: '9px 20px', fontSize: 13, fontWeight: 800 }}
+                  >
+                    ✓ Selesai & Lanjutkan Buat Perangkat Ajar
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* TAMPILKAN PILIHAN PAKET & FORM INPUT KODE HANYA JIKA BELUM AKTIVASI ATAU KLIK "GANTI KODE" */}
+            {(!isUnlocked || showChangeLicense) && (
+              <>
+                {/* 1. Pilihan 4 Paket (Guru Mandiri, Sekolah, Guru PRO, Sekolah PRO) */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+                  {(['pro_individu', 'pro_sekolah', 'pro_ai', 'sekolah_pro'] as OneTimePlanId[]).map((planKey) => {
+                    const plan = ONE_TIME_PLANS[planKey];
+                    const isSelected = selectedPlanId === planKey;
+                    const isSchoolPlan = planKey === 'pro_sekolah';
+                    const isAIPro = plan.isComingSoon;
+
+                    let cardBorder = '1px solid var(--border-subtle)';
+                    let cardBg = '#ffffff';
+                    if (isSelected) {
+                      cardBorder = isSchoolPlan ? '2px solid #059669' : isAIPro ? '2px solid #7c3aed' : '2px solid #2563eb';
+                      cardBg = isSchoolPlan ? '#ecfdf5' : isAIPro ? '#faf5ff' : '#eff6ff';
+                    }
+
+                    return (
+                      <div
+                        key={plan.id}
+                        onClick={() => {
+                          if (!plan.isComingSoon) {
+                            setSelectedPlanId(plan.id);
+                          }
+                        }}
+                        style={{
+                          border: cardBorder,
+                          background: cardBg,
+                          padding: '16px',
+                          borderRadius: 'var(--radius-md)',
+                          cursor: plan.isComingSoon ? 'default' : 'pointer',
+                          position: 'relative',
+                          transition: 'all 0.15s ease',
+                          opacity: plan.isComingSoon ? 0.9 : 1,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 800,
+                            padding: '3px 8px',
+                            borderRadius: 99,
+                            background: isSchoolPlan ? '#d1fae5' : isAIPro ? '#ede9fe' : '#dbeafe',
+                            color: isSchoolPlan ? '#065f46' : isAIPro ? '#6d28d9' : '#1e40af',
+                            display: 'inline-block',
+                            marginBottom: 8,
+                          }}
+                        >
+                          {plan.badge}
+                        </span>
+
+                        <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-main)' }}>{plan.name}</div>
+
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '6px 0 4px' }}>
+                          <span
+                            style={{
+                              fontSize: 20,
+                              fontWeight: 900,
+                              color: isSchoolPlan ? '#059669' : isAIPro ? '#7c3aed' : '#2563eb',
+                            }}
+                          >
+                            {plan.priceFormatted}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              color: '#94a3b8',
+                              textDecoration: 'line-through',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {plan.originalPriceFormatted}
+                          </span>
+                          <span style={{ fontSize: 11, color: '#0f172a', fontWeight: 700 }}>• Sekali Bayar</span>
+                        </div>
+
+                        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.4 }}>
+                          {plan.subtitle}
+                        </p>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: '#334155' }}>
+                          {plan.features.map((feat, idx) => (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                              <CheckCircle2
+                                size={13}
+                                color={isSchoolPlan ? '#059669' : isAIPro ? '#7c3aed' : '#2563eb'}
+                                style={{ marginTop: 2, flexShrink: 0 }}
+                              />
+                              <span>{feat}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 2. Tombol Langsung ke Checkout Resmi Mayar.id */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={handlePayViaMayar}
+                    className="btn btn-primary"
+                    disabled={Boolean(currentPlan.isComingSoon)}
+                    style={{
+                      width: '100%',
+                      padding: '13px 20px',
+                      fontSize: 14,
+                      fontWeight: 800,
+                      display: 'flex',
+                      alignItems: 'center',
+                      opacity: currentPlan.isComingSoon ? 0.6 : 1,
+                      cursor: currentPlan.isComingSoon ? 'not-allowed' : 'pointer',
+                      justifyContent: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <ExternalLink size={17} /> Bayar Sekali {currentPlan.priceFormatted} via Payment Gateway (QRIS / Bank / E-Wallet) &rarr;
+                  </button>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', textAlign: 'center' }}>
+                    Mendukung QRIS (Semua Bank & E-Wallet), BRI, Mandiri, BCA, BNI, GoPay, DANA, OVO & ShopeePay melalui Mayar Payment Gateway.
+                  </div>
+                </div>
+
+                {/* 3. Kolom Aktivasi Kode Lisensi (Dilengkapi Kunci Perangkat Anti-Jual Ulang) */}
                 <div
                   style={{
-                    marginTop: 14,
-                    paddingTop: 12,
-                    borderTop: '1px dashed #cbd5e1',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 'var(--radius-md)',
+                    padding: 16,
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>
-                      ☁️ Sinkronisasi Riwayat Antar Perangkat (HP ↔ Komputer)
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <Key size={15} color="#2563eb" />
+                      <h3 style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-main)' }}>
+                        {isUnlocked
+                          ? 'Ganti Kode Lisensi / Masukkan Kode Paket Sekolah:'
+                          : 'Sudah Membayar / Punya Kode dari Mitra? Masukkan Kode Lisensi:'}
+                      </h3>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        background: '#fef3c7',
+                        color: '#92400e',
+                        padding: '2px 8px',
+                        borderRadius: 99,
+                        border: '1px solid #fde68a',
+                      }}
+                    >
+                      🔒 Terkunci ke Perangkat (Anti-Share)
                     </span>
-                    {lastSyncTime && (
-                      <span style={{ fontSize: 11, color: '#059669', fontWeight: 700 }}>
-                        Tersinkron: {new Date(lastSyncTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    )}
                   </div>
+                  <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 12 }}>
+                    Setiap kode lisensi otomatis mengunci sidik jari perangkat (maksimal {maxIndividuSeats} perangkat pribadi untuk kode Individu) dan tidak dapat diperjualbelikan ulang.
+                  </p>
 
-                  {quota.tier === 'sekolah' && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#475569' }}>ID/PIN Guru:</span>
+                  <form onSubmit={handleActivate} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <input
                         type="text"
                         className="form-input"
-                        placeholder="Misal: FAJAR88"
-                        value={teacherPinInput}
-                        onChange={(e) => {
-                          setTeacherPinInput(e.target.value);
-                          saveTeacherSyncPin(e.target.value);
-                        }}
-                        style={{ fontSize: 12, padding: '5px 10px', maxWidth: 180 }}
+                        placeholder="Contoh: ASM-GM26-XXXX-XXXX-XXXX"
+                        value={licenseInput}
+                        onChange={(e) => setLicenseInput(e.target.value)}
+                        style={{ fontSize: 13, fontFamily: 'monospace', flex: 1, minWidth: 210 }}
+                        required
                       />
+                      <button
+                        type="submit"
+                        disabled={isActivating}
+                        className="btn btn-success"
+                        style={{ whiteSpace: 'nowrap', padding: '10px 18px', fontWeight: 800 }}
+                      >
+                        {isActivating ? 'Memverifikasi & Sinkron...' : 'Aktivasi & Sinkronkan'}
+                      </button>
                     </div>
-                  )}
 
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      disabled={isSyncingCloud}
-                      onClick={async () => {
-                        setIsSyncingCloud(true);
-                        try {
-                          const res = await pushWorkspaceToCloud(quota.licenseKey, teacherPinInput);
-                          if (res.ok && res.updatedAt) setLastSyncTime(res.updatedAt);
-                          setStatusMessage({ text: res.message, isError: !res.ok });
-                        } finally {
-                          setIsSyncingCloud(false);
-                        }
-                      }}
-                      className="btn btn-sm btn-primary"
-                      style={{ fontSize: 12 }}
-                    >
-                      ☁️ Simpan Riwayat ke Cloud Sekarang
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={isSyncingCloud}
-                      onClick={async () => {
-                        setIsSyncingCloud(true);
-                        try {
-                          const res = await pullWorkspaceFromCloud(quota.licenseKey, teacherPinInput);
-                          if (res.ok && res.updatedAt) setLastSyncTime(res.updatedAt);
-                          setStatusMessage({ text: res.message, isError: !res.ok });
-                          if (res.ok && res.found && onRestoredFromCloud) {
-                            onRestoredFromCloud();
-                          }
-                        } finally {
-                          setIsSyncingCloud(false);
-                        }
-                      }}
-                      className="btn btn-sm btn-outline"
-                      style={{ fontSize: 12, background: '#ffffff' }}
-                    >
-                      🔄 Ambil Riwayat dari Perangkat Lain (HP/Laptop)
-                    </button>
-                  </div>
+                    {/* Jika kode sekolah atau sedang memilih paket sekolah, tampilkan input Nama/PIN Guru untuk pemisah data Cloud */}
+                    {(isSchoolCollectiveLicenseCode(licenseInput) ||
+                      selectedPlanId === 'pro_sekolah' ||
+                      quota.tier === 'sekolah') && (
+                      <div
+                        style={{
+                          background: '#ecfdf5',
+                          border: '1px solid #a7f3d0',
+                          borderRadius: 8,
+                          padding: '10px 12px',
+                        }}
+                      >
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: 11.5,
+                            fontWeight: 800,
+                            color: '#065f46',
+                            marginBottom: 4,
+                          }}
+                        >
+                          👤 Nama Singkat / PIN Pribadi Guru (Khusus Lisensi Sekolah 25 Guru):
+                        </label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Contoh: FAJAR_MATEMATIKA atau FAJAR88"
+                          value={teacherPinInput}
+                          onChange={(e) => {
+                            setTeacherPinInput(e.target.value);
+                            saveTeacherSyncPin(e.target.value);
+                          }}
+                          style={{ fontSize: 12.5, padding: '7px 10px', background: '#ffffff' }}
+                          required={isSchoolCollectiveLicenseCode(licenseInput)}
+                        />
+                        <div style={{ fontSize: 11, color: '#047857', marginTop: 4 }}>
+                          Digunakan agar riwayat kelas & soal Anda di HP dan Laptop tersinkronisasi khusus milik Anda sendiri tanpa tertukar dengan 24 guru lain di sekolah.
+                        </div>
+                      </div>
+                    )}
+                  </form>
                 </div>
-              )}
-            </div>
+              </>
+            )}
 
             {/* Panel Mitra / Admin (Hanya muncul jika mengetik "@admin" di kolom lisensi di atas) */}
             {showAdminGate && (
