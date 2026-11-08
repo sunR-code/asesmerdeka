@@ -104,7 +104,7 @@ export function sanitizeCurriculumForSharing(doc) {
  * Validasi kualitas minimal draf kurikulum (Anti-Vandalisme / Anti-Draf Rusak)
  * Mendukung dokumen Modul Ajar dan dokumen LKPD dengan varian stimulus objek
  */
-function isValidCurriculumData(data) {
+export function isValidCurriculumData(data, type) {
   if (!data || typeof data !== 'object') return false;
   const materi = String(
     data.materiPokok || data.judul || data.judulAktivitas || data.topik || ''
@@ -137,7 +137,15 @@ function isValidCurriculumData(data) {
     Boolean(data.diferensiasiData && typeof data.diferensiasiData === 'object') ||
     Boolean(data.proyekData && typeof data.proyekData === 'object');
 
-  return (
+  if (type === 'modul_ajar') {
+    return Boolean((hasPemahaman || hasPemantik) && (hasLangkah || hasKegiatanInti));
+  }
+
+  if (type === 'lkpd') {
+    return Boolean(hasStimulus || hasLkpdArchetype || hasPetunjuk);
+  }
+
+  return Boolean(
     hasPemahaman ||
     hasPemantik ||
     hasLangkah ||
@@ -304,7 +312,7 @@ export default async function handler(req, res) {
         });
       }
 
-      if (!data || !isValidCurriculumData(data)) {
+      if (!data || !isValidCurriculumData(data, type)) {
         return res.status(400).json({
           ok: false,
           message: 'Draf kurikulum tidak lengkap atau rusak.',

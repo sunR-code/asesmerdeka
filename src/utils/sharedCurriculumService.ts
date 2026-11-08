@@ -94,6 +94,19 @@ export function getStorage(): Storage | null {
 }
 
 /**
+ * Menyimpan data ke storage secara aman dengan penanganan QuotaExceededError
+ */
+export function safeSetStorageItem(storage: Storage, key: string, value: string): boolean {
+  try {
+    storage.setItem(key, value);
+    return true;
+  } catch {
+    // Tangani QuotaExceededError atau batasan penyimpanan lokal secara aman tanpa error
+    return false;
+  }
+}
+
+/**
  * Normalisasi segmen teks menjadi slug untuk pembentuk kunci cache yang presisi
  */
 export function slugifySegment(input: string | undefined | null): string {
@@ -253,11 +266,7 @@ export async function fetchSharedCurriculum<T = unknown>(
     if (result && result.found && result.data) {
       // Simpan ke cache lokal untuk mempercepat pembukaan berikutnya
       if (storage) {
-        try {
-          storage.setItem(cacheKey, JSON.stringify(result.data));
-        } catch {
-          // ignore storage quota error
-        }
+        safeSetStorageItem(storage, cacheKey, JSON.stringify(result.data));
       }
       return {
         found: true,
@@ -372,11 +381,7 @@ export async function publishSharedCurriculum(
       const cacheKey = getSharedCacheKey(params);
       const storage = getStorage();
       if (storage) {
-        try {
-          storage.setItem(cacheKey, JSON.stringify(cleanedData));
-        } catch {
-          // ignore
-        }
+        safeSetStorageItem(storage, cacheKey, JSON.stringify(cleanedData));
       }
       return {
         ok: true,

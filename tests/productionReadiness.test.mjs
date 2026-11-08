@@ -1853,6 +1853,7 @@ test('AUD-222: Serverless /api/shared-curriculum mengelola Bank Referensi Modul 
           materiPokok: 'Teorema Pythagoras',
           pemahamanBermakna: 'Memahami hubungan kuadrat sisi miring segitiga siku-siku.',
           pertanyaanPemantik: ['Bagaimana memastikan sudut siku?'],
+          langkahPembelajaran: [{ pertemuanKe: 1, inti: ['Penyelidikan sudut siku segitiga'] }],
         },
       },
     },
@@ -1860,6 +1861,34 @@ test('AUD-222: Serverless /api/shared-curriculum mengelola Bank Referensi Modul 
   );
   assert.equal(devPostRes.result.statusCode, 200);
   assert.equal(devPostRes.result.body?.ok, true);
+
+  // 8. POST modul ajar ditolak jika tidak memiliki langkah pembelajaran (validasi per tipe dokumen)
+  const noStepsPostRes = makeMockRes();
+  await sharedHandler(
+    {
+      method: 'POST',
+      body: {
+        type: 'modul_ajar',
+        jenjang: 'SMP',
+        kelas: '8',
+        mapel: 'Matematika',
+        tpKode: '8.1',
+        materiPokok: 'Teorema Pythagoras',
+        model: 'pbl',
+        licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
+        data: {
+          materiPokok: 'Teorema Pythagoras',
+          pemahamanBermakna: 'Hanya ada pemahaman bermakna tanpa langkah pembelajaran sama sekali.',
+          pertanyaanPemantik: ['Apakah ini cukup?'],
+          // Sengaja tanpa langkahPembelajaran atau kegiatanInti
+        },
+      },
+    },
+    noStepsPostRes
+  );
+  assert.equal(noStepsPostRes.result.statusCode, 400);
+  assert.equal(noStepsPostRes.result.body?.ok, false);
+  assert.ok(noStepsPostRes.result.body?.message?.includes('tidak lengkap atau rusak'));
 });
 
 test('AUD-223: Client service sharedCurriculumService mengelola cache lokal dan menyuntikkan profil sekolah/guru lokal secara instan', async () => {
@@ -1985,6 +2014,22 @@ test('AUD-223: Client service sharedCurriculumService mengelola cache lokal dan 
     assert.ok(pubRes.message.includes('Berhasil'));
   } finally {
     globalThis.fetch = origFetch;
+  }
+
+  // 8. Uji LocalStorage QuotaExceededError safety pada safeSetStorageItem
+  const origSetItem = globalThis.localStorage.setItem;
+  try {
+    globalThis.localStorage.setItem = () => {
+      const quotaErr = new Error('The quota has been exceeded.');
+      quotaErr.name = 'QuotaExceededError';
+      throw quotaErr;
+    };
+    assert.equal(
+      sharedService.safeSetStorageItem(globalThis.localStorage, 'test-key', 'test-val'),
+      false
+    );
+  } finally {
+    globalThis.localStorage.setItem = origSetItem;
   }
 });
 

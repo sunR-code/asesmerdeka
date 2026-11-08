@@ -135,9 +135,24 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
   };
 
   // Auto-Loading Shared Bank / Local Draft saat TP atau selectedModel berubah
+  const prevModelRef = useRef<ModulAjarModelType | null>(null);
+
   useEffect(() => {
     let isMounted = true;
+    const isModelChange =
+      prevModelRef.current !== null && prevModelRef.current !== selectedModel;
+    prevModelRef.current = selectedModel;
+
     const storageKey = `modul_ajar_${tpKode}_${selectedModel}`;
+    const selectedModelDef =
+      MODUL_AJAR_MODELS.find((m) => m.id === selectedModel) || MODUL_AJAR_MODELS[0];
+
+    const getFallbackDoc = (): ModulAjarDokumen => ({
+      ...modul,
+      modelPembelajaran: selectedModelDef.deskripsi
+        ? `${selectedModelDef.label} - ${selectedModelDef.deskripsi}`
+        : selectedModelDef.label,
+    });
 
     const loadDraft = async () => {
       try {
@@ -170,13 +185,23 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           setIsFromCommunity(true);
           showToast('Draf referensi guru komunitas berhasil dimuat!');
         } else {
-          setEditableDoc(modul);
+          setEditableDoc(getFallbackDoc());
           setIsFromCommunity(false);
+          if (isModelChange) {
+            showToast(
+              `Draf untuk model ${selectedModelDef.label} belum tersedia. Silakan klik "✨ Buat / Regenerasi AI" untuk merancang modul baru.`
+            );
+          }
         }
       } catch {
         if (isMounted) {
-          setEditableDoc(modul);
+          setEditableDoc(getFallbackDoc());
           setIsFromCommunity(false);
+          if (isModelChange) {
+            showToast(
+              `Draf untuk model ${selectedModelDef.label} belum tersedia. Silakan klik "✨ Buat / Regenerasi AI" untuk merancang modul baru.`
+            );
+          }
         }
       }
     };
@@ -829,7 +854,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                       <AutoExpandingTextarea
                         value={r.kriteria}
                         onChange={(e) => {
-                          const list = [...editableDoc.rubrikPenilaianSingkat!];
+                          const list = [...(editableDoc.rubrikPenilaianSingkat || [])];
                           list[i] = { ...list[i], kriteria: e.target.value };
                           const updated = { ...editableDoc, rubrikPenilaianSingkat: list };
                           setEditableDoc(updated);
@@ -843,7 +868,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                       <AutoExpandingTextarea
                         value={r.baruBerkembang}
                         onChange={(e) => {
-                          const list = [...editableDoc.rubrikPenilaianSingkat!];
+                          const list = [...(editableDoc.rubrikPenilaianSingkat || [])];
                           list[i] = { ...list[i], baruBerkembang: e.target.value };
                           const updated = { ...editableDoc, rubrikPenilaianSingkat: list };
                           setEditableDoc(updated);
@@ -857,7 +882,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                       <AutoExpandingTextarea
                         value={r.layak}
                         onChange={(e) => {
-                          const list = [...editableDoc.rubrikPenilaianSingkat!];
+                          const list = [...(editableDoc.rubrikPenilaianSingkat || [])];
                           list[i] = { ...list[i], layak: e.target.value };
                           const updated = { ...editableDoc, rubrikPenilaianSingkat: list };
                           setEditableDoc(updated);
@@ -871,7 +896,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                       <AutoExpandingTextarea
                         value={r.cakap}
                         onChange={(e) => {
-                          const list = [...editableDoc.rubrikPenilaianSingkat!];
+                          const list = [...(editableDoc.rubrikPenilaianSingkat || [])];
                           list[i] = { ...list[i], cakap: e.target.value };
                           const updated = { ...editableDoc, rubrikPenilaianSingkat: list };
                           setEditableDoc(updated);
@@ -885,7 +910,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                       <AutoExpandingTextarea
                         value={r.mahir}
                         onChange={(e) => {
-                          const list = [...editableDoc.rubrikPenilaianSingkat!];
+                          const list = [...(editableDoc.rubrikPenilaianSingkat || [])];
                           list[i] = { ...list[i], mahir: e.target.value };
                           const updated = { ...editableDoc, rubrikPenilaianSingkat: list };
                           setEditableDoc(updated);
