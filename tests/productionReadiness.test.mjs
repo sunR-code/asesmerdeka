@@ -1862,6 +1862,133 @@ test('AUD-222: Serverless /api/shared-curriculum mengelola Bank Referensi Modul 
   assert.equal(devPostRes.result.body?.ok, true);
 });
 
+test('AUD-223: Client service sharedCurriculumService mengelola cache lokal dan menyuntikkan profil sekolah/guru lokal secara instan', async () => {
+  const sharedService = loadTsModule('src/utils/sharedCurriculumService.ts');
+
+  // 1. Uji pembentukan cache key
+  const cacheKey = sharedService.getSharedCacheKey({
+    type: 'modul_ajar',
+    jenjang: 'SMP',
+    kelas: '8',
+    mapel: 'Matematika',
+    tpKode: '8.1',
+    materiPokok: 'Teorema Pythagoras',
+    model: 'pbl',
+  });
+  assert.ok(cacheKey.includes('modul_ajar'));
+  assert.ok(cacheKey.includes('pythagoras'));
+
+  // 2. Uji local hydration (penyuntikan profil sekolah/guru lokal ke dokumen referensi komunitas)
+  const communityDoc = {
+    materiPokok: 'Teorema Pythagoras',
+    pemahamanBermakna: 'Memahami hubungan sisi segitiga.',
+    pertanyaanPemantik: ['Bagaimana memastikan sudut siku?'],
+  };
+  const mockProfile = {
+    namaSekolah: 'SMPN 2 Sukamaju',
+    namaGuru: 'Siti Aminah, M.Pd.',
+    nipGuru: '198902022015022002',
+    tahunAjaran: '2026/2027',
+    semester: '1 (Ganjil)',
+  };
+  const hydrated = sharedService.hydrateSharedDocWithLocalProfile(communityDoc, mockProfile);
+  assert.equal(hydrated.namaSekolah, 'SMPN 2 Sukamaju');
+  assert.equal(hydrated.namaGuru, 'Siti Aminah, M.Pd.');
+  assert.equal(hydrated.nipGuru, '198902022015022002');
+  assert.equal(hydrated.materiPokok, 'Teorema Pythagoras');
+  // Pastikan template asli tidak termutasi
+  assert.equal(communityDoc.namaSekolah, undefined);
+
+  // 3. Uji fetchSharedCurriculum dengan simulasi cache lokal
+  globalThis.localStorage.setItem(cacheKey, JSON.stringify(communityDoc));
+  const cachedResult = await sharedService.fetchSharedCurriculum({
+    type: 'modul_ajar',
+    jenjang: 'SMP',
+    kelas: '8',
+    mapel: 'Matematika',
+    tpKode: '8.1',
+    materiPokok: 'Teorema Pythagoras',
+    model: 'pbl',
+  });
+  assert.equal(cachedResult.found, true);
+  assert.equal(cachedResult.data.materiPokok, 'Teorema Pythagoras');
+
+  // 4. Uji argumen terpisah pada getSharedCacheKey
+  const positionalKey = sharedService.getSharedCacheKey(
+    'modul_ajar',
+    'SMP',
+    '8',
+    'Matematika',
+    '8.1',
+    'Teorema Pythagoras',
+    'pbl'
+  );
+  assert.equal(positionalKey, cacheKey);
+
+  // 5. Uji sanitasi Zero PII pada payload client
+  const clientSanitized = sharedService.sanitizeCurriculumForSharing({
+    namaSekolah: 'SMPN 1 Kota',
+    namaGuru: 'Pak Guru',
+    nipGuru: '197001011990011001',
+    alamatSekolah: 'Jl. Ahmad Yani',
+    materiPokok: 'Teorema Pythagoras',
+    pemahamanBermakna: 'Konsep dasar',
+  });
+  assert.equal(clientSanitized.namaSekolah, undefined);
+  assert.equal(clientSanitized.namaGuru, undefined);
+  assert.equal(clientSanitized.nipGuru, undefined);
+  assert.equal(clientSanitized.materiPokok, 'Teorema Pythagoras');
+
+  // 6. Uji publishSharedCurriculum menolak jika belum memiliki lisensi aktif
+  globalThis.localStorage.removeItem('asesmerdeka_user_quota');
+  const unauthPublish = await sharedService.publishSharedCurriculum({
+    type: 'modul_ajar',
+    jenjang: 'SMP',
+    kelas: '8',
+    mapel: 'Matematika',
+    tpKode: '8.1',
+    materiPokok: 'Teorema Pythagoras',
+    data: communityDoc,
+  });
+  assert.equal(unauthPublish.ok, false);
+  assert.ok(unauthPublish.message.includes('Lisensi'));
+
+  // 7. Uji publishSharedCurriculum dengan mock fetch berhasil menyimpan ke cache lokal
+  const origFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url, opts) => {
+      const parsedBody = JSON.parse(opts.body);
+      assert.equal(parsedBody.licenseCode, 'ASM-GM26-V9SN-QR2U-136V');
+      // Pastikan PII dibersihkan sebelum dikirim
+      assert.equal(parsedBody.data.namaSekolah, undefined);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, message: 'Berhasil dipublikasikan' }),
+      };
+    };
+
+    const pubRes = await sharedService.publishSharedCurriculum({
+      type: 'modul_ajar',
+      jenjang: 'SMP',
+      kelas: '8',
+      mapel: 'Matematika',
+      tpKode: '8.1',
+      materiPokok: 'Teorema Pythagoras',
+      licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
+      data: {
+        ...communityDoc,
+        namaSekolah: 'SMP Bocor PII',
+      },
+    });
+    assert.equal(pubRes.ok, true);
+    assert.ok(pubRes.message.includes('Berhasil'));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+
 
 
 
