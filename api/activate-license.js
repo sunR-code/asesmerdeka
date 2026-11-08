@@ -240,7 +240,7 @@ export default async function handler(req, res) {
     // Fitur Admin untuk me-reset daftar perangkat pada kode tertentu di Upstash Redis
     if (action === 'reset_seats') {
       const adminPinHash = computeHash36(`ADMIN_KEYGEN_V1:${String(body.adminPin || '').trim()}:MERDEKA_SALT_2026`);
-      if (adminPinHash !== '2BUG1JLCPHD') {
+      if (adminPinHash !== '2ID3PNQBIO') {
         return res.status(403).json({ ok: false, message: 'PIN Admin tidak valid.' });
       }
       await saveSeatRecordToRedis(rawCode, {

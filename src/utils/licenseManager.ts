@@ -61,7 +61,7 @@ export const DEFAULT_MAYAR_PRODUCT_ID = 'c1db962a-7cc5-46cc-969e-2c7c930f5bdc';
 export const DEFAULT_MAYAR_SCHOOL_PRODUCT_ID = '17cece7f-e711-4fdc-af44-e6ceb4b4bff7';
 
 // One-way 53-bit hash untuk verifikasi PIN Admin tanpa menyimpan PIN plaintext di dalam bundle klien
-const EXPECTED_ADMIN_PIN_HASH = '2BUG1JLCPHD';
+const EXPECTED_ADMIN_PIN_HASH = '2ID3PNQBIO';
 
 function safeSetItem(key: string, value: string): boolean {
   try {

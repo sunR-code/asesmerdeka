@@ -335,11 +335,11 @@ test('AUD-201: PaymentGateway menolak verifikasi pembayaran tanpa kode lisensi y
 
 test('AUD-202: PIN Admin diverifikasi dengan one-way hash dan tidak tersimpan plaintext di kode sumber', () => {
   const sourceCode = fs.readFileSync(path.resolve(projectRoot, 'src/utils/licenseManager.ts'), 'utf8');
-  assert.equal(sourceCode.includes('202688'), false, 'PIN Admin tidak boleh tertulis plaintext di licenseManager.ts');
+  assert.equal(sourceCode.includes('141317!@#'), false, 'PIN Admin tidak boleh tertulis plaintext di licenseManager.ts');
 
   assert.equal(licenseManager.verifyAdminKeygenPin('000000'), false);
   assert.equal(licenseManager.verifyAdminKeygenPin('123456'), false);
-  assert.equal(licenseManager.verifyAdminKeygenPin('202688'), true);
+  assert.equal(licenseManager.verifyAdminKeygenPin('141317!@#'), true);
 });
 
 test('AUD-205: Backup & Restore JSON mencadangkan data kelas secara utuh namun menolak injeksi kuota lisensi', () => {
@@ -892,9 +892,9 @@ test('AUD-215: API feedback-reports menangani POST laporan baru, menolak GET/PAT
   assert.equal(getWrongPinRes.result.body.ok, false);
   assert.equal(getWrongPinRes.result.body.error, 'Unauthorized: PIN Admin tidak valid');
 
-  // 5. GET dengan PIN benar ('202688') berhasil dan menampilkan daftar laporan
+  // 5. GET dengan PIN benar ('141317!@#') berhasil dan menampilkan daftar laporan
   const getValidPinRes = makeMockRes();
-  await feedbackHandler({ method: 'GET', query: { adminPin: '202688' } }, getValidPinRes);
+  await feedbackHandler({ method: 'GET', query: { adminPin: '141317!@#' } }, getValidPinRes);
   assert.equal(getValidPinRes.result.statusCode, 200);
   assert.equal(getValidPinRes.result.body.ok, true);
   assert.ok(Array.isArray(getValidPinRes.result.body.reports));
@@ -917,7 +917,7 @@ test('AUD-215: API feedback-reports menangani POST laporan baru, menolak GET/PAT
   await feedbackHandler(
     {
       method: 'PATCH',
-      body: { adminPin: '202688', reportId, status: 'ditinjau' },
+      body: { adminPin: '141317!@#', reportId, status: 'ditinjau' },
     },
     patchValidRes
   );
@@ -942,7 +942,7 @@ test('AUD-215: API feedback-reports menangani POST laporan baru, menolak GET/PAT
   await feedbackHandler(
     {
       method: 'DELETE',
-      body: { adminPin: '202688', reportId },
+      body: { adminPin: '141317!@#', reportId },
     },
     deleteValidRes
   );
@@ -952,7 +952,7 @@ test('AUD-215: API feedback-reports menangani POST laporan baru, menolak GET/PAT
 
   // 10. Verifikasi laporan sudah hilang dari list
   const verifyDeletedRes = makeMockRes();
-  await feedbackHandler({ method: 'GET', query: { adminPin: '202688' } }, verifyDeletedRes);
+  await feedbackHandler({ method: 'GET', query: { adminPin: '141317!@#' } }, verifyDeletedRes);
   assert.equal(
     verifyDeletedRes.result.body.reports.some((r) => r.id === reportId),
     false
@@ -1245,9 +1245,9 @@ test('AUD-218: Endpoint /api/admin-portal mengamankan registri lisensi, mendukun
   assert.equal(wrongPinRes.result.statusCode, 403);
   assert.equal(wrongPinRes.result.body?.ok, false);
 
-  // 3. Action 'auth' dengan PIN valid ('202688') berhasil
+  // 3. Action 'auth' dengan PIN valid ('141317!@#') berhasil
   const authRes = makeMockRes();
-  await adminHandler({ method: 'POST', body: { adminPin: '202688', action: 'auth' } }, authRes);
+  await adminHandler({ method: 'POST', body: { adminPin: '141317!@#', action: 'auth' } }, authRes);
   assert.equal(authRes.result.statusCode, 200);
   assert.equal(authRes.result.body?.ok, true);
 
@@ -1257,7 +1257,7 @@ test('AUD-218: Endpoint /api/admin-portal mengamankan registri lisensi, mendukun
     {
       method: 'POST',
       body: {
-        adminPin: '202688',
+        adminPin: '141317!@#',
         action: 'create_license',
         planType: 'individu',
         label: 'Bu Rina SDN 1 Merdeka',
@@ -1283,7 +1283,7 @@ test('AUD-218: Endpoint /api/admin-portal mengamankan registri lisensi, mendukun
   await adminHandler(
     {
       method: 'POST',
-      body: { adminPin: '202688', action: 'list_licenses' },
+      body: { adminPin: '141317!@#', action: 'list_licenses' },
     },
     listRes1
   );
@@ -1315,7 +1315,7 @@ test('AUD-218: Endpoint /api/admin-portal mengamankan registri lisensi, mendukun
   await adminHandler(
     {
       method: 'POST',
-      body: { adminPin: '202688', action: 'list_licenses' },
+      body: { adminPin: '141317!@#', action: 'list_licenses' },
     },
     listRes2
   );
@@ -1332,7 +1332,7 @@ test('AUD-218: Endpoint /api/admin-portal mengamankan registri lisensi, mendukun
     {
       method: 'POST',
       body: {
-        adminPin: '202688',
+        adminPin: '141317!@#',
         action: 'reset_license_seats',
         licenseCode: createdItem.code,
       },
@@ -1347,7 +1347,7 @@ test('AUD-218: Endpoint /api/admin-portal mengamankan registri lisensi, mendukun
   await adminHandler(
     {
       method: 'POST',
-      body: { adminPin: '202688', action: 'list_licenses' },
+      body: { adminPin: '141317!@#', action: 'list_licenses' },
     },
     listRes3
   );
@@ -1364,7 +1364,7 @@ test('AUD-218: Endpoint /api/admin-portal mengamankan registri lisensi, mendukun
     {
       method: 'POST',
       body: {
-        adminPin: '202688',
+        adminPin: '141317!@#',
         action: 'delete_license',
         licenseCode: createdItem.code,
       },
@@ -1379,7 +1379,7 @@ test('AUD-218: Endpoint /api/admin-portal mengamankan registri lisensi, mendukun
   await adminHandler(
     {
       method: 'POST',
-      body: { adminPin: '202688', action: 'list_licenses' },
+      body: { adminPin: '141317!@#', action: 'list_licenses' },
     },
     listRes4
   );
@@ -1408,8 +1408,8 @@ test('AUD-219: Client service adminService mengelola sesi, registri lisensi, enr
   // 2. Session PIN storage
   adminService.clearAdminSessionPin();
   assert.equal(adminService.getAdminSessionPin(), '');
-  adminService.saveAdminSessionPin('202688');
-  assert.equal(adminService.getAdminSessionPin(), '202688');
+  adminService.saveAdminSessionPin('141317!@#');
+  assert.equal(adminService.getAdminSessionPin(), '141317!@#');
   adminService.clearAdminSessionPin();
   assert.equal(adminService.getAdminSessionPin(), '');
 
@@ -1420,7 +1420,7 @@ test('AUD-219: Client service adminService mengelola sesi, registri lisensi, enr
   const wrongVerify = await adminService.verifyAdminSession('000000');
   assert.equal(wrongVerify.ok, false);
 
-  const validVerify = await adminService.verifyAdminSession('202688');
+  const validVerify = await adminService.verifyAdminSession('141317!@#');
   assert.equal(validVerify.ok, true);
 
   // 4. Pembuatan lisensi (createAdminLicense)
@@ -1436,7 +1436,7 @@ test('AUD-219: Client service adminService mengelola sesi, registri lisensi, enr
   assert.equal(adminService.getStoredAdminLicenses().length, 0);
 
   // Buat lisensi baru dengan PIN valid
-  const createRes = await adminService.createAdminLicense('202688', {
+  const createRes = await adminService.createAdminLicense('141317!@#', {
     planType: 'individu',
     label: 'Ibu Ratna - SDN 01 Merdeka',
     count: 1,
@@ -1456,7 +1456,7 @@ test('AUD-219: Client service adminService mengelola sesi, registri lisensi, enr
   assert.equal(licenseManager.isValidLicenseCode(createdLic.code, 'DEV-RATNA-HP'), true);
 
   // 5. Mengambil daftar lisensi (fetchAdminLicenses)
-  const fetchRes = await adminService.fetchAdminLicenses('202688');
+  const fetchRes = await adminService.fetchAdminLicenses('141317!@#');
   assert.equal(fetchRes.ok, true);
   assert.ok(Array.isArray(fetchRes.licenses));
   const found = fetchRes.licenses.find((l) => l.code === createdLic.code);
@@ -1470,7 +1470,7 @@ test('AUD-219: Client service adminService mengelola sesi, registri lisensi, enr
   assert.equal(claimRes.usedSeats, 1);
 
   // Ambil ulang lisensi: status sekarang harus 'aktif', usedSeats 1, dan devices mencatat 'DEV-RATNA-LAPTOP'
-  const fetchActive = await adminService.fetchAdminLicenses('202688');
+  const fetchActive = await adminService.fetchAdminLicenses('141317!@#');
   assert.equal(fetchActive.ok, true);
   const activeFound = fetchActive.licenses.find((l) => l.code === createdLic.code);
   assert.ok(activeFound);
@@ -1482,11 +1482,11 @@ test('AUD-219: Client service adminService mengelola sesi, registri lisensi, enr
   const wrongReset = await adminService.resetAdminLicenseSeats('000000', createdLic.code);
   assert.equal(wrongReset.ok, false);
 
-  const resetRes = await adminService.resetAdminLicenseSeats('202688', createdLic.code);
+  const resetRes = await adminService.resetAdminLicenseSeats('141317!@#', createdLic.code);
   assert.equal(resetRes.ok, true);
 
   // Setelah reset: status kembali 'belum_aktif', usedSeats 0, devices kosong
-  const fetchAfterReset = await adminService.fetchAdminLicenses('202688');
+  const fetchAfterReset = await adminService.fetchAdminLicenses('141317!@#');
   const resetFound = fetchAfterReset.licenses.find((l) => l.code === createdLic.code);
   assert.ok(resetFound);
   assert.equal(resetFound.status, 'belum_aktif');
@@ -1497,11 +1497,11 @@ test('AUD-219: Client service adminService mengelola sesi, registri lisensi, enr
   const wrongDelete = await adminService.deleteAdminLicense('000000', createdLic.code);
   assert.equal(wrongDelete.ok, false);
 
-  const deleteRes = await adminService.deleteAdminLicense('202688', createdLic.code);
+  const deleteRes = await adminService.deleteAdminLicense('141317!@#', createdLic.code);
   assert.equal(deleteRes.ok, true);
 
   // Pastikan lisensi sudah tidak ada di registri
-  const fetchAfterDelete = await adminService.fetchAdminLicenses('202688');
+  const fetchAfterDelete = await adminService.fetchAdminLicenses('141317!@#');
   assert.equal(fetchAfterDelete.licenses.some((l) => l.code === createdLic.code), false);
 });
 

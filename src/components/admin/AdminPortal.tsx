@@ -252,7 +252,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBack }) => {
       >
         <Loader2 size={32} className="animate-spin" color="#38bdf8" />
         <div style={{ fontSize: 13, color: '#94a3b8', fontWeight: 600 }}>
-          Memverifikasi sesi aman Portal Admin...
+          Memverifikasi sesi aman...
         </div>
       </div>
     );
@@ -296,7 +296,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBack }) => {
             }}
           >
             <ArrowLeft size={16} />
-            <span>Kembali ke Aplikasi Guru</span>
+            <span>Kembali</span>
           </button>
         </div>
 
@@ -347,7 +347,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBack }) => {
                 letterSpacing: '-0.02em',
               }}
             >
-              Portal Admin Terpusat
+              Autentikasi Akses
             </h2>
             <p
               style={{
@@ -357,7 +357,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBack }) => {
                 lineHeight: 1.5,
               }}
             >
-              Gerbang Otentikasi Pengelola Lisensi, Reset Kunci Perangkat & Konfigurasi Sistem Asesmen Merdeka.
+              Masukkan PIN otentikasi untuk membuka halaman.
             </p>
           </div>
 
@@ -373,7 +373,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBack }) => {
                   marginBottom: 6,
                 }}
               >
-                PIN Master Admin
+                PIN Keamanan
               </label>
               <div style={{ position: 'relative' }}>
                 <input
@@ -384,7 +384,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBack }) => {
                     setPinInput(e.target.value);
                     if (pinError) setPinError(null);
                   }}
-                  placeholder="Masukkan PIN Admin Master"
+                  placeholder="Masukkan PIN"
                   style={{
                     width: '100%',
                     padding: '12px 42px 12px 14px',
@@ -465,12 +465,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBack }) => {
               {isLoggingIn ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  <span>Memverifikasi Akses...</span>
+                  <span>Memverifikasi...</span>
                 </>
               ) : (
                 <>
                   <KeyRound size={16} />
-                  <span>Buka Akses Admin Portal</span>
+                  <span>Masuk</span>
                 </>
               )}
             </button>
@@ -485,7 +485,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBack }) => {
               lineHeight: 1.5,
             }}
           >
-            🔒 Terproteksi enkripsi satu arah (*salted hash*). Seluruh data lisensi dan laporan hanya dikirim setelah PIN Admin tervalidasi.
+            🔒 Sistem terproteksi enkripsi aman.
           </div>
         </div>
 

@@ -18,8 +18,8 @@ import {
  */
 
 const REGISTRY_REDIS_KEY = 'asesmerdeka:admin:license_registry:v1';
-const EXPECTED_ADMIN_PIN_HASH_36 = '2BUG1JLCPHD';
-const ADMIN_PIN_SHA256 = '1322cccdbc5c56294cd17b34846dfc2331311bba5293106846f5c077cfc06c42';
+const EXPECTED_ADMIN_PIN_HASH_36 = '2ID3PNQBIO';
+const ADMIN_PIN_SHA256 = '1b088972675a71586edd3702980f4228826fbb266e8b0efd2e06ab57faf18a8c';
 
 export const localLicenseRegistryStore = [];
 

@@ -64,9 +64,9 @@ export const AppFooter: React.FC<AppFooterProps> = ({
               e.currentTarget.style.color = '#94a3b8';
               e.currentTarget.style.background = 'transparent';
             }}
-            title="Buka Portal Admin & Manajemen Lisensi (Memerlukan PIN)"
+            title="Pengaturan Sistem"
           >
-            🔐 Portal Admin (PIN)
+            🔒 Sistem
           </button>
         )}
       </div>
