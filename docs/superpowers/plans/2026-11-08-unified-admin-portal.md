@@ -62,12 +62,12 @@
 - Create: `src/types/admin.ts`
 - Create: `src/utils/adminService.ts`
 
-- [ ] **Step 2.1: Define TypeScript interfaces in `src/types/admin.ts`**
+- [x] **Step 2.1: Define TypeScript interfaces in `src/types/admin.ts`**
   - `AdminLicenseItem`: `code`, `label`, `tier`, `maxSeats`, `createdAt`, `updatedAt`, `usedSeats`, `devices`, `status` (`aktif` | `belum_aktif`).
   - `CreateLicensePayload`: `planType`, `label`, `count`, `customMaxSeats`.
   - `AdminPortalTab`: `'licenses' | 'feedback' | 'settings'`.
 
-- [ ] **Step 2.2: Implement client service methods in `src/utils/adminService.ts`**
+- [x] **Step 2.2: Implement client service methods in `src/utils/adminService.ts`**
   - `verifyAdminSession(pin: string): Promise<{ ok: boolean; message?: string }>`
   - `fetchAdminLicenses(pin: string): Promise<{ ok: boolean; licenses: AdminLicenseItem[]; message?: string }>`
   - `createAdminLicense(pin: string, payload: CreateLicensePayload): Promise<{ ok: boolean; created: AdminLicenseItem[]; message?: string }>`
@@ -75,9 +75,9 @@
   - `deleteAdminLicense(pin: string, code: string): Promise<{ ok: boolean; message: string }>`
   - LocalStorage caching and offline fallback for instant optimistic UI updates.
 
-- [ ] **Step 2.3: Run `npx oxlint --deny-warnings` and ensure 0 warnings**
+- [x] **Step 2.3: Run `npx oxlint --deny-warnings` and ensure 0 warnings**
 
-- [ ] **Step 2.4: Commit Task 2**
+- [x] **Step 2.4: Commit Task 2**
   - Commit message: `feat(admin): add admin portal types and client api service`
 
 ---

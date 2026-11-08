@@ -1387,6 +1387,125 @@ test('AUD-218: Endpoint /api/admin-portal mengamankan registri lisensi, mendukun
   assert.equal(listRes4.result.body.licenses.some((l) => l.code === createdItem.code), false);
 });
 
+test('AUD-219: Client service adminService mengelola sesi, registri lisensi, enrich kursi, dan fallback offline', async () => {
+  const adminTypes = loadTsModule('src/types/admin.ts');
+  const adminService = loadTsModule('src/utils/adminService.ts');
+
+  // 1. Verifikasi tipe dan metadata paket
+  assert.ok(adminTypes.ADMIN_PLAN_META);
+  assert.equal(adminTypes.ADMIN_PLAN_META.individu.defaultMaxSeats, 2);
+  assert.equal(adminTypes.ADMIN_PLAN_META.individu.prefix, 'GM26');
+  assert.equal(adminTypes.ADMIN_PLAN_META.solo.defaultMaxSeats, 1);
+  assert.equal(adminTypes.ADMIN_PLAN_META.solo.prefix, 'SL26');
+  assert.equal(adminTypes.ADMIN_PLAN_META.sekolah.defaultMaxSeats, 25);
+  assert.equal(adminTypes.ADMIN_PLAN_META.sekolah.prefix, 'SK26');
+  assert.equal(adminTypes.ADMIN_PLAN_META.pro.defaultMaxSeats, 2);
+  assert.equal(adminTypes.ADMIN_PLAN_META.pro.prefix, 'GP26');
+  assert.equal(adminTypes.ADMIN_PLAN_META.sekolah_pro.defaultMaxSeats, 25);
+  assert.equal(adminTypes.ADMIN_PLAN_META.sekolah_pro.prefix, 'SP26');
+  assert.equal(adminTypes.ADMIN_PLANS.length, 5);
+
+  // 2. Session PIN storage
+  adminService.clearAdminSessionPin();
+  assert.equal(adminService.getAdminSessionPin(), '');
+  adminService.saveAdminSessionPin('202688');
+  assert.equal(adminService.getAdminSessionPin(), '202688');
+  adminService.clearAdminSessionPin();
+  assert.equal(adminService.getAdminSessionPin(), '');
+
+  // 3. Verifikasi sesi admin (verifyAdminSession)
+  const emptyVerify = await adminService.verifyAdminSession('');
+  assert.equal(emptyVerify.ok, false);
+
+  const wrongVerify = await adminService.verifyAdminSession('000000');
+  assert.equal(wrongVerify.ok, false);
+
+  const validVerify = await adminService.verifyAdminSession('202688');
+  assert.equal(validVerify.ok, true);
+
+  // 4. Pembuatan lisensi (createAdminLicense)
+  // Menolak jika PIN salah
+  const rejectCreate = await adminService.createAdminLicense('000000', {
+    planType: 'individu',
+    label: 'Pak Joko',
+  });
+  assert.equal(rejectCreate.ok, false);
+
+  // Bersihkan penyimpanan lisensi lokal sebelum pengujian
+  adminService.clearStoredAdminLicenses();
+  assert.equal(adminService.getStoredAdminLicenses().length, 0);
+
+  // Buat lisensi baru dengan PIN valid
+  const createRes = await adminService.createAdminLicense('202688', {
+    planType: 'individu',
+    label: 'Ibu Ratna - SDN 01 Merdeka',
+    count: 1,
+    customMaxSeats: 2,
+  });
+  assert.equal(createRes.ok, true);
+  assert.ok(Array.isArray(createRes.created));
+  assert.equal(createRes.created.length, 1);
+  const createdLic = createRes.created[0];
+  assert.ok(createdLic.code.startsWith('ASM-GM26-'));
+  assert.equal(createdLic.label, 'Ibu Ratna - SDN 01 Merdeka');
+  assert.equal(createdLic.maxSeats, 2);
+  assert.equal(createdLic.status, 'belum_aktif');
+  assert.equal(createdLic.usedSeats, 0);
+
+  // Verifikasi kode lisensi yang dibuat valid menurut licenseManager
+  assert.equal(licenseManager.isValidLicenseCode(createdLic.code, 'DEV-RATNA-HP'), true);
+
+  // 5. Mengambil daftar lisensi (fetchAdminLicenses)
+  const fetchRes = await adminService.fetchAdminLicenses('202688');
+  assert.equal(fetchRes.ok, true);
+  assert.ok(Array.isArray(fetchRes.licenses));
+  const found = fetchRes.licenses.find((l) => l.code === createdLic.code);
+  assert.ok(found);
+  assert.equal(found.status, 'belum_aktif');
+  assert.equal(found.usedSeats, 0);
+
+  // 6. Simulasikan penguncian perangkat (klaim kursi oleh guru)
+  const claimRes = licenseManager.checkAndClaimLicenseSeat(createdLic.code, 'DEV-RATNA-LAPTOP');
+  assert.equal(claimRes.allowed, true);
+  assert.equal(claimRes.usedSeats, 1);
+
+  // Ambil ulang lisensi: status sekarang harus 'aktif', usedSeats 1, dan devices mencatat 'DEV-RATNA-LAPTOP'
+  const fetchActive = await adminService.fetchAdminLicenses('202688');
+  assert.equal(fetchActive.ok, true);
+  const activeFound = fetchActive.licenses.find((l) => l.code === createdLic.code);
+  assert.ok(activeFound);
+  assert.equal(activeFound.status, 'aktif');
+  assert.equal(activeFound.usedSeats, 1);
+  assert.ok(activeFound.devices.includes('DEV-RATNA-LAPTOP'));
+
+  // 7. Reset kursi perangkat (resetAdminLicenseSeats)
+  const wrongReset = await adminService.resetAdminLicenseSeats('000000', createdLic.code);
+  assert.equal(wrongReset.ok, false);
+
+  const resetRes = await adminService.resetAdminLicenseSeats('202688', createdLic.code);
+  assert.equal(resetRes.ok, true);
+
+  // Setelah reset: status kembali 'belum_aktif', usedSeats 0, devices kosong
+  const fetchAfterReset = await adminService.fetchAdminLicenses('202688');
+  const resetFound = fetchAfterReset.licenses.find((l) => l.code === createdLic.code);
+  assert.ok(resetFound);
+  assert.equal(resetFound.status, 'belum_aktif');
+  assert.equal(resetFound.usedSeats, 0);
+  assert.deepEqual(resetFound.devices, []);
+
+  // 8. Hapus lisensi (deleteAdminLicense)
+  const wrongDelete = await adminService.deleteAdminLicense('000000', createdLic.code);
+  assert.equal(wrongDelete.ok, false);
+
+  const deleteRes = await adminService.deleteAdminLicense('202688', createdLic.code);
+  assert.equal(deleteRes.ok, true);
+
+  // Pastikan lisensi sudah tidak ada di registri
+  const fetchAfterDelete = await adminService.fetchAdminLicenses('202688');
+  assert.equal(fetchAfterDelete.licenses.some((l) => l.code === createdLic.code), false);
+});
+
+
 
 
 
