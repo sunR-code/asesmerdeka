@@ -15,6 +15,7 @@ import {
 import { ClassSemesterHub } from './components/ClassSemesterHub';
 import { LicenseModal } from './components/LicenseModal';
 import { SchoolProfileModal } from './components/SchoolProfileModal';
+import { HelpFeedbackModal } from './components/HelpFeedbackModal';
 import type { AsesmenDokumen, GenerationRequest, UserQuota } from './types/assessment';
 import type { RangkumanDokumen, RangkumanRequest } from './types/summary';
 import type { ModulAjarDokumen, LKPDDokumen } from './types/perangkatAjar';
@@ -118,6 +119,7 @@ export function App() {
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
   const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [prefillAssessment, setPrefillAssessment] = useState<Partial<GenerationRequest> | null>(null);
@@ -485,6 +487,7 @@ export function App() {
         onOpenClassModal={() => setIsClassModalOpen(true)}
         onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
         onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
+        onOpenHelpModal={() => setIsHelpModalOpen(true)}
         isMobileOpen={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
       />
@@ -496,6 +499,7 @@ export function App() {
           schoolProfile={schoolProfile}
           onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
           onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
+          onOpenHelpModal={() => setIsHelpModalOpen(true)}
           isPro={isLicensed(quota.tier)}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
         />
@@ -664,6 +668,7 @@ export function App() {
           onOpenClassModal={() => setIsClassModalOpen(true)}
           onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
           onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
+          onOpenHelpModal={() => setIsHelpModalOpen(true)}
         />
       </div>
 
@@ -707,6 +712,16 @@ export function App() {
         quota={quota}
         onUpdateQuota={(newQ) => setQuota(newQ)}
         onRestoredFromCloud={handleReloadFromCloudRestore}
+      />
+
+      <HelpFeedbackModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        activeTabName={headerInfo.title}
+        activeTabId={activeTab}
+        schoolProfile={schoolProfile}
+        deviceId={quota.deviceId}
+        isPro={isLicensed(quota.tier)}
       />
 
       <AppToastBanner message={appToast} />

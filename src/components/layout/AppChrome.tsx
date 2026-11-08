@@ -78,11 +78,19 @@ export const BackToHubButton: React.FC<{
   );
 };
 
-export const AppFooter: React.FC<{
+export interface AppFooterProps {
   onOpenClassModal: () => void;
   onOpenSchoolModal: () => void;
   onOpenLicenseModal: () => void;
-}> = ({ onOpenClassModal, onOpenSchoolModal, onOpenLicenseModal }) => (
+  onOpenHelpModal?: () => void;
+}
+
+export const AppFooter: React.FC<AppFooterProps> = ({
+  onOpenClassModal,
+  onOpenSchoolModal,
+  onOpenLicenseModal,
+  onOpenHelpModal,
+}) => (
   <footer
     className="no-print"
     style={{
@@ -117,6 +125,14 @@ export const AppFooter: React.FC<{
         <span style={{ color: '#7c3aed', cursor: 'pointer', fontWeight: 700 }} onClick={onOpenLicenseModal}>
           Lisensi PRO
         </span>
+        {onOpenHelpModal && (
+          <>
+            <span style={{ color: '#cbd5e1' }}>•</span>
+            <span style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 700 }} onClick={onOpenHelpModal}>
+              Bantuan & Lapor
+            </span>
+          </>
+        )}
       </div>
     </div>
   </footer>

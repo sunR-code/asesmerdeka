@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Menu, School, Sparkles, ShieldCheck } from 'lucide-react';
+import { Menu, School, Sparkles, ShieldCheck, HelpCircle } from 'lucide-react';
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
 
 interface TopHeaderProps {
@@ -9,6 +9,7 @@ interface TopHeaderProps {
   schoolProfile: SchoolProfile;
   onOpenSchoolModal: () => void;
   onOpenLicenseModal?: () => void;
+  onOpenHelpModal?: () => void;
   isPro?: boolean;
   onToggleMobileSidebar: () => void;
 }
@@ -19,6 +20,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   schoolProfile,
   onOpenSchoolModal,
   onOpenLicenseModal,
+  onOpenHelpModal,
   isPro,
   onToggleMobileSidebar,
 }) => {
@@ -165,6 +167,35 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           >
             <Sparkles size={14} color={isPro ? '#059669' : '#2563eb'} style={{ flexShrink: 0 }} />
             <span className="header-pill-license-text">{isPro ? 'Lisensi Aktif' : 'Aktivasi Lisensi'}</span>
+          </motion.button>
+        )}
+
+        {/* Bantuan & Lapor Kendala Pill Button */}
+        {onOpenHelpModal && (
+          <motion.button
+            type="button"
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={onOpenHelpModal}
+            className="header-pill-help"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              borderRadius: 9999,
+              padding: '5px 12px',
+              fontSize: 12,
+              fontWeight: 800,
+              color: '#0369a1',
+              cursor: 'pointer',
+              boxShadow: '0 1px 3px rgba(2, 132, 199, 0.08)',
+            }}
+            title="Pusat Bantuan & Lapor Kendala"
+          >
+            <HelpCircle size={14} color="#0284c7" style={{ flexShrink: 0 }} />
+            <span className="header-pill-help-text">Bantuan</span>
           </motion.button>
         )}
       </div>

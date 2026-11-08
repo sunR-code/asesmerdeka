@@ -20,6 +20,7 @@ import {
   Crown,
   UserCheck,
   X,
+  HelpCircle,
 } from 'lucide-react';
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
 import type { UserQuota } from '../../types/assessment';
@@ -65,6 +66,7 @@ interface AppSidebarProps {
   onOpenClassModal: () => void;
   onOpenSchoolModal: () => void;
   onOpenLicenseModal: () => void;
+  onOpenHelpModal?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
 }
@@ -78,6 +80,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   onOpenClassModal,
   onOpenSchoolModal,
   onOpenLicenseModal,
+  onOpenHelpModal,
   isMobileOpen = false,
   onCloseMobile,
 }) => {
@@ -608,6 +611,39 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             </div>
             <ChevronRight size={13} color="#94a3b8" />
           </button>
+
+          {/* Pusat Bantuan & Lapor Kendala */}
+          {onOpenHelpModal && (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenHelpModal();
+                if (onCloseMobile) onCloseMobile();
+              }}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '7px 10px',
+                border: '1px solid #e0f2fe',
+                borderRadius: 8,
+                background: '#f0f9ff',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#0369a1',
+                transition: 'background 0.15s ease',
+              }}
+              title="Buka Pusat Bantuan & Lapor Kendala"
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <HelpCircle size={15} color="#0284c7" />
+                <span>Pusat Bantuan & Lapor</span>
+              </div>
+              <ChevronRight size={13} color="#0284c7" />
+            </button>
+          )}
         </div>
       </aside>
     </>
