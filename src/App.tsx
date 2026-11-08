@@ -18,7 +18,14 @@ import { SchoolProfileModal } from './components/SchoolProfileModal';
 import type { AsesmenDokumen, GenerationRequest, UserQuota } from './types/assessment';
 import type { RangkumanDokumen, RangkumanRequest } from './types/summary';
 import type { ModulAjarDokumen, LKPDDokumen } from './types/perangkatAjar';
-import { getUserQuota, deductQuota, refundQuota, isLicensed } from './utils/licenseManager';
+import {
+  getUserQuota,
+  deductQuota,
+  refundQuota,
+  isLicensed,
+  verifyMayarLicenseOnline,
+  revokeLicenseToPreviewMode,
+} from './utils/licenseManager';
 import { generateAsesmen, generateRangkumanMateri } from './services/aiGenerator';
 import { getBankSoal, saveToBankSoal, deleteFromBankSoal } from './utils/bankSoalStorage';
 import { saveToBankRangkuman } from './utils/bankRangkumanStorage';
@@ -185,6 +192,30 @@ export function App() {
     setIsClassConfirmed(confirmed);
     setConfirmedClassSetup(confirmed);
   };
+
+  // Verifikasi kursi perangkat aktif ke Cloud Redis saat aplikasi dibuka:
+  // Jika perangkat ke-3 mencoba memakai lisensi yang sudah penuh (2/2), otomatis nonaktifkan ke Mode Pratinjau
+  useEffect(() => {
+    if (!isLicensed(quota.tier) || !quota.licenseKey) return;
+    let active = true;
+    verifyMayarLicenseOnline(quota.licenseKey, quota.deviceId)
+      .then((res) => {
+        if (!active) return;
+        if (res.seatLimitExceeded) {
+          const revoked = revokeLicenseToPreviewMode();
+          setQuota(revoked);
+          setErrorMessage(
+            res.message ||
+              'Lisensi dinonaktifkan pada perangkat ini karena telah mencapai batas maksimal perangkat (1 Laptop + 1 HP pemilik utama).'
+          );
+          setIsLicenseModalOpen(true);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [quota.tier, quota.licenseKey, quota.deviceId]);
 
   // Otomatis sinkronkan perubahan profil kelas/soal ke Cloud (debounced 2.5 detik) jika pengguna memiliki Kode Lisensi aktif
   useEffect(() => {

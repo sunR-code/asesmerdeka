@@ -48,6 +48,8 @@ function setLastCloudSyncAt(isoStr: string): void {
 export function isSchoolCollectiveLicenseCode(rawCode?: string): boolean {
   const clean = normalizeLicenseCodeInput(rawCode || '');
   return (
+    clean.startsWith('ASM-SK26-') ||
+    clean.startsWith('ASM-SP26-') ||
     clean.includes('SEKOLAH') ||
     clean.includes('SMAN') ||
     clean.includes('SMPN') ||

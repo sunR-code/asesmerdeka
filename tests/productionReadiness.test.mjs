@@ -665,6 +665,71 @@ test('AUD-212: Profil sekolah & data kop default pada perangkat baru dimulai dal
   assert.equal(defaultProf.nipKepalaSekolah, '');
 });
 
+test('AUD-213: Kode lisensi terenkripsi (ASM-...) tidak menampilkan nomor urut polos dan Serverless API menolak perangkat ke-3 (Laptop + HP = 2/2)', async () => {
+  const code1 = licenseManager.computeSerialLicenseCode('MAYAR001');
+  const code2 = licenseManager.computeSerialLicenseCode('MAYAR002');
+
+  assert.ok(code1.startsWith('ASM-GM26-'), 'Kode harus memakai format terenkripsi ASM-GM26-...');
+  assert.equal(code1.includes('MAYAR'), false, 'Kode terenkripsi tidak boleh menampilkan kata MAYAR001 secara polos');
+  assert.notEqual(code1, code2);
+
+  // Mengubah 1 huruf saja pada kode terenkripsi wajib membuatnya tidak valid
+  const tampered = code1.slice(0, -1) + (code1.endsWith('A') ? 'B' : 'A');
+  assert.equal(licenseManager.isValidLicenseCode(tampered, 'DEV-1'), false);
+
+  const activateHandler = (await import('../api/activate-license.js')).default;
+  const makeMockRes = () => {
+    const out = { statusCode: 200, headers: {}, body: null };
+    return {
+      setHeader(k, v) {
+        out.headers[k] = v;
+      },
+      status(code) {
+        out.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        out.body = payload;
+        return this;
+      },
+      get result() {
+        return out;
+      },
+    };
+  };
+
+  // Perangkat 1 (Laptop Fajar) -> Diterima (1/2)
+  const res1 = makeMockRes();
+  await activateHandler(
+    { method: 'POST', body: { licenseCode: code1, deviceId: 'DEV-LAPTOP-FAJAR' } },
+    res1
+  );
+  assert.equal(res1.result.statusCode, 200);
+  assert.equal(res1.result.body.valid, true);
+  assert.equal(res1.result.body.usedSeats, 1);
+
+  // Perangkat 2 (HP Fajar) -> Diterima (2/2)
+  const res2 = makeMockRes();
+  await activateHandler(
+    { method: 'POST', body: { licenseCode: code1, deviceId: 'DEV-HP-FAJAR' } },
+    res2
+  );
+  assert.equal(res2.result.statusCode, 200);
+  assert.equal(res2.result.body.valid, true);
+  assert.equal(res2.result.body.usedSeats, 2);
+
+  // Perangkat 3 (HP Istri / Orang Lain) -> WAJIB DITOLAK (403 Seat Limit Exceeded)
+  const res3 = makeMockRes();
+  await activateHandler(
+    { method: 'POST', body: { licenseCode: code1, deviceId: 'DEV-HP-ISTRI-03' } },
+    res3
+  );
+  assert.equal(res3.result.statusCode, 403);
+  assert.equal(res3.result.body.valid, false);
+  assert.equal(res3.result.body.seatLimitExceeded, true);
+});
+
+
 
 
 

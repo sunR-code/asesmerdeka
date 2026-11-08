@@ -641,7 +641,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="Contoh: PRO-MERDEKA-MAYAR001-1EN8"
+                    placeholder="Contoh: ASM-GM26-XXXX-XXXX-XXXX"
                     value={licenseInput}
                     onChange={(e) => setLicenseInput(e.target.value)}
                     style={{ fontSize: 13, fontFamily: 'monospace', flex: 1, minWidth: 210 }}

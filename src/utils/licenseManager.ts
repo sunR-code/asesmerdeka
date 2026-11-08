@@ -133,13 +133,43 @@ export function computeLicenseCodeForDevice(deviceId: string): string {
 }
 
 /**
- * Menghasilkan kode lisensi serial bertanda tangan checksum (Untuk Voucher Mayar / Bibi / Sekolah)
+ * Menghasilkan kode lisensi terenkripsi dengan tanda tangan HMAC (Format: ASM-XXXX-XXXX-XXXX-XXXX)
+ * Tidak menampilkan nomor urut (seperti MAYAR001) secara polos sehingga tidak dapat ditebak.
  */
 export function computeSerialLicenseCode(rawBody: string): string {
   const cleanBody = rawBody.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 12) || 'GURU2026';
   const paddedBody = cleanBody.padEnd(6, 'X');
-  const check = computeHash36(`SERIAL:${paddedBody}:ASESMERDEKA_2026`).slice(0, 4);
-  return `PRO-MERDEKA-${paddedBody}-${check}`;
+
+  let prefix = 'GM26';
+  if (paddedBody.startsWith('SOLO') || paddedBody.startsWith('1DEV') || paddedBody.startsWith('LOCK')) {
+    prefix = 'SL26';
+  } else if (paddedBody.startsWith('SEKOLAHPRO') || paddedBody.startsWith('SCHPRO')) {
+    prefix = 'SP26';
+  } else if (
+    paddedBody.startsWith('SEKOLAH') ||
+    paddedBody.startsWith('SMAN') ||
+    paddedBody.startsWith('SMPN') ||
+    paddedBody.startsWith('SDN') ||
+    paddedBody.startsWith('SCH')
+  ) {
+    prefix = 'SK26';
+  } else if (paddedBody.startsWith('PROAI') || paddedBody.startsWith('GURUPRO')) {
+    prefix = 'GP26';
+  }
+
+  const cipher1 = computeHash36(`ASM_ENC_C1_V2:${prefix}:${paddedBody}:9F8E7D6C_SALT`)
+    .padStart(4, '7')
+    .slice(0, 4);
+  const cipher2 = computeHash36(`ASM_ENC_C2_V2:${prefix}:${cipher1}:4B3A2918_KEY`)
+    .padStart(4, '9')
+    .slice(0, 4);
+  const sig = computeHash36(
+    `ASM_HMAC_SIG_V2:${prefix}-${cipher1}-${cipher2}:ASESMERDEKA_2026_MASTER`
+  )
+    .padStart(4, 'X')
+    .slice(0, 4);
+
+  return `ASM-${prefix}-${cipher1}-${cipher2}-${sig}`;
 }
 
 /**
@@ -221,6 +251,14 @@ export function getMaxDevicesForLicenseCode(rawCode: string): number {
   }
 
   const parts = cleanCode.split('-');
+
+  // Format Terenkripsi Baru: ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG>
+  if (parts.length === 5 && parts[0] === 'ASM') {
+    const prefix = parts[1];
+    if (prefix === 'SL26') return 1;
+    if (prefix === 'SK26' || prefix === 'SP26') return DEFAULT_SEKOLAH_MAX_DEVICES;
+    if (prefix === 'GM26' || prefix === 'GP26') return getConfiguredIndividuMaxDevices();
+  }
 
   // Format 3 segmen adalah kode kunci 1 perangkat (PRO-MERDEKA-XXXXXX)
   if (parts.length === 3 && parts[0] === 'PRO' && parts[1] === 'MERDEKA') {
@@ -492,16 +530,19 @@ function isMayarVerifiedCodeForDevice(cleanCode: string, deviceId: string): bool
 export async function verifyMayarLicenseOnline(
   rawCode: string,
   deviceId?: string
-): Promise<{ valid: boolean; planType?: 'individu' | 'sekolah'; maxSeats?: number; message?: string }> {
+): Promise<{
+  valid: boolean;
+  planType?: 'individu' | 'sekolah';
+  usedSeats?: number;
+  maxSeats?: number;
+  seatLimitExceeded?: boolean;
+  message?: string;
+}> {
   const cleanCode = normalizeLicenseCodeInput(rawCode);
   const activeDevice = (deviceId || getOrCreateDeviceId()).trim().toUpperCase();
 
-  // 1. Jika kode sudah cocok dengan algoritma internal (PRO-MERDEKA-...), langsung valid tanpa perlu jaringan
-  if (isValidLicenseCode(cleanCode, activeDevice)) {
-    return { valid: true };
-  }
-
-  // 2. Hubungi endpoint serverless aman /api/activate-license
+  // 1. Hubungi endpoint serverless aman /api/activate-license terlebih dahulu
+  // agar Upstash Redis mengunci batas maksimal perangkat lintas HP & Laptop (Anti-Share ke perangkat ke-3)
   try {
     const response = await fetch('/api/activate-license', {
       method: 'POST',
@@ -516,6 +557,19 @@ export async function verifyMayarLicenseOnline(
 
     const data = await response.json().catch(() => null);
 
+    // Jika server menolak karena kursi perangkat sudah penuh (misal 2/2 perangkat sudah dipakai di Laptop & HP)
+    if (response.status === 403 || data?.seatLimitExceeded) {
+      return {
+        valid: false,
+        seatLimitExceeded: true,
+        usedSeats: data?.usedSeats,
+        maxSeats: data?.maxSeats,
+        message:
+          data?.message ||
+          'Aktivasi Ditolak! Kode lisensi ini telah mencapai batas maksimal perangkat (1 Laptop + 1 HP) dan tidak dapat digunakan di perangkat ke-3.',
+      };
+    }
+
     if (response.ok && data?.valid) {
       const planType = data.planType === 'sekolah' ? 'sekolah' : 'individu';
       const maxSeats =
@@ -525,9 +579,15 @@ export async function verifyMayarLicenseOnline(
       return {
         valid: true,
         planType,
+        usedSeats: data.usedSeats,
         maxSeats,
         message: data.message,
       };
+    }
+
+    // Jika kode cocok algoritma internal tapi /api/activate-license belum mengenali (misal dev lokal lama)
+    if (isValidLicenseCode(cleanCode, activeDevice)) {
+      return { valid: true };
     }
 
     if (data?.message) {
@@ -537,7 +597,10 @@ export async function verifyMayarLicenseOnline(
       };
     }
   } catch {
-    // Jika offline atau server belum siap
+    // 2. Fallback jika sedang offline / tidak ada jaringan internet: cek algoritma internal
+    if (isValidLicenseCode(cleanCode, activeDevice)) {
+      return { valid: true };
+    }
   }
 
   return {
@@ -614,8 +677,32 @@ export function isValidLicenseCode(rawCode: string, deviceId: string): boolean {
     return true;
   }
 
-  // 2. Cek format serial bertanda tangan: PRO-MERDEKA-<BODY>-<4CHAR_CHECKSUM>
+  // 2. Cek format terenkripsi baru: ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG>
   const parts = cleanCode.split('-');
+  if (parts.length === 5 && parts[0] === 'ASM') {
+    const prefix = parts[1];
+    const cipher1 = parts[2];
+    const cipher2 = parts[3];
+    const providedSig = parts[4];
+    if (
+      ['GM26', 'SK26', 'GP26', 'SP26', 'SL26'].includes(prefix) &&
+      cipher1.length === 4 &&
+      cipher2.length === 4 &&
+      providedSig.length === 4
+    ) {
+      const expectedCipher2 = computeHash36(`ASM_ENC_C2_V2:${prefix}:${cipher1}:4B3A2918_KEY`)
+        .padStart(4, '9')
+        .slice(0, 4);
+      const expectedSig = computeHash36(
+        `ASM_HMAC_SIG_V2:${prefix}-${cipher1}-${cipher2}:ASESMERDEKA_2026_MASTER`
+      )
+        .padStart(4, 'X')
+        .slice(0, 4);
+      return cipher2 === expectedCipher2 && providedSig === expectedSig;
+    }
+  }
+
+  // 3. Cek format serial legacy: PRO-MERDEKA-<BODY>-<4CHAR_CHECKSUM>
   if (parts.length === 4 && parts[0] === 'PRO' && parts[1] === 'MERDEKA') {
     const body = parts[2];
     const providedCheck = parts[3];
@@ -817,11 +904,21 @@ export function activateLicense(licenseCode: string): {
 
   // Deteksi Tier Lisensi dari jenis kode
   let targetTier: LicenseTier = 'guru';
-  if (cleanCode.includes('SEKOLAH-PRO') || cleanCode.includes('SCH-PRO')) {
+  if (
+    cleanCode.startsWith('ASM-SP26-') ||
+    cleanCode.includes('SEKOLAH-PRO') ||
+    cleanCode.includes('SCH-PRO')
+  ) {
     targetTier = 'sekolah_pro';
-  } else if (cleanCode.includes('PRO-AI') || cleanCode.includes('PLUS') || cleanCode.includes('GURU-PRO')) {
+  } else if (
+    cleanCode.startsWith('ASM-GP26-') ||
+    cleanCode.includes('PRO-AI') ||
+    cleanCode.includes('PLUS') ||
+    cleanCode.includes('GURU-PRO')
+  ) {
     targetTier = 'pro';
   } else if (
+    cleanCode.startsWith('ASM-SK26-') ||
     seatCheck.maxSeats > 5 ||
     cleanCode.includes('SEKOLAH') ||
     cleanCode.includes('SMAN') ||
@@ -851,6 +948,22 @@ export function activateLicense(licenseCode: string): {
     usedSeats: seatCheck.usedSeats,
     maxSeats: seatCheck.maxSeats,
   };
+}
+
+/**
+ * Menonaktifkan lisensi pada perangkat saat ini jika server mendeteksi perangkat ini melebihi batas kursi (misal perangkat ke-3)
+ */
+export function revokeLicenseToPreviewMode(): UserQuota {
+  const deviceId = getOrCreateDeviceId();
+  const revoked: UserQuota = {
+    tier: 'free',
+    remainingCredits: 0,
+    maxCredits: 0,
+    deviceId,
+    lastResetDate: getTodayDateStr(),
+  };
+  saveQuotaWithSignature(revoked);
+  return revoked;
 }
 
 export function getSavedGeminiKey(): string {
