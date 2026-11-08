@@ -22,6 +22,8 @@ const PII_KEYS = new Set([
   'namasekolah',
   'namaguru',
   'nip',
+  'nipguru',
+  'nip_guru',
   'alamatsekolah',
   'kotasekolah',
   'kontak',
@@ -31,14 +33,19 @@ const PII_KEYS = new Set([
   'nomorhp',
   'telp',
   'kepalasekolah',
+  'namakepsek',
   'namakepalasekolah',
+  'nipkepsek',
   'nipkepalasekolah',
+  'nip_kepala_sekolah',
   'kopsekolah',
   'logosekolah',
   'tahunajaran',
   'semester',
   'namasiswa',
   'nisn',
+  'identitasguru',
+  'profilguru',
 ]);
 
 /**
@@ -85,7 +92,8 @@ export function sanitizeCurriculumForSharing(doc) {
   if (!doc || typeof doc !== 'object') return {};
   const cleaned = {};
   for (const [key, value] of Object.entries(doc)) {
-    if (!PII_KEYS.has(key.toLowerCase())) {
+    const lower = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!PII_KEYS.has(lower) && !lower.startsWith('nip')) {
       cleaned[key] = value;
     }
   }
@@ -94,10 +102,13 @@ export function sanitizeCurriculumForSharing(doc) {
 
 /**
  * Validasi kualitas minimal draf kurikulum (Anti-Vandalisme / Anti-Draf Rusak)
+ * Mendukung dokumen Modul Ajar dan dokumen LKPD dengan varian stimulus objek
  */
 function isValidCurriculumData(data) {
   if (!data || typeof data !== 'object') return false;
-  const materi = String(data.materiPokok || data.judul || '').trim();
+  const materi = String(
+    data.materiPokok || data.judul || data.judulAktivitas || data.topik || ''
+  ).trim();
   if (materi.length < 3) return false;
 
   const hasPemahaman =
@@ -106,27 +117,49 @@ function isValidCurriculumData(data) {
     (Array.isArray(data.pertanyaanPemantik) && data.pertanyaanPemantik.length > 0) ||
     (typeof data.pertanyaanPemantik === 'string' && data.pertanyaanPemantik.trim().length >= 5);
   const hasLangkah =
-    Array.isArray(data.langkahPembelajaran) && data.langkahPembelajaran.length > 0;
-  const hasStimulus =
-    typeof data.stimulusKasus === 'string' && data.stimulusKasus.trim().length >= 5;
+    (Array.isArray(data.langkahPembelajaran) && data.langkahPembelajaran.length > 0) ||
+    (Array.isArray(data.kegiatanPembelajaran) && data.kegiatanPembelajaran.length > 0);
   const hasKegiatanInti =
     (Array.isArray(data.kegiatanInti) && data.kegiatanInti.length > 0) ||
     (typeof data.kegiatanInti === 'string' && data.kegiatanInti.trim().length >= 5);
+  const hasStimulus =
+    (typeof data.stimulusKasus === 'string' && data.stimulusKasus.trim().length >= 5) ||
+    (data.stimulusKasus &&
+      typeof data.stimulusKasus === 'object' &&
+      ((typeof data.stimulusKasus.teks === 'string' && data.stimulusKasus.teks.trim().length >= 5) ||
+        (typeof data.stimulusKasus.judul === 'string' &&
+          data.stimulusKasus.judul.trim().length >= 3)));
+  const hasPetunjuk =
+    (Array.isArray(data.petunjukPengerjaan) && data.petunjukPengerjaan.length > 0) ||
+    (typeof data.petunjukPengerjaan === 'string' && data.petunjukPengerjaan.trim().length >= 5);
+  const hasLkpdArchetype =
+    Boolean(data.eksperimenData && typeof data.eksperimenData === 'object') ||
+    Boolean(data.diferensiasiData && typeof data.diferensiasiData === 'object') ||
+    Boolean(data.proyekData && typeof data.proyekData === 'object');
 
-  return hasPemahaman || hasPemantik || hasLangkah || hasStimulus || hasKegiatanInti;
+  return (
+    hasPemahaman ||
+    hasPemantik ||
+    hasLangkah ||
+    hasStimulus ||
+    hasKegiatanInti ||
+    hasPetunjuk ||
+    hasLkpdArchetype
+  );
 }
 
 /**
  * Memeriksa keabsahan kode lisensi resmi untuk hak publikasi ke Bank Komunitas
+ * Mendukung kode serial multi-perangkat dan kode khusus 1-perangkat (ASM-DV26-...)
  */
-function isAuthorizedLicense(code) {
+function isAuthorizedLicense(code, deviceId) {
   if (!code || typeof code !== 'string') return false;
   const cleanCode = code
     .replace(/[\u2010-\u2015\u2212]/g, '-')
     .replace(/[^A-Za-z0-9-]/g, '')
     .toUpperCase();
   if (!cleanCode) return false;
-  if (verifyInternalSerialOrDeviceCode(cleanCode)) return true;
+  if (verifyInternalSerialOrDeviceCode(cleanCode, deviceId)) return true;
   if (OFFICIAL_SEEDED_LICENSES.some((l) => l.code === cleanCode)) return true;
   return false;
 }
@@ -260,6 +293,7 @@ export default async function handler(req, res) {
         materiPokok,
         model,
         licenseCode,
+        deviceId,
         data,
       } = body;
 
@@ -282,7 +316,7 @@ export default async function handler(req, res) {
         .replace(/[^A-Za-z0-9-]/g, '')
         .toUpperCase();
 
-      if (!isAuthorizedLicense(cleanCode)) {
+      if (!isAuthorizedLicense(cleanCode, deviceId)) {
         return res.status(403).json({
           ok: false,
           message: 'Akses ditolak. Memerlukan kode lisensi resmi yang sah untuk mempublikasikan kurikulum.',

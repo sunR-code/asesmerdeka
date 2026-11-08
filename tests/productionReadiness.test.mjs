@@ -1704,6 +1704,7 @@ test('AUD-222: Serverless /api/shared-curriculum mengelola Bank Referensi Modul 
     namaSekolah: 'SMP Negeri 1 Merdeka',
     namaGuru: 'Budi Santoso, S.Pd.',
     nip: '198501012010011001',
+    nipGuru: '198501012010011001',
     alamatSekolah: 'Jl. Merdeka No. 45',
     materiPokok: 'Teorema Pythagoras',
     pemahamanBermakna: 'Memahami hubungan sisi segitiga siku-siku dalam arsitektur.',
@@ -1713,6 +1714,7 @@ test('AUD-222: Serverless /api/shared-curriculum mengelola Bank Referensi Modul 
   assert.equal(sanitized.namaSekolah, undefined);
   assert.equal(sanitized.namaGuru, undefined);
   assert.equal(sanitized.nip, undefined);
+  assert.equal(sanitized.nipGuru, undefined);
   assert.equal(sanitized.alamatSekolah, undefined);
   assert.equal(sanitized.materiPokok, 'Teorema Pythagoras');
 
@@ -1798,6 +1800,66 @@ test('AUD-222: Serverless /api/shared-curriculum mengelola Bank Referensi Modul 
   );
   assert.equal(badPostRes.result.statusCode, 400);
   assert.equal(badPostRes.result.body?.ok, false);
+
+  // 6. POST dokumen LKPD riil dengan stimulusKasus berbentuk objek diterima dengan sukses
+  const lkpdPostRes = makeMockRes();
+  await sharedHandler(
+    {
+      method: 'POST',
+      body: {
+        type: 'lkpd',
+        jenjang: 'SMP',
+        kelas: '8',
+        mapel: 'Matematika',
+        tpKode: '8.1',
+        materiPokok: 'Teorema Pythagoras',
+        model: 'pbl',
+        licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
+        data: {
+          judul: 'Eksplorasi Pembuktian Teorema Pythagoras',
+          materiPokok: 'Teorema Pythagoras',
+          petunjukPengerjaan: ['Bekerjalah dalam kelompok 4 orang', 'Gunakan kertas berpetak'],
+          stimulusKasus: {
+            judul: 'Arsitektur Tangga Darurat Gedung Bertingkat',
+            teks: 'Sebuah tangga darurat disandarkan pada dinding gedung dengan tinggi 12 meter dan jarak kaki tangga ke dinding 5 meter. Berapa panjang tangga yang aman?',
+            pertanyaanAwal: 'Bagaimana membuktikan panjang tangga tanpa mengukur langsung?',
+          },
+        },
+      },
+    },
+    lkpdPostRes
+  );
+  assert.equal(lkpdPostRes.result.statusCode, 200);
+  assert.equal(lkpdPostRes.result.body?.ok, true);
+
+  // 7. POST menggunakan lisensi 1-perangkat (ASM-DV26-...) dengan deviceId yang cocok diterima
+  const devId = 'DEV-GURU-TEST-01';
+  const devLicense = licenseManager.computeLicenseCodeForDevice(devId);
+  const devPostRes = makeMockRes();
+  await sharedHandler(
+    {
+      method: 'POST',
+      body: {
+        type: 'modul_ajar',
+        jenjang: 'SMP',
+        kelas: '8',
+        mapel: 'Matematika',
+        tpKode: '8.1',
+        materiPokok: 'Teorema Pythagoras',
+        model: 'pbl',
+        licenseCode: devLicense,
+        deviceId: devId,
+        data: {
+          materiPokok: 'Teorema Pythagoras',
+          pemahamanBermakna: 'Memahami hubungan kuadrat sisi miring segitiga siku-siku.',
+          pertanyaanPemantik: ['Bagaimana memastikan sudut siku?'],
+        },
+      },
+    },
+    devPostRes
+  );
+  assert.equal(devPostRes.result.statusCode, 200);
+  assert.equal(devPostRes.result.body?.ok, true);
 });
 
 
