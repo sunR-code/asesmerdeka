@@ -11,6 +11,7 @@ import type {
   CreateLicensePayload,
 } from '../types/admin';
 import { ADMIN_PLAN_META } from '../types/admin';
+import { OFFICIAL_SEEDED_LICENSES } from '../data/officialSeeds';
 import {
   computeSerialLicenseCode,
   verifyAdminKeygenPin,
@@ -20,6 +21,7 @@ import {
 
 export const STORAGE_KEY_ADMIN_SESSION_PIN = 'asesmerdeka_admin_session_pin_v1';
 export const STORAGE_KEY_OFFLINE_ADMIN_LICENSES = 'asesmerdeka_offline_admin_licenses_v1';
+export const STORAGE_KEY_DELETED_LICENSES = 'asesmerdeka_deleted_licenses_v1';
 
 let inMemorySessionPin = '';
 const inMemoryLicensesStore: AdminLicenseItem[] = [];
@@ -191,6 +193,33 @@ export async function verifyAdminSession(
   }
 }
 
+function getDeletedLicenseCodes(): string[] {
+  try {
+    const storage = getLocalStorage();
+    if (!storage) return [];
+    const raw = storage.getItem(STORAGE_KEY_DELETED_LICENSES);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDeletedLicenseCode(cleanCode: string): void {
+  try {
+    const storage = getLocalStorage();
+    if (!storage) return;
+    const current = getDeletedLicenseCodes();
+    if (!current.includes(cleanCode)) {
+      current.push(cleanCode);
+      storage.setItem(STORAGE_KEY_DELETED_LICENSES, JSON.stringify(current));
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function fetchOfflineAdminLicenses(
   cleanPin: string
 ): { ok: boolean; licenses: AdminLicenseItem[]; message: string } {
@@ -202,7 +231,47 @@ function fetchOfflineAdminLicenses(
     };
   }
 
-  const rawList = getStoredAdminLicenses();
+  const storedList = getStoredAdminLicenses();
+  const deletedCodes = getDeletedLicenseCodes();
+  const map = new Map<string, AdminLicenseItem>();
+
+  // 1. Masukkan lisensi yang disimpan di local storage (misal via formulir generator admin)
+  for (const item of storedList) {
+    if (item && item.code && !deletedCodes.includes(item.code)) {
+      map.set(item.code, { ...item });
+    }
+  }
+
+  // 2. Masukkan master seeds resmi jika belum ada dan belum dihapus
+  for (const seed of OFFICIAL_SEEDED_LICENSES) {
+    if (!map.has(seed.code) && !deletedCodes.includes(seed.code)) {
+      map.set(seed.code, { ...seed });
+    }
+  }
+
+  // 3. Sinkronisasikan lisensi yang sedang aktif pada browser/perangkat ini
+  try {
+    const storage = getLocalStorage();
+    const rawQuota = storage?.getItem('asesmerdeka_user_quota');
+    if (rawQuota) {
+      const quota = JSON.parse(rawQuota);
+      const activeCode = normalizeLicenseCodeInput(quota?.licenseCode || '');
+      if (activeCode && map.has(activeCode)) {
+        const item = map.get(activeCode)!;
+        const dev = String(quota.deviceId || '').trim().toUpperCase();
+        if (dev && (!item.devices || !item.devices.includes(dev))) {
+          item.devices = item.devices ? [...item.devices, dev] : [dev];
+        }
+        item.usedSeats = item.devices?.length || 1;
+        item.status = 'aktif';
+        map.set(activeCode, item);
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  const rawList = Array.from(map.values());
   const enriched = rawList.map((item) => {
     const seatStatus = getLicenseSeatStatus(item.code);
     const devices = seatStatus.devices?.length ? seatStatus.devices : item.devices || [];
@@ -216,6 +285,13 @@ function fetchOfflineAdminLicenses(
       usedSeats,
       status,
     };
+  });
+
+  // Urutkan: lisensi aktif selalu di paling atas
+  enriched.sort((a, b) => {
+    if (a.status === 'aktif' && b.status !== 'aktif') return -1;
+    if (a.status !== 'aktif' && b.status === 'aktif') return 1;
+    return (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '');
   });
 
   return {
@@ -514,6 +590,7 @@ export async function resetAdminLicenseSeats(
 }
 
 function deleteLocalLicense(cleanCode: string): void {
+  saveDeletedLicenseCode(cleanCode);
   const list = getStoredAdminLicenses();
   const next = list.filter((l) => l.code !== cleanCode);
   saveStoredAdminLicenses(next);

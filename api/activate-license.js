@@ -113,6 +113,11 @@ export async function checkAndClaimServerSeat(cleanCode, deviceId, maxSeats) {
   const devices = Array.isArray(existing?.devices) ? [...existing.devices] : [];
 
   if (devices.includes(cleanDev)) {
+    await autoRegisterLicenseInAdminRegistry({
+      code: cleanCode,
+      maxSeats,
+      deviceId: cleanDev,
+    });
     return {
       allowed: true,
       usedSeats: devices.length,
@@ -140,12 +145,109 @@ export async function checkAndClaimServerSeat(cleanCode, deviceId, maxSeats) {
   };
   await saveSeatRecordToRedis(cleanCode, updatedRecord);
 
+  await autoRegisterLicenseInAdminRegistry({
+    code: cleanCode,
+    maxSeats,
+    deviceId: cleanDev,
+  });
+
   return {
     allowed: true,
     usedSeats: devices.length,
     maxSeats,
     devices,
   };
+}
+
+export async function autoRegisterLicenseInAdminRegistry({
+  code,
+  maxSeats,
+  deviceId,
+  label,
+  planType,
+  tier,
+}) {
+  const REGISTRY_REDIS_KEY = 'asesmerdeka:admin:license_registry:v1';
+  const cleanCode = normalizeLicenseCode(code);
+  if (!cleanCode) return;
+
+  const derivedPlanType =
+    planType ||
+    (cleanCode.startsWith('ASM-SK26-') || cleanCode.startsWith('ASM-SP26-') || maxSeats >= 25
+      ? 'sekolah'
+      : cleanCode.startsWith('ASM-SL26-')
+      ? 'solo'
+      : 'individu');
+
+  const derivedTier =
+    tier ||
+    (derivedPlanType === 'sekolah'
+      ? 'sekolah'
+      : cleanCode.startsWith('ASM-GP26-')
+      ? 'pro'
+      : 'guru');
+
+  const derivedMaxSeats = Number(maxSeats) || (derivedPlanType === 'sekolah' ? 25 : 2);
+  const nowIso = new Date().toISOString();
+
+  const { url, token, configured } = getRedisCredentials();
+  if (!configured) {
+    return;
+  }
+
+  const endpoint = `${url.replace(/\/$/, '')}/get/${encodeURIComponent(REGISTRY_REDIS_KEY)}`;
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    let list = [];
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data?.result) {
+        const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+        if (Array.isArray(parsed)) list = parsed;
+      }
+    }
+
+    const idx = list.findIndex((l) => l.code === cleanCode);
+    if (idx >= 0) {
+      list[idx].updatedAt = nowIso;
+      if (deviceId) {
+        if (!Array.isArray(list[idx].devices)) list[idx].devices = [];
+        if (!list[idx].devices.includes(deviceId)) {
+          list[idx].devices.push(deviceId);
+        }
+        list[idx].usedSeats = list[idx].devices.length;
+        list[idx].status = 'aktif';
+      }
+    } else {
+      list.unshift({
+        code: cleanCode,
+        label: label || `Aktivasi Mandiri (${deviceId || 'Perangkat'})`,
+        planType: derivedPlanType,
+        tier: derivedTier,
+        maxSeats: derivedMaxSeats,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        usedSeats: deviceId ? 1 : 0,
+        devices: deviceId ? [deviceId] : [],
+        status: deviceId ? 'aktif' : 'belum_aktif',
+      });
+    }
+
+    const saveEndpoint = `${url.replace(/\/$/, '')}/set/${encodeURIComponent(REGISTRY_REDIS_KEY)}`;
+    await fetch(saveEndpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(list),
+    });
+  } catch {
+    // ignore
+  }
 }
 
 function verifyInternalSerialOrDeviceCode(cleanCode, deviceId) {

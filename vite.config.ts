@@ -7,19 +7,18 @@ function devApiPlugin(): Plugin {
     name: 'dev-api-middleware',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (
-          (req.url === '/api/activate-license' ||
-            req.url === '/api/gemini' ||
-            req.url === '/api/cloud-sync') &&
-          req.method === 'POST'
-        ) {
+        const urlPath = (req.url || '').split('?')[0];
+        const apiModules: Record<string, string> = {
+          '/api/activate-license': './api/activate-license.js',
+          '/api/gemini': './api/gemini.js',
+          '/api/cloud-sync': './api/cloud-sync.js',
+          '/api/admin-portal': './api/admin-portal.js',
+          '/api/feedback-reports': './api/feedback-reports.js',
+        };
+
+        const modulePath = apiModules[urlPath];
+        if (modulePath) {
           try {
-            const modulePath =
-              req.url === '/api/gemini'
-                ? './api/gemini.js'
-                : req.url === '/api/cloud-sync'
-                ? './api/cloud-sync.js'
-                : './api/activate-license.js';
             // @ts-ignore -- dev server dynamic import
             const { default: handler } = await import(/* @vite-ignore */ modulePath);
             let body = '';
@@ -28,7 +27,7 @@ function devApiPlugin(): Plugin {
             });
             req.on('end', async () => {
               try {
-                (req as any).body = JSON.parse(body || '{}');
+                (req as any).body = body ? JSON.parse(body) : {};
               } catch {
                 (req as any).body = {};
               }

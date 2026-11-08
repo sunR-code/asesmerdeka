@@ -5,6 +5,7 @@ import {
   saveSeatRecordToRedis,
   deleteSeatRecordFromRedis,
 } from './activate-license.js';
+import { OFFICIAL_SEEDED_LICENSES } from './officialSeeds.js';
 
 /**
  * Vercel Serverless Function: /api/admin-portal
@@ -77,24 +78,49 @@ function safeParseJson(raw) {
 
 async function getRegistryFromRedis() {
   const { url, token, configured } = getRedisCredentials();
+  let redisList = [];
+
   if (!configured) {
-    return [...localLicenseRegistryStore];
+    redisList = [...localLicenseRegistryStore];
+  } else {
+    const endpoint = `${url.replace(/\/$/, '')}/get/${encodeURIComponent(REGISTRY_REDIS_KEY)}`;
+    try {
+      const res = await fetch(endpoint, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.result) {
+          const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+          if (Array.isArray(parsed)) {
+            redisList = parsed;
+          }
+        }
+      }
+    } catch {
+      redisList = [...localLicenseRegistryStore];
+    }
   }
 
-  const endpoint = `${url.replace(/\/$/, '')}/get/${encodeURIComponent(REGISTRY_REDIS_KEY)}`;
-  try {
-    const res = await fetch(endpoint, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return [...localLicenseRegistryStore];
-    const data = await res.json().catch(() => null);
-    if (!data || !data.result) return [];
-    const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [...localLicenseRegistryStore];
+  // Gabungkan OFFICIAL_SEEDED_LICENSES dengan redisList
+  const map = new Map();
+  // 1. Masukkan lisensi dari Redis / Store dinamis terlebih dahulu
+  for (const item of redisList) {
+    if (item && item.code) {
+      map.set(item.code, { ...item });
+    }
   }
+
+  // 2. Masukkan master seeds resmi jika belum ada di peta
+  for (const seed of OFFICIAL_SEEDED_LICENSES) {
+    if (!map.has(seed.code)) {
+      map.set(seed.code, { ...seed });
+    }
+  }
+
+  // Filter out any explicitly deleted items
+  return Array.from(map.values()).filter((item) => !item.deleted);
 }
 
 async function saveRegistryToRedis(registryList) {
@@ -189,7 +215,11 @@ export default async function handler(req, res) {
       const licenses = await Promise.all(
         rawLicenses.map(async (item) => {
           const seatRecord = await getSeatRecordFromRedis(item.code);
-          const devices = Array.isArray(seatRecord?.devices) ? seatRecord.devices : [];
+          const devices = Array.isArray(seatRecord?.devices)
+            ? seatRecord.devices
+            : Array.isArray(item.devices)
+            ? item.devices
+            : [];
           const maxSeats = Number(seatRecord?.maxSeats) || Number(item.maxSeats) || 1;
           const usedSeats = devices.length;
           const status = usedSeats > 0 ? 'aktif' : 'belum_aktif';
@@ -203,6 +233,13 @@ export default async function handler(req, res) {
           };
         })
       );
+
+      // Urutkan: lisensi aktif di paling atas, kemudian berdasarkan pembaruan terbaru
+      licenses.sort((a, b) => {
+        if (a.status === 'aktif' && b.status !== 'aktif') return -1;
+        if (a.status !== 'aktif' && b.status === 'aktif') return 1;
+        return (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '');
+      });
 
       return res.status(200).json({
         ok: true,
@@ -342,9 +379,11 @@ export default async function handler(req, res) {
       // Hapus data kursi
       await deleteSeatRecordFromRedis(cleanCode);
 
-      // Hapus dari registri
+      // Hapus dari registri dan tandai terhapus agar master seeds tidak memunculkan kembali
       const currentRegistry = await getRegistryFromRedis();
-      const nextRegistry = currentRegistry.filter((l) => l.code !== cleanCode);
+      const nextRegistry = currentRegistry
+        .filter((l) => l.code !== cleanCode)
+        .concat([{ code: cleanCode, deleted: true }]);
       await saveRegistryToRedis(nextRegistry);
 
       return res.status(200).json({
