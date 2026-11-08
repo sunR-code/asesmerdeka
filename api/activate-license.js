@@ -104,6 +104,77 @@ export async function deleteSeatRecordFromRedis(cleanCode) {
   }).catch(() => null);
 }
 
+const REVOKED_REDIS_KEY = 'asesmerdeka:admin:revoked_licenses:v1';
+export const localRevokedLicensesSet = new Set();
+
+export async function isLicenseRevokedInRedis(cleanCode) {
+  const code = normalizeLicenseCode(cleanCode);
+  if (!code) return false;
+
+  const { url, token, configured } = getRedisCredentials();
+  if (!configured) {
+    return localRevokedLicensesSet.has(code);
+  }
+
+  const endpoint = `${url.replace(/\/$/, '')}/get/${encodeURIComponent(REVOKED_REDIS_KEY)}`;
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return localRevokedLicensesSet.has(code);
+    const data = await res.json().catch(() => null);
+    if (!data?.result) return localRevokedLicensesSet.has(code);
+    const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+    if (Array.isArray(parsed)) {
+      return parsed.includes(code);
+    }
+    return false;
+  } catch {
+    return localRevokedLicensesSet.has(code);
+  }
+}
+
+export async function revokeLicenseInRedis(cleanCode) {
+  const code = normalizeLicenseCode(cleanCode);
+  if (!code) return;
+
+  localRevokedLicensesSet.add(code);
+
+  const { url, token, configured } = getRedisCredentials();
+  if (!configured) return;
+
+  const endpoint = `${url.replace(/\/$/, '')}/get/${encodeURIComponent(REVOKED_REDIS_KEY)}`;
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    let list = [];
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data?.result) {
+        const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+        if (Array.isArray(parsed)) list = parsed;
+      }
+    }
+    if (!list.includes(code)) {
+      list.push(code);
+    }
+    const setEndpoint = `${url.replace(/\/$/, '')}/set/${encodeURIComponent(REVOKED_REDIS_KEY)}`;
+    await fetch(setEndpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(list),
+    });
+  } catch {
+    // ignore
+  }
+}
+
 export async function checkAndClaimServerSeat(cleanCode, deviceId, maxSeats) {
   const cleanDev = String(deviceId || '').trim().toUpperCase();
   if (!cleanDev) {
@@ -354,6 +425,37 @@ export default async function handler(req, res) {
 
     if (!rawCode) {
       return res.status(400).json({ valid: false, message: 'Kode lisensi tidak boleh kosong.' });
+    }
+
+    // Tolak permanen jika lisensi ini telah dihapus atau dicabut oleh Administrator
+    if (await isLicenseRevokedInRedis(rawCode)) {
+      return res.status(403).json({
+        valid: false,
+        revoked: true,
+        message: 'Kode lisensi ini telah dicabut atau dinonaktifkan oleh Administrator.',
+      });
+    }
+
+    // Action: check_status untuk memvalidasi apakah perangkat pengguna masih terikat pada lisensi aktif
+    if (action === 'check_status') {
+      const seatRecord = await getSeatRecordFromRedis(rawCode);
+      const devices = Array.isArray(seatRecord?.devices) ? seatRecord.devices : [];
+      const cleanDev = String(_deviceId || '').trim().toUpperCase();
+
+      if (!seatRecord || (cleanDev && !devices.includes(cleanDev))) {
+        return res.status(200).json({
+          valid: false,
+          unbound: true,
+          message: 'Perangkat ini telah dilepas dari kunci lisensi oleh Administrator.',
+        });
+      }
+
+      return res.status(200).json({
+        valid: true,
+        planType: seatRecord.maxSeats > 5 ? 'sekolah' : 'individu',
+        usedSeats: devices.length,
+        maxSeats: seatRecord.maxSeats,
+      });
     }
 
     // Tolak permanen kode lisensi versi lama (PRO-MERDEKA-... atau ASES-...) dan instruksikan klien mereset perangkat

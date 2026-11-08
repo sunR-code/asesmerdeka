@@ -35,6 +35,8 @@ import {
   isLicensed,
   getTierDisplayName,
   getTierBadgeLabel,
+  verifyActiveLicenseWithServer,
+  getUserQuota,
 } from '../utils/licenseManager';
 import {
   ONE_TIME_PLANS,
@@ -151,6 +153,26 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  // Validasi live ke server apakah lisensi aktif pada perangkat ini masih sah
+  // (Mendeteksi seketika jika Admin baru saja menghapus lisensi atau melepas perangkat)
+  useEffect(() => {
+    if (!isOpen || !isLicensed(quota.tier) || !quota.licenseKey) return;
+    let active = true;
+    verifyActiveLicenseWithServer().then((res) => {
+      if (!active) return;
+      if (!res.valid) {
+        onUpdateQuota(getUserQuota());
+        setStatusMessage({
+          text: res.message || 'Lisensi pada perangkat ini telah dinonaktifkan atau dihapus oleh Administrator.',
+          isError: true,
+        });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [isOpen, quota.tier, quota.licenseKey, onUpdateQuota]);
 
   if (!isOpen) return null;
 

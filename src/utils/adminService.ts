@@ -17,6 +17,7 @@ import {
   verifyAdminKeygenPin,
   getLicenseSeatStatus,
   normalizeLicenseCodeInput,
+  revokeLicenseToPreviewMode,
 } from './licenseManager';
 
 export const STORAGE_KEY_ADMIN_SESSION_PIN = 'asesmerdeka_admin_session_pin_v1';
@@ -552,6 +553,20 @@ export async function resetAdminLicenseSeats(
     return { ok: false, message: 'Kode lisensi wajib diisi.' };
   }
 
+  // Jika lisensi yang di-reset kursinya adalah lisensi yang sedang dipakai di perangkat browser ini:
+  try {
+    const storage = getLocalStorage();
+    const rawQuota = storage?.getItem('asesmerdeka_user_quota');
+    if (rawQuota) {
+      const quota = JSON.parse(rawQuota);
+      if (normalizeLicenseCodeInput(quota?.licenseKey || '') === cleanCode) {
+        revokeLicenseToPreviewMode();
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   try {
     const res = await fetch('/api/admin-portal', {
       method: 'POST',
@@ -645,6 +660,20 @@ export async function deleteAdminLicense(
   }
   if (!cleanCode) {
     return { ok: false, message: 'Kode lisensi wajib diisi.' };
+  }
+
+  // Jika lisensi yang di-reset kursinya adalah lisensi yang sedang dipakai di perangkat browser ini:
+  try {
+    const storage = getLocalStorage();
+    const rawQuota = storage?.getItem('asesmerdeka_user_quota');
+    if (rawQuota) {
+      const quota = JSON.parse(rawQuota);
+      if (normalizeLicenseCodeInput(quota?.licenseKey || '') === cleanCode) {
+        revokeLicenseToPreviewMode();
+      }
+    }
+  } catch {
+    // ignore
   }
 
   try {

@@ -4,6 +4,7 @@ import {
   getSeatRecordFromRedis,
   saveSeatRecordToRedis,
   deleteSeatRecordFromRedis,
+  revokeLicenseInRedis,
   localLicenseRegistryStore,
 } from './activate-license.js';
 import { OFFICIAL_SEEDED_LICENSES } from './officialSeeds.js';
@@ -366,10 +367,13 @@ export default async function handler(req, res) {
 
       const cleanCode = normalizeLicenseCode(rawCode);
 
-      // Hapus data kursi
+      // 1. Hapus data kursi di Redis
       await deleteSeatRecordFromRedis(cleanCode);
 
-      // Hapus dari registri dan tandai terhapus agar master seeds tidak memunculkan kembali
+      // 2. Masukkan ke daftar hitam pencabutan lisensi (revocation blacklist)
+      await revokeLicenseInRedis(cleanCode);
+
+      // 3. Hapus dari registri dan tandai terhapus agar master seeds tidak memunculkan kembali
       const currentRegistry = await getRegistryFromRedis();
       const nextRegistry = currentRegistry
         .filter((l) => l.code !== cleanCode)

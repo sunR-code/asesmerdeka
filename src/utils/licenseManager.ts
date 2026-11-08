@@ -516,6 +516,7 @@ export async function verifyMayarLicenseOnline(
   usedSeats?: number;
   maxSeats?: number;
   seatLimitExceeded?: boolean;
+  revoked?: boolean;
   message?: string;
 }> {
   const cleanCode = normalizeLicenseCodeInput(rawCode);
@@ -537,16 +538,17 @@ export async function verifyMayarLicenseOnline(
 
     const data = await response.json().catch(() => null);
 
-    // Jika server menolak karena kursi perangkat sudah penuh (misal 2/2 perangkat sudah dipakai di Laptop & HP)
-    if (response.status === 403 || data?.seatLimitExceeded) {
+    // Jika server menolak (dicabut/dihapus oleh Admin, atau kursi perangkat sudah penuh)
+    if (response.status === 403 || data?.revoked || data?.seatLimitExceeded) {
       return {
         valid: false,
-        seatLimitExceeded: true,
+        revoked: Boolean(data?.revoked),
+        seatLimitExceeded: Boolean(data?.seatLimitExceeded),
         usedSeats: data?.usedSeats,
         maxSeats: data?.maxSeats,
         message:
           data?.message ||
-          'Aktivasi Ditolak! Kode lisensi ini telah mencapai batas maksimal perangkat (1 Laptop + 1 HP) dan tidak dapat digunakan di perangkat ke-3.',
+          'Kode lisensi ini tidak valid atau telah dinonaktifkan oleh Administrator.',
       };
     }
 
@@ -562,6 +564,14 @@ export async function verifyMayarLicenseOnline(
         usedSeats: data.usedSeats,
         maxSeats,
         message: data.message,
+      };
+    }
+
+    // Jika server merespons bahwa kode tidak valid secara eksplisit:
+    if (data && data.valid === false) {
+      return {
+        valid: false,
+        message: data.message || 'Kode lisensi tidak valid.',
       };
     }
 
@@ -973,7 +983,64 @@ export function revokeLicenseToPreviewMode(): UserQuota {
     lastResetDate: getTodayDateStr(),
   };
   saveQuotaWithSignature(revoked);
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('asesmerdeka:license-revoked'));
+    }
+  } catch {
+    // ignore
+  }
   return revoked;
+}
+
+/**
+ * Memvalidasi apakah lisensi aktif pada perangkat ini masih sah di server
+ * (Mendeteksi jika lisensi telah dihapus atau dicabut oleh Administrator).
+ */
+export async function verifyActiveLicenseWithServer(): Promise<{
+  valid: boolean;
+  revoked?: boolean;
+  unbound?: boolean;
+  message?: string;
+}> {
+  const currentQuota = getUserQuota();
+  if (!isLicensed(currentQuota.tier) || !currentQuota.licenseKey) {
+    return { valid: true };
+  }
+
+  const cleanCode = normalizeLicenseCodeInput(currentQuota.licenseKey);
+  const activeDevice = currentQuota.deviceId || getOrCreateDeviceId();
+
+  try {
+    const res = await fetch('/api/activate-license', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'check_status',
+        licenseCode: cleanCode,
+        deviceId: activeDevice,
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    // Jika lisensi dihapus/dicabut atau kursi dilepas oleh Administrator:
+    if (res.status === 403 || data?.revoked || data?.unbound || (res.ok && data?.valid === false)) {
+      revokeLicenseToPreviewMode();
+      return {
+        valid: false,
+        revoked: Boolean(data?.revoked),
+        unbound: Boolean(data?.unbound),
+        message:
+          data?.message ||
+          'Lisensi pada perangkat ini telah dinonaktifkan atau dihapus oleh Administrator.',
+      };
+    }
+
+    return { valid: true };
+  } catch {
+    return { valid: true };
+  }
 }
 
 export function getSavedGeminiKey(): string {

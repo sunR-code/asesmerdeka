@@ -246,21 +246,22 @@ export function App() {
   };
 
   // Verifikasi kursi perangkat aktif ke Cloud Redis saat aplikasi dibuka:
-  // Jika perangkat ke-3 mencoba memakai lisensi yang sudah penuh (2/2), otomatis nonaktifkan ke Mode Pratinjau
+  // Jika perangkat ke-3 mencoba memakai lisensi yang sudah penuh (2/2) atau lisensi telah dihapus Admin,
+  // otomatis nonaktifkan ke Mode Pratinjau
   useEffect(() => {
     if (!isLicensed(quota.tier) || !quota.licenseKey) return;
     let active = true;
     verifyMayarLicenseOnline(quota.licenseKey, quota.deviceId)
       .then((res) => {
         if (!active) return;
-        if (res.seatLimitExceeded) {
+        if (res.seatLimitExceeded || res.revoked || !res.valid) {
           const revoked = revokeLicenseToPreviewMode();
           setQuota(revoked);
           setSchoolProfile(getSchoolProfile());
           setIsClassConfirmed(hasConfirmedClassSetup());
           setErrorMessage(
             res.message ||
-              'Lisensi dinonaktifkan pada perangkat ini karena telah mencapai batas maksimal perangkat (1 Laptop + 1 HP pemilik utama).'
+              'Lisensi dinonaktifkan pada perangkat ini oleh Administrator.'
           );
           setIsLicenseModalOpen(true);
         }
@@ -270,6 +271,21 @@ export function App() {
       active = false;
     };
   }, [quota.tier, quota.licenseKey, quota.deviceId]);
+
+  // Dengarkan sinyal pencabutan lisensi langsung saat Admin menghapus lisensi pada browser ini
+  useEffect(() => {
+    const handleLicenseRevoked = () => {
+      setQuota(getUserQuota());
+      setSchoolProfile(getSchoolProfile());
+      setIsClassConfirmed(hasConfirmedClassSetup());
+      setErrorMessage(
+        'Lisensi pada perangkat ini telah dicabut atau dihapus oleh Administrator. Aplikasi kembali ke Mode Pratinjau.'
+      );
+      setIsLicenseModalOpen(true);
+    };
+    window.addEventListener('asesmerdeka:license-revoked', handleLicenseRevoked);
+    return () => window.removeEventListener('asesmerdeka:license-revoked', handleLicenseRevoked);
+  }, []);
 
   // Otomatis sinkronkan perubahan profil kelas/soal ke Cloud (debounced 2.5 detik) jika pengguna memiliki Kode Lisensi aktif
   useEffect(() => {

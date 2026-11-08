@@ -1612,6 +1612,79 @@ test('AUD-220: Integrasi Mayar.id memverifikasi kode pembelian Mayar, auto-regis
   assert.ok(activatedLicense.devices.includes('DEV-AHMAD-LAPTOP'));
 });
 
+test('AUD-221: Menghapus lisensi di Admin Portal langsung mencabut status aktif di aplikasi (Anti-Zombi License)', async () => {
+  const { default: adminHandler } = await import('../api/admin-portal.js');
+  const { default: activateHandler, isLicenseRevokedInRedis } = await import('../api/activate-license.js');
+  const licenseManager = loadTsModule('src/utils/licenseManager.ts');
+  const adminService = loadTsModule('src/utils/adminService.ts');
+
+  const makeMockRes = () => {
+    const out = { statusCode: 200, headers: {}, body: null };
+    return {
+      setHeader(k, v) { out.headers[k] = v; return this; },
+      status(code) { out.statusCode = code; return this; },
+      json(payload) { out.body = payload; return this; },
+      end() { return this; },
+      get result() { return out; },
+    };
+  };
+
+  const testCode = 'ASM-GM26-1C10-WBJV-1D09';
+
+  // 1. Simulasikan laptop mengaktifkan kode lisensi ini
+  const actRes = makeMockRes();
+  await activateHandler(
+    { method: 'POST', body: { licenseCode: testCode, deviceId: 'DEV-TEST-LAPTOP' } },
+    actRes
+  );
+  assert.equal(actRes.result.statusCode, 200);
+
+  // Simulasikan browser laptop menyimpan kuota aktif
+  const localQuota = licenseManager.activateLicense(testCode);
+  assert.equal(localQuota.success, true);
+  assert.equal(licenseManager.getUserQuota().tier, 'guru');
+
+  // 2. Admin membuka Admin Portal dan menghapus lisensi testCode
+  const deleteRes = makeMockRes();
+  await adminHandler(
+    { method: 'POST', body: { adminPin: '141317!@#', action: 'delete_license', licenseCode: testCode } },
+    deleteRes
+  );
+  assert.equal(deleteRes.result.statusCode, 200);
+  assert.equal(deleteRes.result.body?.ok, true);
+
+  // 3. Pastikan kode telah tercatat di revocation blacklist
+  const isRevoked = await isLicenseRevokedInRedis(testCode);
+  assert.equal(isRevoked, true);
+
+  // 4. Laptop mencoba memvalidasi atau memakai kode lagi: ditolak dengan status 403 (revoked)
+  const reActRes = makeMockRes();
+  await activateHandler(
+    { method: 'POST', body: { licenseCode: testCode, deviceId: 'DEV-TEST-LAPTOP' } },
+    reActRes
+  );
+  assert.equal(reActRes.result.statusCode, 403);
+  assert.equal(reActRes.result.body?.revoked, true);
+
+  // 5. Cek status aktif laptop via check_status: ditolak status 403
+  const statusRes = makeMockRes();
+  await activateHandler(
+    { method: 'POST', body: { action: 'check_status', licenseCode: testCode, deviceId: 'DEV-TEST-LAPTOP' } },
+    statusRes
+  );
+  assert.equal(statusRes.result.statusCode, 403);
+  assert.equal(statusRes.result.body?.revoked, true);
+
+  // 6. Admin Service deleteAdminLicense pada browser yang sama langsung me-reset kuota lokal ke 'free'
+  const testCode2 = 'ASM-GM26-13NO-ZH9I-1ORM';
+  licenseManager.activateLicense(testCode2);
+  assert.equal(licenseManager.getUserQuota().tier, 'guru');
+
+  await adminService.deleteAdminLicense('141317!@#', testCode2);
+  // Kuota lokal langsung kembali ke free (0 kuota) tanpa perlu refresh!
+  assert.equal(licenseManager.getUserQuota().tier, 'free');
+});
+
 
 
 
