@@ -1201,6 +1201,192 @@ test('AUD-217: Anti-Bypass Cetak PDF & Guarded Export Toast memblokir aksi unlic
   }
 });
 
+test('AUD-218: Endpoint /api/admin-portal mengamankan registri lisensi, mendukung pembuatan kode, status perangkat, reset kursi, dan hapus lisensi', async () => {
+  const { default: adminHandler } = await import('../api/admin-portal.js');
+
+  const makeMockRes = () => {
+    const out = { statusCode: 200, headers: {}, body: null };
+    return {
+      setHeader(k, v) {
+        out.headers[k] = v;
+        return this;
+      },
+      status(code) {
+        out.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        out.body = payload;
+        return this;
+      },
+      end() {
+        return this;
+      },
+      get result() {
+        return out;
+      },
+    };
+  };
+
+  // 1. Metode selain POST (misal GET) ditolak dengan status 405
+  const getRes = makeMockRes();
+  await adminHandler({ method: 'GET', body: {} }, getRes);
+  assert.equal(getRes.result.statusCode, 405);
+  assert.equal(getRes.result.body?.ok, false);
+
+  // 2. Request tanpa adminPin atau dengan PIN salah ditolak dengan status 403
+  const noPinRes = makeMockRes();
+  await adminHandler({ method: 'POST', body: { action: 'auth' } }, noPinRes);
+  assert.equal(noPinRes.result.statusCode, 403);
+  assert.equal(noPinRes.result.body?.ok, false);
+
+  const wrongPinRes = makeMockRes();
+  await adminHandler({ method: 'POST', body: { adminPin: '999999', action: 'auth' } }, wrongPinRes);
+  assert.equal(wrongPinRes.result.statusCode, 403);
+  assert.equal(wrongPinRes.result.body?.ok, false);
+
+  // 3. Action 'auth' dengan PIN valid ('202688') berhasil
+  const authRes = makeMockRes();
+  await adminHandler({ method: 'POST', body: { adminPin: '202688', action: 'auth' } }, authRes);
+  assert.equal(authRes.result.statusCode, 200);
+  assert.equal(authRes.result.body?.ok, true);
+
+  // 4. Action 'create_license' membuat kode lisensi baru dengan label pembeli
+  const createRes = makeMockRes();
+  await adminHandler(
+    {
+      method: 'POST',
+      body: {
+        adminPin: '202688',
+        action: 'create_license',
+        planType: 'individu',
+        label: 'Bu Rina SDN 1 Merdeka',
+        count: 1,
+      },
+    },
+    createRes
+  );
+  assert.equal(createRes.result.statusCode, 200);
+  assert.equal(createRes.result.body?.ok, true);
+  assert.ok(Array.isArray(createRes.result.body?.created));
+  assert.equal(createRes.result.body.created.length, 1);
+  const createdItem = createRes.result.body.created[0];
+  assert.match(createdItem.code, /^ASM-GM26-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+  assert.equal(createdItem.label, 'Bu Rina SDN 1 Merdeka');
+  assert.equal(createdItem.maxSeats, 2);
+  assert.equal(createdItem.tier, 'guru');
+  assert.equal(createdItem.status, 'belum_aktif');
+  assert.equal(createdItem.usedSeats, 0);
+
+  // 5. Action 'list_licenses' menampilkan lisensi yang dibuat
+  const listRes1 = makeMockRes();
+  await adminHandler(
+    {
+      method: 'POST',
+      body: { adminPin: '202688', action: 'list_licenses' },
+    },
+    listRes1
+  );
+  assert.equal(listRes1.result.statusCode, 200);
+  assert.equal(listRes1.result.body?.ok, true);
+  assert.ok(Array.isArray(listRes1.result.body?.licenses));
+  const foundLicense = listRes1.result.body.licenses.find((l) => l.code === createdItem.code);
+  assert.ok(foundLicense);
+  assert.equal(foundLicense.label, 'Bu Rina SDN 1 Merdeka');
+  assert.equal(foundLicense.status, 'belum_aktif');
+  assert.equal(foundLicense.usedSeats, 0);
+  assert.deepEqual(foundLicense.devices, []);
+
+  // 6. Simulasikan perangkat mengklaim kursi (via activate-license handler)
+  const activateHandler = (await import('../api/activate-license.js')).default;
+  const actRes = makeMockRes();
+  await activateHandler(
+    {
+      method: 'POST',
+      body: { licenseCode: createdItem.code, deviceId: 'DEV-RINA-LAPTOP' },
+    },
+    actRes
+  );
+  assert.equal(actRes.result.statusCode, 200);
+  assert.equal(actRes.result.body?.valid, true);
+
+  // list_licenses sekarang menampilkan status 'aktif', usedSeats 1, dan devices berisi DEV-RINA-LAPTOP
+  const listRes2 = makeMockRes();
+  await adminHandler(
+    {
+      method: 'POST',
+      body: { adminPin: '202688', action: 'list_licenses' },
+    },
+    listRes2
+  );
+  assert.equal(listRes2.result.statusCode, 200);
+  const activeLicense = listRes2.result.body.licenses.find((l) => l.code === createdItem.code);
+  assert.ok(activeLicense);
+  assert.equal(activeLicense.status, 'aktif');
+  assert.equal(activeLicense.usedSeats, 1);
+  assert.ok(activeLicense.devices.includes('DEV-RINA-LAPTOP'));
+
+  // 7. Action 'reset_license_seats' me-reset perangkat terkunci
+  const resetRes = makeMockRes();
+  await adminHandler(
+    {
+      method: 'POST',
+      body: {
+        adminPin: '202688',
+        action: 'reset_license_seats',
+        licenseCode: createdItem.code,
+      },
+    },
+    resetRes
+  );
+  assert.equal(resetRes.result.statusCode, 200);
+  assert.equal(resetRes.result.body?.ok, true);
+
+  // list_licenses setelah reset menunjukkan devices [] dan status 'belum_aktif'
+  const listRes3 = makeMockRes();
+  await adminHandler(
+    {
+      method: 'POST',
+      body: { adminPin: '202688', action: 'list_licenses' },
+    },
+    listRes3
+  );
+  assert.equal(listRes3.result.statusCode, 200);
+  const resetLicense = listRes3.result.body.licenses.find((l) => l.code === createdItem.code);
+  assert.ok(resetLicense);
+  assert.equal(resetLicense.status, 'belum_aktif');
+  assert.equal(resetLicense.usedSeats, 0);
+  assert.deepEqual(resetLicense.devices, []);
+
+  // 8. Action 'delete_license' menghapus lisensi dari registri
+  const deleteRes = makeMockRes();
+  await adminHandler(
+    {
+      method: 'POST',
+      body: {
+        adminPin: '202688',
+        action: 'delete_license',
+        licenseCode: createdItem.code,
+      },
+    },
+    deleteRes
+  );
+  assert.equal(deleteRes.result.statusCode, 200);
+  assert.equal(deleteRes.result.body?.ok, true);
+
+  // list_licenses memastikan lisensi telah terhapus
+  const listRes4 = makeMockRes();
+  await adminHandler(
+    {
+      method: 'POST',
+      body: { adminPin: '202688', action: 'list_licenses' },
+    },
+    listRes4
+  );
+  assert.equal(listRes4.result.statusCode, 200);
+  assert.equal(listRes4.result.body.licenses.some((l) => l.code === createdItem.code), false);
+});
+
 
 
 

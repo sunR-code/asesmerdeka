@@ -33,7 +33,7 @@
 - Create: `api/admin-portal.js`
 - Test: `tests/productionReadiness.test.mjs`
 
-- [ ] **Step 1.1: Write failing unit test `AUD-218` in `tests/productionReadiness.test.mjs`**
+- [x] **Step 1.1: Write failing unit test `AUD-218` in `tests/productionReadiness.test.mjs`**
   - Verify `api/admin-portal.js` rejects requests missing or with invalid PIN.
   - Verify action `auth` validates correct PIN.
   - Verify action `create_license` generates an encrypted `ASM-...` code with buyer label and adds it to registry.
@@ -41,17 +41,17 @@
   - Verify action `reset_license_seats` clears the `devices` array for that license code.
   - Verify action `delete_license` removes the license from the registry.
 
-- [ ] **Step 1.2: Run `npm test` and confirm `AUD-218` fails as expected**
+- [x] **Step 1.2: Run `npm test` and confirm `AUD-218` fails as expected**
 
-- [ ] **Step 1.3: Implement `api/admin-portal.js`**
+- [x] **Step 1.3: Implement `api/admin-portal.js`**
   - Support HTTP POST with `adminPin` and `action` (`auth`, `list_licenses`, `create_license`, `reset_license_seats`, `delete_license`).
   - Validate PIN with hash comparison.
   - Connect to Upstash Redis (`asesmerdeka:admin:license_registry:v1` and `asesmerdeka:seats:v1:<CODE>`).
   - Implement in-memory fallback for offline/development mode.
 
-- [ ] **Step 1.4: Run `npm test` and verify all 24 tests pass**
+- [x] **Step 1.4: Run `npm test` and verify all 24 tests pass**
 
-- [ ] **Step 1.5: Commit Task 1**
+- [x] **Step 1.5: Commit Task 1**
   - Commit message: `feat(api): implement admin-portal endpoint with license registry and device reset`
 
 ---
@@ -157,3 +157,4 @@
   - Push all commits to GitHub.
 
 - [ ] **Step 5.5: Report back to user with usage guide**
+

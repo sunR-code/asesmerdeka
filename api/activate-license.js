@@ -6,7 +6,7 @@
  *    secara terpusat di Upstash Redis agar kode TIDAK BISA dipakai di perangkat ke-3 (HP/Laptop orang lain).
  */
 
-const localSeatMemoryStore = new Map();
+export const localSeatMemoryStore = new Map();
 
 function computeHash36(input) {
   let h1 = 0xdeadbeef ^ input.length;
@@ -29,7 +29,7 @@ function normalizeLicenseCode(raw) {
     .toUpperCase();
 }
 
-function getRedisCredentials() {
+export function getRedisCredentials() {
   const url = (
     process.env.UPSTASH_REDIS_REST_URL ||
     process.env.KV_REST_API_URL ||
@@ -43,11 +43,11 @@ function getRedisCredentials() {
   return { url, token, configured: Boolean(url && token) };
 }
 
-function buildSeatRedisKey(cleanCode) {
+export function buildSeatRedisKey(cleanCode) {
   return `asesmerdeka:seats:v1:${cleanCode}`;
 }
 
-async function getSeatRecordFromRedis(cleanCode) {
+export async function getSeatRecordFromRedis(cleanCode) {
   const key = buildSeatRedisKey(cleanCode);
   const { url, token, configured } = getRedisCredentials();
   if (!configured) {
@@ -69,7 +69,7 @@ async function getSeatRecordFromRedis(cleanCode) {
   }
 }
 
-async function saveSeatRecordToRedis(cleanCode, record) {
+export async function saveSeatRecordToRedis(cleanCode, record) {
   const key = buildSeatRedisKey(cleanCode);
   const { url, token, configured } = getRedisCredentials();
   if (!configured) {
@@ -86,6 +86,21 @@ async function saveSeatRecordToRedis(cleanCode, record) {
     },
     body: JSON.stringify(record),
   });
+}
+
+export async function deleteSeatRecordFromRedis(cleanCode) {
+  const key = buildSeatRedisKey(cleanCode);
+  const { url, token, configured } = getRedisCredentials();
+  if (!configured) {
+    localSeatMemoryStore.delete(key);
+    return;
+  }
+
+  const endpoint = `${url.replace(/\/$/, '')}/del/${encodeURIComponent(key)}`;
+  await fetch(endpoint, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => null);
 }
 
 export async function checkAndClaimServerSeat(cleanCode, deviceId, maxSeats) {

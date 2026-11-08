@@ -93,3 +93,4 @@ Pemilik aplikasi (admin) membutuhkan **satu tempat terpusat berupa Halaman Admin
   2. Verifikasi pembuatan lisensi baru tersimpan dengan label pemesan dan batas kursi yang sesuai.
   3. Verifikasi aksi `reset_seats` membersihkan daftar perangkat terkunci sehingga kode dapat digunakan kembali di perangkat baru.
   4. Verifikasi aksi `delete_license` menghapus lisensi dari registri.
+
