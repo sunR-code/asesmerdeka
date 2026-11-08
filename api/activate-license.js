@@ -7,6 +7,7 @@
  */
 
 export const localSeatMemoryStore = new Map();
+export const localLicenseRegistryStore = [];
 
 function computeHash36(input) {
   let h1 = 0xdeadbeef ^ input.length;
@@ -192,6 +193,32 @@ export async function autoRegisterLicenseInAdminRegistry({
 
   const { url, token, configured } = getRedisCredentials();
   if (!configured) {
+    const idx = localLicenseRegistryStore.findIndex((l) => l.code === cleanCode);
+    if (idx >= 0) {
+      localLicenseRegistryStore[idx].updatedAt = nowIso;
+      if (label) localLicenseRegistryStore[idx].label = label;
+      if (deviceId) {
+        if (!Array.isArray(localLicenseRegistryStore[idx].devices)) localLicenseRegistryStore[idx].devices = [];
+        if (!localLicenseRegistryStore[idx].devices.includes(deviceId)) {
+          localLicenseRegistryStore[idx].devices.push(deviceId);
+        }
+        localLicenseRegistryStore[idx].usedSeats = localLicenseRegistryStore[idx].devices.length;
+        localLicenseRegistryStore[idx].status = 'aktif';
+      }
+    } else {
+      localLicenseRegistryStore.unshift({
+        code: cleanCode,
+        label: label || `Aktivasi Mandiri (${deviceId || 'Perangkat'})`,
+        planType: derivedPlanType,
+        tier: derivedTier,
+        maxSeats: derivedMaxSeats,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        usedSeats: deviceId ? 1 : 0,
+        devices: deviceId ? [deviceId] : [],
+        status: deviceId ? 'aktif' : 'belum_aktif',
+      });
+    }
     return;
   }
 
@@ -213,6 +240,7 @@ export async function autoRegisterLicenseInAdminRegistry({
     const idx = list.findIndex((l) => l.code === cleanCode);
     if (idx >= 0) {
       list[idx].updatedAt = nowIso;
+      if (label) list[idx].label = label;
       if (deviceId) {
         if (!Array.isArray(list[idx].devices)) list[idx].devices = [];
         if (!list[idx].devices.includes(deviceId)) {
@@ -448,6 +476,19 @@ export default async function handler(req, res) {
         });
       }
 
+      const buyerLabel = resIndividu.data?.customerName
+        ? `Mayar: ${resIndividu.data.customerName}${resIndividu.data?.customerEmail ? ` (${resIndividu.data.customerEmail})` : ''}`
+        : 'Pembelian Mayar.id (Individu)';
+
+      await autoRegisterLicenseInAdminRegistry({
+        code: rawCode,
+        maxSeats: 2,
+        deviceId: _deviceId,
+        label: buyerLabel,
+        planType: 'individu',
+        tier: 'guru',
+      });
+
       return res.status(200).json({
         valid: true,
         planType: 'individu',
@@ -472,6 +513,19 @@ export default async function handler(req, res) {
           message: seatCheck.message,
         });
       }
+
+      const schoolBuyerLabel = resSchool.data?.customerName
+        ? `Mayar: ${resSchool.data.customerName}${resSchool.data?.customerEmail ? ` (${resSchool.data.customerEmail})` : ''}`
+        : 'Pembelian Mayar.id (Sekolah 25 Guru)';
+
+      await autoRegisterLicenseInAdminRegistry({
+        code: rawCode,
+        maxSeats: 25,
+        deviceId: _deviceId,
+        label: schoolBuyerLabel,
+        planType: 'sekolah',
+        tier: 'sekolah',
+      });
 
       return res.status(200).json({
         valid: true,

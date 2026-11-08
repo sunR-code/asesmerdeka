@@ -14,6 +14,7 @@ function devApiPlugin(): Plugin {
           '/api/cloud-sync': './api/cloud-sync.js',
           '/api/admin-portal': './api/admin-portal.js',
           '/api/feedback-reports': './api/feedback-reports.js',
+          '/api/mayar-webhook': './api/mayar-webhook.js',
         };
 
         const modulePath = apiModules[urlPath];

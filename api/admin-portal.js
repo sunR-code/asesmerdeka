@@ -4,25 +4,15 @@ import {
   getSeatRecordFromRedis,
   saveSeatRecordToRedis,
   deleteSeatRecordFromRedis,
+  localLicenseRegistryStore,
 } from './activate-license.js';
 import { OFFICIAL_SEEDED_LICENSES } from './officialSeeds.js';
 
-/**
- * Vercel Serverless Function: /api/admin-portal
- * Portal Admin Terpusat untuk:
- * 1. Otentikasi Admin PIN berbasis salted hash 53-bit.
- * 2. Registri Kode Lisensi (asesmerdeka:admin:license_registry:v1).
- * 3. Pembuatan Kode Lisensi Terenkripsi Baru (ASM-XXXX-...).
- * 4. Pengecekan status live kursi & ID perangkat terkunci (asesmerdeka:seats:v1:<CODE>).
- * 5. Reset kunci perangkat (device unbind).
- * 6. Pencabutan / penghapusan lisensi.
- */
+export { localLicenseRegistryStore };
 
 const REGISTRY_REDIS_KEY = 'asesmerdeka:admin:license_registry:v1';
 const EXPECTED_ADMIN_PIN_HASH_36 = '2ID3PNQBIO';
 const ADMIN_PIN_SHA256 = '1b088972675a71586edd3702980f4228826fbb266e8b0efd2e06ab57faf18a8c';
-
-export const localLicenseRegistryStore = [];
 
 function computeHash36(input) {
   let h1 = 0xdeadbeef ^ input.length;

@@ -1505,6 +1505,114 @@ test('AUD-219: Client service adminService mengelola sesi, registri lisensi, enr
   assert.equal(fetchAfterDelete.licenses.some((l) => l.code === createdLic.code), false);
 });
 
+test('AUD-220: Integrasi Mayar.id memverifikasi kode pembelian Mayar, auto-register ke portal admin, dan menerima webhook transaksi', async () => {
+  const { default: mayarWebhookHandler } = await import('../api/mayar-webhook.js');
+  const { default: activateHandler } = await import('../api/activate-license.js');
+  const { default: adminHandler } = await import('../api/admin-portal.js');
+
+  const makeMockRes = () => {
+    const out = { statusCode: 200, headers: {}, body: null };
+    return {
+      setHeader(k, v) {
+        out.headers[k] = v;
+        return this;
+      },
+      status(code) {
+        out.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        out.body = payload;
+        return this;
+      },
+      end() {
+        return this;
+      },
+      get result() {
+        return out;
+      },
+    };
+  };
+
+  // 1. Webhook GET (Healthcheck)
+  const getRes = makeMockRes();
+  await mayarWebhookHandler({ method: 'GET' }, getRes);
+  assert.equal(getRes.result.statusCode, 200);
+  assert.equal(getRes.result.body?.ok, true);
+
+  // 2. Webhook POST saat ada transaksi baru dari Mayar
+  const webhookRes = makeMockRes();
+  await mayarWebhookHandler(
+    {
+      method: 'POST',
+      body: {
+        event: 'payment.received',
+        data: {
+          customerName: 'Bapak Ahmad Dani',
+          customerEmail: 'ahmaddani@sekolah.id',
+          licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
+          productName: 'Lisensi Guru Mandiri AsesMerdeka',
+        },
+      },
+    },
+    webhookRes
+  );
+  assert.equal(webhookRes.result.statusCode, 200);
+  assert.equal(webhookRes.result.body?.ok, true);
+  assert.equal(webhookRes.result.body?.code, 'ASM-GM26-V9SN-QR2U-136V');
+
+  // 3. Cek di Admin Portal: kode sudah terdaftar dengan label pembeli dari Mayar
+  const adminListRes1 = makeMockRes();
+  await adminHandler(
+    {
+      method: 'POST',
+      body: { adminPin: '141317!@#', action: 'list_licenses' },
+    },
+    adminListRes1
+  );
+  assert.equal(adminListRes1.result.statusCode, 200);
+  const foundMayar = adminListRes1.result.body.licenses.find(
+    (l) => l.code === 'ASM-GM26-V9SN-QR2U-136V'
+  );
+  assert.ok(foundMayar);
+  assert.ok(foundMayar.label.includes('Ahmad Dani'));
+  assert.equal(foundMayar.status, 'belum_aktif');
+
+  // 4. Pembeli membuka aplikasi AsesMerdeka dan mengaktifkan lisensinya di laptop
+  const activateRes = makeMockRes();
+  await activateHandler(
+    {
+      method: 'POST',
+      body: {
+        licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
+        deviceId: 'DEV-AHMAD-LAPTOP',
+      },
+    },
+    activateRes
+  );
+  assert.equal(activateRes.result.statusCode, 200);
+  assert.equal(activateRes.result.body?.valid, true);
+
+  // 5. Cek kembali di Admin Portal: status lisensi otomatis berubah menjadi 'aktif'
+  // dan perangkat DEV-AHMAD-LAPTOP terkunci (1/2 perangkat)
+  const adminListRes2 = makeMockRes();
+  await adminHandler(
+    {
+      method: 'POST',
+      body: { adminPin: '141317!@#', action: 'list_licenses' },
+    },
+    adminListRes2
+  );
+  const activatedLicense = adminListRes2.result.body.licenses.find(
+    (l) => l.code === 'ASM-GM26-V9SN-QR2U-136V'
+  );
+  assert.ok(activatedLicense);
+  assert.equal(activatedLicense.status, 'aktif');
+  assert.equal(activatedLicense.usedSeats, 1);
+  assert.ok(activatedLicense.devices.includes('DEV-AHMAD-LAPTOP'));
+});
+
+
 
 
 
