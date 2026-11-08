@@ -811,6 +811,155 @@ test('AUD-214: Impor siswa baru dari Excel otomatis menghapus seluruh 30 siswa d
   assert.equal(hasDummyInJurnal, false);
 });
 
+test('AUD-215: API feedback-reports menangani POST laporan baru, menolak GET/PATCH/DELETE tanpa PIN, dan mengizinkan pengelolaan jika PIN benar', async () => {
+  const { default: feedbackHandler } = await import('../api/feedback-reports.js');
+
+  const makeMockRes = () => {
+    const out = { statusCode: 200, headers: {}, body: null };
+    return {
+      setHeader(k, v) {
+        out.headers[k] = v;
+        return this;
+      },
+      status(code) {
+        out.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        out.body = payload;
+        return this;
+      },
+      end() {
+        return this;
+      },
+      get result() {
+        return out;
+      },
+    };
+  };
+
+  // 1. POST kendala tanpa kategori/deskripsi ditolak (400)
+  const invalidPostRes = makeMockRes();
+  await feedbackHandler(
+    {
+      method: 'POST',
+      body: { category: '', description: '   ' },
+    },
+    invalidPostRes
+  );
+  assert.equal(invalidPostRes.result.statusCode, 400);
+  assert.equal(invalidPostRes.result.body.ok, false);
+
+  // 2. POST kendala valid diterima (200) tanpa perlu PIN admin
+  const postRes = makeMockRes();
+  await feedbackHandler(
+    {
+      method: 'POST',
+      body: {
+        category: 'fitur_error',
+        description: 'Tombol unduh rapor lemot saat di klik di HP',
+        contact: '08123456789 (Pak Guru)',
+        context: {
+          activeTab: 'rekap',
+          kelas: '7',
+          mapel: 'Informatika',
+          deviceId: 'DEV-TEST-001',
+        },
+      },
+    },
+    postRes
+  );
+  assert.equal(postRes.result.statusCode, 200);
+  assert.equal(postRes.result.body.ok, true);
+  assert.ok(postRes.result.body.report);
+  assert.ok(postRes.result.body.report.id.startsWith('REP-'));
+  assert.equal(postRes.result.body.report.status, 'baru');
+  assert.equal(postRes.result.body.report.category, 'fitur_error');
+  assert.equal(postRes.result.body.report.description, 'Tombol unduh rapor lemot saat di klik di HP');
+  const reportId = postRes.result.body.report.id;
+
+  // 3. GET tanpa PIN ditolak (401)
+  const getNoPinRes = makeMockRes();
+  await feedbackHandler({ method: 'GET', query: {} }, getNoPinRes);
+  assert.equal(getNoPinRes.result.statusCode, 401);
+  assert.equal(getNoPinRes.result.body.ok, false);
+  assert.equal(getNoPinRes.result.body.error, 'Unauthorized: PIN Admin tidak valid');
+
+  // 4. GET dengan PIN salah ditolak (401)
+  const getWrongPinRes = makeMockRes();
+  await feedbackHandler({ method: 'GET', query: { adminPin: '999999' } }, getWrongPinRes);
+  assert.equal(getWrongPinRes.result.statusCode, 401);
+  assert.equal(getWrongPinRes.result.body.ok, false);
+  assert.equal(getWrongPinRes.result.body.error, 'Unauthorized: PIN Admin tidak valid');
+
+  // 5. GET dengan PIN benar ('202688') berhasil dan menampilkan daftar laporan
+  const getValidPinRes = makeMockRes();
+  await feedbackHandler({ method: 'GET', query: { adminPin: '202688' } }, getValidPinRes);
+  assert.equal(getValidPinRes.result.statusCode, 200);
+  assert.equal(getValidPinRes.result.body.ok, true);
+  assert.ok(Array.isArray(getValidPinRes.result.body.reports));
+  assert.ok(getValidPinRes.result.body.reports.some((r) => r.id === reportId));
+
+  // 6. PATCH tanpa PIN ditolak (401)
+  const patchNoPinRes = makeMockRes();
+  await feedbackHandler(
+    {
+      method: 'PATCH',
+      body: { reportId, status: 'ditinjau' },
+    },
+    patchNoPinRes
+  );
+  assert.equal(patchNoPinRes.result.statusCode, 401);
+  assert.equal(patchNoPinRes.result.body.ok, false);
+
+  // 7. PATCH dengan PIN benar memperbarui status laporan
+  const patchValidRes = makeMockRes();
+  await feedbackHandler(
+    {
+      method: 'PATCH',
+      body: { adminPin: '202688', reportId, status: 'ditinjau' },
+    },
+    patchValidRes
+  );
+  assert.equal(patchValidRes.result.statusCode, 200);
+  assert.equal(patchValidRes.result.body.ok, true);
+  assert.equal(patchValidRes.result.body.report.status, 'ditinjau');
+
+  // 8. DELETE tanpa PIN ditolak (401)
+  const deleteNoPinRes = makeMockRes();
+  await feedbackHandler(
+    {
+      method: 'DELETE',
+      body: { reportId },
+    },
+    deleteNoPinRes
+  );
+  assert.equal(deleteNoPinRes.result.statusCode, 401);
+  assert.equal(deleteNoPinRes.result.body.ok, false);
+
+  // 9. DELETE dengan PIN benar menghapus laporan
+  const deleteValidRes = makeMockRes();
+  await feedbackHandler(
+    {
+      method: 'DELETE',
+      body: { adminPin: '202688', reportId },
+    },
+    deleteValidRes
+  );
+  assert.equal(deleteValidRes.result.statusCode, 200);
+  assert.equal(deleteValidRes.result.body.ok, true);
+  assert.equal(deleteValidRes.result.body.deleted, true);
+
+  // 10. Verifikasi laporan sudah hilang dari list
+  const verifyDeletedRes = makeMockRes();
+  await feedbackHandler({ method: 'GET', query: { adminPin: '202688' } }, verifyDeletedRes);
+  assert.equal(
+    verifyDeletedRes.result.body.reports.some((r) => r.id === reportId),
+    false
+  );
+});
+
+
 
 
 
