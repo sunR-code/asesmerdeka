@@ -27,7 +27,6 @@ import type {
 import {
   FEEDBACK_CATEGORIES,
   FEEDBACK_CATEGORY_META,
-  FEEDBACK_STATUS_META,
 } from '../types/feedback';
 import {
   submitFeedbackReport,
@@ -273,20 +272,54 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
           width: '100%',
           maxHeight: '92vh',
           overflowY: 'auto',
-          padding: 24,
+          padding: '22px 24px',
+          borderRadius: 18,
+          background: '#ffffff',
+          boxShadow: '0 20px 45px -10px rgba(15, 23, 42, 0.22)',
+          border: '1px solid #e2e8f0',
         }}
       >
         {/* Modal Header */}
-        <div className="flex items-start justify-between mb-4 pb-3 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0">
-              <HelpCircle size={22} />
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 16,
+            paddingBottom: 14,
+            borderBottom: '1px solid #e2e8f0',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 12,
+                background: '#eff6ff',
+                color: '#2563eb',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                border: '1px solid #bfdbfe',
+              }}
+            >
+              <HelpCircle size={22} color="#2563eb" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
+              <h2
+                style={{
+                  fontSize: 17,
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  margin: 0,
+                  lineHeight: 1.3,
+                }}
+              >
                 Pusat Bantuan & Lapor Kendala
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0 0' }}>
                 Sampaikan kendala, masukan data dummy, atau usulan fitur langsung kepada pengembang.
               </p>
             </div>
@@ -294,40 +327,79 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            className="btn btn-outline btn-sm"
+            style={{
+              padding: 0,
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+            title="Tutup jendela bantuan"
             aria-label="Tutup jendela bantuan"
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
 
         {/* Top Navigation Tabs */}
-        <div className="flex border-b border-slate-200 mb-5 gap-2">
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            marginBottom: 18,
+            borderBottom: '1px solid #e2e8f0',
+            paddingBottom: 8,
+          }}
+        >
           <button
             type="button"
             onClick={() => setActiveTab('kirim')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'kirim'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
+            className={`btn btn-sm ${activeTab === 'kirim' ? 'btn-primary' : 'btn-outline'}`}
+            style={{
+              fontSize: 12.5,
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '7px 14px',
+              borderRadius: 8,
+            }}
           >
-            <MessageSquare size={15} />
+            <MessageSquare size={14} />
             Kirim Laporan / Bantuan
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('admin')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'admin'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
+            className={`btn btn-sm ${activeTab === 'admin' ? 'btn-primary' : 'btn-outline'}`}
+            style={{
+              fontSize: 12.5,
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '7px 14px',
+              borderRadius: 8,
+            }}
           >
-            <ShieldAlert size={15} />
+            <ShieldAlert size={14} />
             Kotak Masuk Admin
             {isAdminUnlocked && reports.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-blue-100 text-blue-700 font-bold">
+              <span
+                style={{
+                  marginLeft: 4,
+                  padding: '1px 7px',
+                  fontSize: 10,
+                  borderRadius: 99,
+                  background: activeTab === 'admin' ? '#ffffff' : '#dbeafe',
+                  color: activeTab === 'admin' ? '#2563eb' : '#1e40af',
+                  fontWeight: 800,
+                }}
+              >
                 {reports.length}
               </span>
             )}
@@ -338,35 +410,82 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
         {activeTab === 'kirim' && (
           <div>
             {submitResult?.ok ? (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center space-y-3">
-                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
-                  <CheckCircle2 size={26} />
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)',
+                  border: '2px solid #10b981',
+                  borderRadius: 14,
+                  padding: '24px 20px',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 12,
+                }}
+              >
+                <div
+                  style={{
+                    width: 50,
+                    height: 50,
+                    borderRadius: '50%',
+                    background: '#d1fae5',
+                    color: '#059669',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <CheckCircle2 size={28} />
                 </div>
-                <h3 className="text-base font-bold text-emerald-900">
-                  Laporan Kendala Berhasil Dikirim!
-                </h3>
-                <p className="text-xs text-emerald-800 max-w-md mx-auto leading-relaxed">
-                  {submitResult.message}
-                </p>
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setSubmitResult(null)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all cursor-pointer"
-                  >
-                    <RotateCcw size={14} />
-                    Kirim Laporan Lain
-                  </button>
+                <div>
+                  <h3 style={{ fontSize: 16, fontWeight: 800, color: '#064e3b', margin: '0 0 4px 0' }}>
+                    Laporan Kendala Berhasil Dikirim!
+                  </h3>
+                  <p style={{ fontSize: 12, color: '#047857', maxWidth: 440, margin: '0 auto', lineHeight: 1.5 }}>
+                    {submitResult.message}
+                  </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setSubmitResult(null)}
+                  className="btn btn-sm btn-outline"
+                  style={{
+                    background: '#ffffff',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginTop: 4,
+                    padding: '7px 16px',
+                  }}
+                >
+                  <RotateCcw size={14} />
+                  Kirim Laporan Lain
+                </button>
               </div>
             ) : (
-              <form onSubmit={handleSubmitFeedback} className="space-y-4">
+              <form onSubmit={handleSubmitFeedback} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {/* 1. Kategori Kendala */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                  <label
+                    style={{
+                      display: 'block',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: '#0f172a',
+                      marginBottom: 8,
+                    }}
+                  >
                     Pilih Kategori Kendala:
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                      gap: 8,
+                    }}
+                  >
                     {FEEDBACK_CATEGORIES.map((cat) => {
                       const isSelected = category === cat.id;
                       return (
@@ -374,18 +493,36 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                           key={cat.id}
                           type="button"
                           onClick={() => setCategory(cat.id)}
-                          className={`flex items-start text-left p-2.5 rounded-xl border transition-all text-xs cursor-pointer min-h-[44px] ${
-                            isSelected
-                              ? 'border-blue-600 bg-blue-50/80 text-blue-900 ring-1 ring-blue-500 font-semibold shadow-xs'
-                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
-                          }`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 10,
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            border: isSelected ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                            background: isSelected ? '#eff6ff' : '#ffffff',
+                            color: isSelected ? '#1e40af' : '#1e293b',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            transition: 'all 0.15s ease',
+                            boxShadow: isSelected ? '0 1px 4px rgba(37, 99, 235, 0.15)' : 'none',
+                          }}
                         >
-                          <span className="text-base mr-2 flex-shrink-0" aria-hidden="true">
+                          <span style={{ fontSize: 18, lineHeight: 1, marginTop: 2, flexShrink: 0 }} aria-hidden="true">
                             {cat.icon}
                           </span>
-                          <div className="min-w-0">
-                            <div className="text-xs leading-snug">{cat.label}</div>
-                            <div className="text-[11px] text-slate-500 font-normal line-clamp-1 mt-0.5">
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: isSelected ? 800 : 700, lineHeight: 1.3 }}>
+                              {cat.label}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: isSelected ? '#2563eb' : '#64748b',
+                                marginTop: 2,
+                                lineHeight: 1.35,
+                              }}
+                            >
                               {cat.description}
                             </div>
                           </div>
@@ -396,9 +533,13 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                 </div>
 
                 {/* 2. Deskripsi Kendala */}
-                <div>
-                  <label htmlFor="feedback-desc" className="block text-xs font-bold text-slate-700 mb-1.5">
-                    Deskripsi Kendala / Masukan <span className="text-rose-500">*</span>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label
+                    htmlFor="feedback-desc"
+                    className="form-label"
+                    style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, display: 'block' }}
+                  >
+                    Deskripsi Kendala / Masukan <span style={{ color: '#dc2626' }}>*</span>
                   </label>
                   <textarea
                     id="feedback-desc"
@@ -406,15 +547,31 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="Jelaskan kendala yang dialami secara rinci. Contoh: Saat menekan tombol unduh Word di modul ajar kelas 4, halaman freeze dan berkas tidak terunduh..."
-                    className="w-full text-xs sm:text-sm p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y text-slate-800 placeholder:text-slate-400 leading-relaxed"
+                    className="form-textarea"
+                    style={{
+                      width: '100%',
+                      minHeight: 90,
+                      fontSize: 12.5,
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      border: '1px solid #cbd5e1',
+                      lineHeight: 1.5,
+                      resize: 'vertical',
+                      fontFamily: 'inherit',
+                      boxSizing: 'border-box',
+                    }}
                     required
                   />
                 </div>
 
                 {/* 3. Kontak Guru (Opsional) */}
-                <div>
-                  <label htmlFor="feedback-contact" className="block text-xs font-bold text-slate-700 mb-1">
-                    Kontak Guru <span className="text-slate-400 font-normal">(Opsional)</span>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label
+                    htmlFor="feedback-contact"
+                    className="form-label"
+                    style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, display: 'block' }}
+                  >
+                    Kontak Guru <span style={{ fontWeight: 400, color: '#64748b' }}>(Opsional)</span>
                   </label>
                   <input
                     id="feedback-contact"
@@ -422,48 +579,153 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                     value={contact}
                     onChange={(e) => setContact(e.target.value)}
                     placeholder="Nomor WhatsApp atau Nama Guru (Contoh: 0812-3456-7890 / Bu Siti)"
-                    className="w-full text-xs sm:text-sm px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-800 placeholder:text-slate-400"
+                    className="form-input"
+                    style={{
+                      width: '100%',
+                      fontSize: 12.5,
+                      padding: '8px 12px',
+                      borderRadius: 10,
+                      border: '1px solid #cbd5e1',
+                      boxSizing: 'border-box',
+                    }}
                   />
-                  <p className="text-[11px] text-slate-500 mt-1">
+                  <p style={{ fontSize: 11, color: '#64748b', margin: '4px 0 0 0' }}>
                     Diisi jika Anda bersedia dihubungi oleh pengembang untuk konfirmasi perbaikan kendala.
                   </p>
                 </div>
 
                 {/* 4. Konteks Otomatis (Anti-Repot) */}
-                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
-                  <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
+                <div
+                  style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 10,
+                    padding: '12px 14px',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: 800,
+                      color: '#334155',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      marginBottom: 8,
+                    }}
+                  >
                     <span>📌</span>
                     <span>Konteks Otomatis Terlampir (Anti-Repot)</span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px] text-slate-600">
-                    <div className="flex items-center gap-1 truncate bg-white px-2 py-1 rounded border border-slate-100">
-                      <span className="font-semibold text-slate-700">Halaman:</span>
-                      <span className="truncate">{activePage}</span>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                      gap: 8,
+                      fontSize: 11.5,
+                      color: '#475569',
+                    }}
+                  >
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #e2e8f0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <span style={{ fontWeight: 700, color: '#1e293b' }}>Halaman:</span>
+                      <span style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                        {activePage}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-1 truncate bg-white px-2 py-1 rounded border border-slate-100">
-                      <span className="font-semibold text-slate-700">Kelas/Mapel:</span>
-                      <span className="truncate">{kelasMapel}</span>
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #e2e8f0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <span style={{ fontWeight: 700, color: '#1e293b' }}>Kelas/Mapel:</span>
+                      <span style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                        {kelasMapel}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-1 truncate bg-white px-2 py-1 rounded border border-slate-100">
-                      <span className="font-semibold text-slate-700">Perangkat:</span>
-                      <span className="truncate">{deviceId || '-'}</span>
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #e2e8f0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <span style={{ fontWeight: 700, color: '#1e293b' }}>Perangkat:</span>
+                      <span
+                        style={{
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          color: '#2563eb',
+                          whiteSpace: 'nowrap',
+                          textOverflow: 'ellipsis',
+                          overflow: 'hidden',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {deviceId || '-'}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-1 truncate bg-white px-2 py-1 rounded border border-slate-100">
-                      <span className="font-semibold text-slate-700">Status Lisensi:</span>
-                      <span className="font-semibold text-blue-700">
-                        {isPro ? 'PRO Aktif' : 'Pratinjau'}
+                    <div
+                      style={{
+                        background: '#ffffff',
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #e2e8f0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <span style={{ fontWeight: 700, color: '#1e293b' }}>Status Lisensi:</span>
+                      <span style={{ fontWeight: 800, color: isPro ? '#059669' : '#d97706' }}>
+                        {isPro ? '✓ Lisensi PRO Aktif' : 'Mode Pratinjau'}
                       </span>
                     </div>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1.5">
+                  <p style={{ fontSize: 10.5, color: '#94a3b8', margin: '8px 0 0 0' }}>
                     Informasi di atas otomatis disertakan agar tim pengembang dapat langsung mereproduksi kendala tanpa bertanya bolak-balik.
                   </p>
                 </div>
 
                 {/* Alert jika gagal kirim */}
                 {submitResult && !submitResult.ok && (
-                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2">
-                    <AlertCircle size={15} className="flex-shrink-0" />
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: 10,
+                      background: '#fef2f2',
+                      border: '1px solid #fecaca',
+                      color: '#b91c1c',
+                      fontSize: 12.5,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <AlertCircle size={15} style={{ flexShrink: 0 }} />
                     <span>{submitResult.message}</span>
                   </div>
                 )}
@@ -472,7 +734,20 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                 <button
                   type="submit"
                   disabled={isSubmitting || !description.trim()}
-                  className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs sm:text-sm font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed min-h-[44px]"
+                  className="btn btn-primary"
+                  style={{
+                    width: '100%',
+                    padding: '12px 18px',
+                    fontSize: 13.5,
+                    fontWeight: 800,
+                    borderRadius: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    cursor: isSubmitting || !description.trim() ? 'not-allowed' : 'pointer',
+                    opacity: isSubmitting || !description.trim() ? 0.6 : 1,
+                  }}
                 >
                   {isSubmitting ? (
                     <>
@@ -495,21 +770,58 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
         {activeTab === 'admin' && (
           <div>
             {!isAdminUnlocked ? (
-              <div className="py-6 px-4 bg-slate-50 border border-slate-200 rounded-2xl max-w-sm mx-auto text-center space-y-4">
-                <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+              <div
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 14,
+                  padding: '24px 20px',
+                  maxWidth: 380,
+                  margin: '10px auto',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 14,
+                }}
+              >
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: '50%',
+                    background: '#fef3c7',
+                    color: '#d97706',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto',
+                  }}
+                >
                   <Lock size={24} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">
+                  <h3 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: '0 0 4px 0' }}>
                     Area Khusus Admin / Pengembang
                   </h3>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  <p style={{ fontSize: 11.5, color: '#64748b', margin: 0, lineHeight: 1.45 }}>
                     Masukkan PIN Admin Asesmen Merdeka untuk mengakses kotak masuk laporan kendala dari para guru.
                   </p>
                 </div>
-                <form onSubmit={handleUnlockAdmin} className="space-y-3 text-left">
+                <form
+                  onSubmit={handleUnlockAdmin}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'left' }}
+                >
                   <div>
-                    <label htmlFor="admin-pin-input" className="block text-xs font-semibold text-slate-700 mb-1">
+                    <label
+                      htmlFor="admin-pin-input"
+                      style={{
+                        display: 'block',
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        color: '#334155',
+                        marginBottom: 4,
+                      }}
+                    >
                       PIN Admin
                     </label>
                     <input
@@ -521,14 +833,32 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                         if (pinError) setPinError(null);
                       }}
                       placeholder="Masukkan PIN Admin"
-                      className="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="form-input"
+                      style={{
+                        width: '100%',
+                        fontSize: 13,
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        boxSizing: 'border-box',
+                      }}
                       autoFocus
                     />
                   </div>
 
                   {pinError && (
-                    <div className="text-xs text-rose-600 flex items-center gap-1.5">
-                      <AlertCircle size={14} className="flex-shrink-0" />
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: '#dc2626',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontWeight: 600,
+                      }}
+                    >
+                      <AlertCircle size={14} style={{ flexShrink: 0 }} />
                       <span>{pinError}</span>
                     </div>
                   )}
@@ -536,7 +866,17 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                   <button
                     type="submit"
                     disabled={isLoadingReports}
-                    className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all min-h-[40px]"
+                    className="btn btn-primary"
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }}
                   >
                     {isLoadingReports ? (
                       <>
@@ -553,56 +893,83 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                 </form>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {/* Admin Subheader & Filter Bar */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                    paddingBottom: 10,
+                    borderBottom: '1px solid #e2e8f0',
+                  }}
+                >
                   {/* Filter Pills */}
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <button
                       type="button"
                       onClick={() => setStatusFilter('semua')}
-                      className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition-all cursor-pointer ${
-                        statusFilter === 'semua'
-                          ? 'bg-slate-900 text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
+                      style={{
+                        padding: '5px 12px',
+                        fontSize: 11.5,
+                        borderRadius: 8,
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: statusFilter === 'semua' ? '#0f172a' : '#f1f5f9',
+                        color: statusFilter === 'semua' ? '#ffffff' : '#475569',
+                      }}
                     >
                       Semua ({reports.length})
                     </button>
                     <button
                       type="button"
                       onClick={() => setStatusFilter('perlu_ditangani')}
-                      className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition-all cursor-pointer ${
-                        statusFilter === 'perlu_ditangani'
-                          ? 'bg-amber-600 text-white shadow-xs'
-                          : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
-                      }`}
+                      style={{
+                        padding: '5px 12px',
+                        fontSize: 11.5,
+                        borderRadius: 8,
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: statusFilter === 'perlu_ditangani' ? '#d97706' : '#fef3c7',
+                        color: statusFilter === 'perlu_ditangani' ? '#ffffff' : '#92400e',
+                      }}
                     >
                       Perlu Ditangani ({pendingCount})
                     </button>
                     <button
                       type="button"
                       onClick={() => setStatusFilter('selesai')}
-                      className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition-all cursor-pointer ${
-                        statusFilter === 'selesai'
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                      }`}
+                      style={{
+                        padding: '5px 12px',
+                        fontSize: 11.5,
+                        borderRadius: 8,
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: statusFilter === 'selesai' ? '#059669' : '#d1fae5',
+                        color: statusFilter === 'selesai' ? '#ffffff' : '#065f46',
+                      }}
                     >
                       Selesai ({doneCount})
                     </button>
                   </div>
 
                   {/* Top Right Admin Controls */}
-                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <button
                       type="button"
                       onClick={() => loadAdminReports(adminPin)}
                       disabled={isLoadingReports}
                       title="Segarkan Laporan"
-                      className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                      className="btn btn-outline btn-sm"
+                      style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
                     >
-                      <RefreshCw size={15} className={isLoadingReports ? 'animate-spin' : ''} />
+                      <RefreshCw size={13} className={isLoadingReports ? 'animate-spin' : ''} />
+                      <span style={{ fontSize: 11.5 }}>Segarkan</span>
                     </button>
                     <button
                       type="button"
@@ -611,33 +978,59 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                         setAdminPin('');
                       }}
                       title="Kunci Kotak Masuk"
-                      className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center gap-1 cursor-pointer"
+                      className="btn btn-outline btn-sm"
+                      style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
                     >
                       <Lock size={12} />
-                      Kunci
+                      <span style={{ fontSize: 11.5 }}>Kunci</span>
                     </button>
                   </div>
                 </div>
 
                 {/* Highlighted Banner: Salin Laporan untuk AI */}
-                <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 border border-blue-200 rounded-xl p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                      <Sparkles size={14} className="text-blue-600 flex-shrink-0" />
+                <div
+                  style={{
+                    background: 'linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%)',
+                    border: '1px solid #bfdbfe',
+                    borderRadius: 12,
+                    padding: '12px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ maxWidth: 420 }}>
+                    <div
+                      style={{
+                        fontSize: 12.5,
+                        fontWeight: 800,
+                        color: '#1e3a8a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <Sparkles size={14} color="#2563eb" />
                       Format Rangkuman untuk AI
                     </div>
-                    <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                    <p style={{ fontSize: 11, color: '#3b82f6', margin: '3px 0 0 0', lineHeight: 1.4 }}>
                       Salin seluruh laporan kendala ke format Markdown terstruktur untuk diperbaiki secara instan oleh AI Assistant.
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={handleCopyForAi}
-                    className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all flex-shrink-0 cursor-pointer shadow-xs min-h-[38px] ${
-                      copiedAi
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white'
-                    }`}
+                    className={`btn btn-sm ${copiedAi ? 'btn-success' : 'btn-primary'}`}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 800,
+                      padding: '8px 14px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
                   >
                     {copiedAi ? (
                       <>
@@ -655,8 +1048,21 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
 
                 {/* Toast feedback jika berhasil salin AI */}
                 {copiedAi && (
-                  <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-semibold flex items-center gap-2">
-                    <CheckCircle2 size={15} className="text-emerald-600" />
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: 10,
+                      background: '#ecfdf5',
+                      border: '1px solid #a7f3d0',
+                      color: '#065f46',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <CheckCircle2 size={16} color="#059669" />
                     <span>Rangkuman Laporan Tersalin! Siap Ditempel ke Chat AI</span>
                   </div>
                 )}
@@ -664,59 +1070,112 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                 {/* Notice message */}
                 {adminNotice && (
                   <div
-                    className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
-                      adminNotice.isError
-                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    }`}
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: 10,
+                      background: adminNotice.isError ? '#fef2f2' : '#f0fdf4',
+                      border: `1px solid ${adminNotice.isError ? '#fecaca' : '#a7f3d0'}`,
+                      color: adminNotice.isError ? '#b91c1c' : '#15803d',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
                   >
-                    <AlertCircle size={14} className="flex-shrink-0" />
+                    <AlertCircle size={15} style={{ flexShrink: 0 }} />
                     <span>{adminNotice.text}</span>
                   </div>
                 )}
 
                 {/* Report Cards List */}
                 {isLoadingReports ? (
-                  <div className="py-12 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
-                    <Loader2 size={16} className="animate-spin text-blue-600" />
+                  <div
+                    style={{
+                      padding: '36px 0',
+                      textAlign: 'center',
+                      fontSize: 12,
+                      color: '#64748b',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <Loader2 size={18} className="animate-spin" color="#2563eb" />
                     <span>Memuat daftar laporan kendala...</span>
                   </div>
                 ) : filteredReports.length === 0 ? (
-                  <div className="py-12 text-center text-xs text-slate-400 bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
+                  <div
+                    style={{
+                      padding: '36px 20px',
+                      textAlign: 'center',
+                      fontSize: 12,
+                      color: '#94a3b8',
+                      background: '#f8fafc',
+                      borderRadius: 12,
+                      border: '1px dashed #cbd5e1',
+                    }}
+                  >
                     Tidak ada laporan kendala dalam filter ini.
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {filteredReports.map((report) => {
                       const catMeta = FEEDBACK_CATEGORY_META[report.category] || {
                         label: report.category,
                         icon: '📌',
                         description: '',
                       };
-                      const statusMeta = FEEDBACK_STATUS_META[report.status] || {
-                        label: report.status,
-                        icon: '⚪',
-                        badgeClass: 'bg-slate-100 text-slate-700 border-slate-200',
-                      };
 
                       return (
                         <div
                           key={report.id}
-                          className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-all shadow-xs space-y-2.5"
+                          style={{
+                            background: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: 12,
+                            padding: '14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 10,
+                            boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
+                          }}
                         >
                           {/* Top Row: Category, Date, Status Selector & Delete */}
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200 flex items-center gap-1">
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: 8,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span
+                                style={{
+                                  padding: '3px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 800,
+                                  borderRadius: 6,
+                                  background: '#f1f5f9',
+                                  color: '#1e293b',
+                                  border: '1px solid #e2e8f0',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
                                 <span>{catMeta.icon}</span>
                                 <span>{catMeta.label}</span>
                               </span>
-                              <span className="text-[11px] text-slate-400">
+                              <span style={{ fontSize: 11, color: '#94a3b8' }}>
                                 {formatReportDate(report.createdAt)}
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-1.5">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               {/* Status Dropdown */}
                               <select
                                 value={report.status}
@@ -724,7 +1183,27 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                                   handleUpdateStatus(report.id, e.target.value as FeedbackStatus)
                                 }
                                 aria-label="Ubah status laporan"
-                                className={`text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 ${statusMeta.badgeClass}`}
+                                className="form-select"
+                                style={{
+                                  fontSize: 11.5,
+                                  fontWeight: 700,
+                                  padding: '4px 8px',
+                                  borderRadius: 6,
+                                  border: '1px solid #cbd5e1',
+                                  background:
+                                    report.status === 'baru'
+                                      ? '#fee2e2'
+                                      : report.status === 'ditinjau'
+                                      ? '#fef3c7'
+                                      : '#d1fae5',
+                                  color:
+                                    report.status === 'baru'
+                                      ? '#991b1b'
+                                      : report.status === 'ditinjau'
+                                      ? '#92400e'
+                                      : '#065f46',
+                                  cursor: 'pointer',
+                                }}
                               >
                                 <option value="baru">🔴 Baru</option>
                                 <option value="ditinjau">🟡 Ditinjau</option>
@@ -737,39 +1216,84 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
                                 onClick={() => handleDeleteReport(report.id)}
                                 title="Hapus Laporan"
                                 aria-label="Hapus laporan ini"
-                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                className="btn btn-outline btn-sm"
+                                style={{
+                                  padding: 5,
+                                  color: '#dc2626',
+                                  borderColor: '#fecaca',
+                                  borderRadius: 6,
+                                }}
                               >
-                                <Trash2 size={14} />
+                                <Trash2 size={13} />
                               </button>
                             </div>
                           </div>
 
                           {/* Description Block */}
-                          <div className="text-xs text-slate-800 bg-slate-50 p-2.5 rounded-lg border border-slate-200/60 whitespace-pre-wrap leading-relaxed">
+                          <div
+                            style={{
+                              fontSize: 12.5,
+                              color: '#1e293b',
+                              background: '#f8fafc',
+                              padding: '10px 12px',
+                              borderRadius: 8,
+                              border: '1px solid #e2e8f0',
+                              whiteSpace: 'pre-wrap',
+                              lineHeight: 1.5,
+                            }}
+                          >
                             {report.description}
                           </div>
 
                           {/* Contact Info (If available) */}
                           {report.contact && (
-                            <div className="text-[11px] text-slate-600 flex items-center gap-1.5">
-                              <Phone size={12} className="text-emerald-600 flex-shrink-0" />
+                            <div
+                              style={{
+                                fontSize: 11.5,
+                                color: '#475569',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              <Phone size={12} color="#059669" />
                               <span>Kontak Pengirim:</span>
-                              <span className="font-semibold text-slate-900">{report.contact}</span>
+                              <span style={{ fontWeight: 700, color: '#0f172a' }}>{report.contact}</span>
                             </div>
                           )}
 
                           {/* Context Badges */}
-                          <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-1.5 text-[10px] text-slate-500">
-                            <span className="px-1.5 py-0.5 rounded bg-slate-100">
+                          <div
+                            style={{
+                              paddingTop: 8,
+                              borderTop: '1px solid #f1f5f9',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              flexWrap: 'wrap',
+                              fontSize: 10.5,
+                              color: '#64748b',
+                            }}
+                          >
+                            <span style={{ padding: '2px 6px', background: '#f1f5f9', borderRadius: 4 }}>
                               Tab: {report.context?.activeTab || '-'}
                             </span>
-                            <span className="px-1.5 py-0.5 rounded bg-slate-100">
-                              Kelas/Mapel: {[report.context?.kelas, report.context?.mapel].filter(Boolean).join(' • ') || '-'}
+                            <span style={{ padding: '2px 6px', background: '#f1f5f9', borderRadius: 4 }}>
+                              Kelas/Mapel:{' '}
+                              {[report.context?.kelas, report.context?.mapel].filter(Boolean).join(' • ') || '-'}
                             </span>
-                            <span className="px-1.5 py-0.5 rounded bg-slate-100">
+                            <span style={{ padding: '2px 6px', background: '#f1f5f9', borderRadius: 4 }}>
                               Device: {report.context?.deviceId || '-'}
                             </span>
-                            <span className="px-1.5 py-0.5 rounded bg-slate-100">
+                            <span
+                              style={{
+                                padding: '2px 6px',
+                                background: report.context?.isPro ? '#ecfdf5' : '#f1f5f9',
+                                color: report.context?.isPro ? '#059669' : '#64748b',
+                                fontWeight: 700,
+                                borderRadius: 4,
+                              }}
+                            >
                               {report.context?.isPro ? '⭐ Guru PRO' : 'Pratinjau'}
                             </span>
                           </div>

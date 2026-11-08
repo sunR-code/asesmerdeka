@@ -160,6 +160,19 @@ body {
   animation: pulseSubtle 2.5s ease-in-out infinite;
 }
 
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
 /* Layout Grids */
 .grid-2 {
   display: grid;
