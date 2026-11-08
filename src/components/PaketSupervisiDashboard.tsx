@@ -62,8 +62,10 @@ export const PaketSupervisiDashboard: React.FC<PaketSupervisiDashboardProps> = (
     try {
       setIsDownloadingMaster(true);
       onToast('Sedang merangkum seluruh dokumen ke dalam satu file Master Bundel Word...');
-      await exportBundelSupervisiMasterDocx(schoolProfile, tpList, kelasHarian);
-      onToast('Master Bundel Supervisi (.docx) berhasil diunduh!');
+      const ok = await exportBundelSupervisiMasterDocx(schoolProfile, tpList, kelasHarian);
+      if (ok) {
+        onToast('Master Bundel Supervisi (.docx) berhasil diunduh!');
+      }
     } catch (e: any) {
       alert('Gagal mengunduh Master Bundel: ' + e.message);
     } finally {
@@ -76,8 +78,10 @@ export const PaketSupervisiDashboard: React.FC<PaketSupervisiDashboardProps> = (
     try {
       setIsDownloadingZip(true);
       onToast('Sedang mengemas seluruh 9 file dokumen ke dalam arsip ZIP...');
-      await exportPaketSupervisiToZip(schoolProfile, tpList, kelasHarian);
-      onToast('Paket Arsip ZIP (.zip) berhasil diunduh!');
+      const ok = await exportPaketSupervisiToZip(schoolProfile, tpList, kelasHarian);
+      if (ok) {
+        onToast('Paket Arsip ZIP (.zip) berhasil diunduh!');
+      }
     } catch (e: any) {
       alert('Gagal mengunduh ZIP: ' + e.message);
     } finally {
@@ -89,29 +93,32 @@ export const PaketSupervisiDashboard: React.FC<PaketSupervisiDashboardProps> = (
   const handleDownloadSingle = async (idx: number) => {
     try {
       setDownloadingDocIdx(idx);
+      let ok: any = false;
       if (idx === 1) {
-        await exportCoverDanPengesahanToDocx(schoolProfile);
+        ok = await exportCoverDanPengesahanToDocx(schoolProfile);
       } else if (idx === 2) {
-        await exportInstrumenSupervisiToDocx(schoolProfile);
+        ok = await exportInstrumenSupervisiToDocx(schoolProfile);
       } else if (idx === 3) {
         const atp = buildSmartATP(tpList, schoolProfile);
-        await exportATPToDocx(atp, schoolProfile);
+        ok = await exportATPToDocx(atp, schoolProfile);
       } else if (idx === 4) {
         const prota = buildSmartProta(schoolProfile, tpList);
-        await exportProtaToDocx(prota, schoolProfile);
+        ok = await exportProtaToDocx(prota, schoolProfile);
       } else if (idx === 5) {
         const promes = buildSmartPromes(schoolProfile, tpList);
-        await exportPromesToDocx(promes, schoolProfile);
+        ok = await exportPromesToDocx(promes, schoolProfile);
       } else if (idx === 6) {
-        await exportPresensiToDocx(schoolProfile, kelasHarian);
+        ok = await exportPresensiToDocx(schoolProfile, kelasHarian);
       } else if (idx === 7) {
-        await exportJurnalMengajarToDocx(schoolProfile, kelasHarian);
+        ok = await exportJurnalMengajarToDocx(schoolProfile, kelasHarian);
       } else if (idx === 8) {
-        await exportDaftarNilaiToDocx(schoolProfile, kelasHarian, tpList);
+        ok = await exportDaftarNilaiToDocx(schoolProfile, kelasHarian, tpList);
       } else if (idx === 9) {
-        await exportRekapRaporToDocx(schoolProfile, kelasHarian, tpList);
+        ok = await exportRekapRaporToDocx(schoolProfile, kelasHarian, tpList);
       }
-      onToast('Dokumen Word (.docx) berhasil diunduh!');
+      if (ok) {
+        onToast('Dokumen Word (.docx) berhasil diunduh!');
+      }
     } catch (e: any) {
       alert('Gagal mengunduh dokumen: ' + e.message);
     } finally {

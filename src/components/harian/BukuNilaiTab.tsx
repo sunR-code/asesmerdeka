@@ -11,6 +11,7 @@ import type {
   SiswaItem,
 } from '../../types/kelasHarian';
 import { exportDaftarNilaiToDocx } from '../../utils/docxExporter';
+import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 import {
   computeNilaiAkhir,
   generateAutoDeskripsiRapor,
@@ -201,7 +202,10 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
 
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => {
+              if (!requireActiveLicenseForAction('mencetak Buku Nilai Siswa')) return;
+              window.print();
+            }}
             className="btn btn-sm btn-outline"
             style={{ fontSize: 12 }}
           >
@@ -212,8 +216,10 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
             type="button"
             onClick={async () => {
               try {
-                await exportDaftarNilaiToDocx(schoolProfile, kelasHarian, tpList);
-                onToast('File Word Buku Nilai (.docx) berhasil diunduh!');
+                const ok = await exportDaftarNilaiToDocx(schoolProfile, kelasHarian, tpList);
+                if (ok) {
+                  onToast('File Word Buku Nilai (.docx) berhasil diunduh!');
+                }
               } catch (e: any) {
                 alert('Gagal mengunduh: ' + e.message);
               }

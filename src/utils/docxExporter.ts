@@ -33,12 +33,13 @@ export { buildCoverDanPengesahanElements, buildInstrumenSupervisiElements };
 function guardExport<TArgs extends unknown[], TReturn>(
   fn: (...args: TArgs) => Promise<TReturn>,
   label = 'mengunduh dokumen Word (.docx)'
-): (...args: TArgs) => Promise<TReturn | undefined> {
+): (...args: TArgs) => Promise<TReturn | boolean> {
   return async (...args: TArgs) => {
     if (!requireActiveLicenseForAction(label)) {
-      return undefined;
+      return false;
     }
-    return fn(...args);
+    const res = await fn(...args);
+    return res !== undefined ? res : true;
   };
 }
 

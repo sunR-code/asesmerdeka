@@ -14,6 +14,7 @@ import type {
   StatusKehadiran,
 } from '../../types/kelasHarian';
 import { exportPresensiToDocx } from '../../utils/docxExporter';
+import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 import { applyNewStudentRoster } from '../../utils/kelasHarianStorage';
 import { ImportSiswaModal } from './ImportSiswaModal';
 
@@ -289,7 +290,10 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
 
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => {
+              if (!requireActiveLicenseForAction('mencetak dokumen Presensi')) return;
+              window.print();
+            }}
             className="btn btn-sm btn-outline"
             style={{ fontSize: 12 }}
           >
@@ -300,8 +304,10 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
             type="button"
             onClick={async () => {
               try {
-                await exportPresensiToDocx(schoolProfile, kelasHarian);
-                onToast('File Word Presensi (.docx) berhasil diunduh!');
+                const ok = await exportPresensiToDocx(schoolProfile, kelasHarian);
+                if (ok) {
+                  onToast('File Word Presensi (.docx) berhasil diunduh!');
+                }
               } catch (e: any) {
                 alert('Gagal mengunduh presensi: ' + e.message);
               }

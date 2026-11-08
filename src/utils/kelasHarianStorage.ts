@@ -181,7 +181,7 @@ export function generateDefaultJurnal(
       kodeTP,
       materiPokok,
       kegiatanPembelajaran: `Pembelajaran berdiferensiasi dan diskusi kelompok terarah mengenai "${materiPokok}". Siswa aktif mengeksplorasi konsep: ${tpText.slice(0, 80)}. Ditutup dengan refleksi formatif singkat.`,
-      siswaTidakHadir: i === 3 ? 'Andika Bagus (Sakit)' : i === 6 ? 'Dimas Arya (Izin)' : 'Nihil (Semua Hadir)',
+      siswaTidakHadir: 'Nihil (Semua Hadir)',
       catatanRefleksi: 'Siswa antusias dan aktif berdiskusi. Sebagian siswa memerlukan pendalaman konsep dasar saat kerja kelompok.',
     });
   }

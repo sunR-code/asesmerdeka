@@ -4,6 +4,7 @@ import { Download, Printer, FileSpreadsheet } from 'lucide-react';
 import type { SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
 import { buildSmartPromes } from '../../utils/perangkatAjarEngine';
 import { exportPromesToDocx } from '../../utils/docxExporter';
+import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 import { cardTapMotion } from '../../utils/motionPresets';
 
 interface PromesSubTabProps {
@@ -50,7 +51,10 @@ export const PromesSubTab: React.FC<PromesSubTabProps> = ({
           <motion.button
             type="button"
             whileTap={cardTapMotion}
-            onClick={() => window.print()}
+            onClick={() => {
+              if (!requireActiveLicenseForAction('mencetak dokumen Promes')) return;
+              window.print();
+            }}
             className="btn btn-sm btn-outline"
             style={{ borderRadius: 10, fontSize: 12.5, fontWeight: 700 }}
           >
@@ -62,8 +66,10 @@ export const PromesSubTab: React.FC<PromesSubTabProps> = ({
             whileTap={cardTapMotion}
             onClick={async () => {
               try {
-                await exportPromesToDocx(promesDoc, schoolProfile);
-                onToast('File Word Promes (.docx) berhasil diunduh!');
+                const ok = await exportPromesToDocx(promesDoc, schoolProfile);
+                if (ok) {
+                  onToast('File Word Promes (.docx) berhasil diunduh!');
+                }
               } catch (e: any) {
                 alert('Gagal mengunduh: ' + e.message);
               }

@@ -393,8 +393,10 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
 
   const handleExportDocxClick = async () => {
     try {
-      await exportLKPDToDocx(currentDoc, activeProfile, showTeacherGuide);
-      showToast('File Word LKPD (.docx) berhasil diunduh!');
+      const ok = await exportLKPDToDocx(currentDoc, activeProfile, showTeacherGuide);
+      if (ok) {
+        showToast('File Word LKPD (.docx) berhasil diunduh!');
+      }
     } catch (e: any) {
       alert('Gagal mengunduh file Word: ' + e.message);
     }

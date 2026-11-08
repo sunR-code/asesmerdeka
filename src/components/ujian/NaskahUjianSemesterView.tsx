@@ -24,6 +24,7 @@ import {
 } from '../../utils/examSemesterEngine';
 import type { ExamGenerationOptions } from '../../utils/examSemesterEngine';
 import { exportNaskahUjianToDocx } from '../../utils/docxExporter';
+import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 
 interface Props {
   profile?: SchoolProfile;
@@ -108,6 +109,7 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
 
   // Cetak dokumen
   const handlePrint = () => {
+    if (!requireActiveLicenseForAction('mencetak Naskah Ujian Semester')) return;
     window.print();
   };
 

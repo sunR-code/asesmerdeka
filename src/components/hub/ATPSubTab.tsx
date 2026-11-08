@@ -4,6 +4,7 @@ import { Download, Printer, Table2 } from 'lucide-react';
 import type { SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
 import { buildSmartATP } from '../../utils/perangkatAjarEngine';
 import { exportATPToDocx } from '../../utils/docxExporter';
+import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 import { cardTapMotion } from '../../utils/motionPresets';
 
 interface ATPSubTabProps {
@@ -50,7 +51,10 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
           <motion.button
             type="button"
             whileTap={cardTapMotion}
-            onClick={() => window.print()}
+            onClick={() => {
+              if (!requireActiveLicenseForAction('mencetak dokumen ATP')) return;
+              window.print();
+            }}
             className="btn btn-sm btn-outline"
             style={{ borderRadius: 10, fontSize: 12.5, fontWeight: 700 }}
           >
@@ -62,8 +66,10 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
             whileTap={cardTapMotion}
             onClick={async () => {
               try {
-                await exportATPToDocx(atpDoc, schoolProfile);
-                onToast('File Word ATP (.docx) berhasil diunduh!');
+                const ok = await exportATPToDocx(atpDoc, schoolProfile);
+                if (ok) {
+                  onToast('File Word ATP (.docx) berhasil diunduh!');
+                }
               } catch (e: any) {
                 alert('Gagal mengunduh: ' + e.message);
               }

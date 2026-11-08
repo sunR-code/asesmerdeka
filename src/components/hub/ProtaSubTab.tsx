@@ -4,6 +4,7 @@ import { Download, Printer, Calendar } from 'lucide-react';
 import type { SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
 import { buildSmartProta } from '../../utils/perangkatAjarEngine';
 import { exportProtaToDocx } from '../../utils/docxExporter';
+import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 import { cardTapMotion } from '../../utils/motionPresets';
 
 interface ProtaSubTabProps {
@@ -50,7 +51,10 @@ export const ProtaSubTab: React.FC<ProtaSubTabProps> = ({
           <motion.button
             type="button"
             whileTap={cardTapMotion}
-            onClick={() => window.print()}
+            onClick={() => {
+              if (!requireActiveLicenseForAction('mencetak dokumen Prota')) return;
+              window.print();
+            }}
             className="btn btn-sm btn-outline"
             style={{ borderRadius: 10, fontSize: 12.5, fontWeight: 700 }}
           >
@@ -62,8 +66,10 @@ export const ProtaSubTab: React.FC<ProtaSubTabProps> = ({
             whileTap={cardTapMotion}
             onClick={async () => {
               try {
-                await exportProtaToDocx(protaDoc, schoolProfile);
-                onToast('File Word Prota (.docx) berhasil diunduh!');
+                const ok = await exportProtaToDocx(protaDoc, schoolProfile);
+                if (ok) {
+                  onToast('File Word Prota (.docx) berhasil diunduh!');
+                }
               } catch (e: any) {
                 alert('Gagal mengunduh: ' + e.message);
               }

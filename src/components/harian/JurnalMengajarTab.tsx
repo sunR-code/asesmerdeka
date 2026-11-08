@@ -14,6 +14,7 @@ import type {
   JurnalMengajarItem,
 } from '../../types/kelasHarian';
 import { exportJurnalMengajarToDocx } from '../../utils/docxExporter';
+import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 import { generateDefaultJurnal } from '../../utils/kelasHarianStorage';
 
 interface JurnalMengajarTabProps {
@@ -184,7 +185,10 @@ export const JurnalMengajarTab: React.FC<JurnalMengajarTabProps> = ({
 
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => {
+              if (!requireActiveLicenseForAction('mencetak dokumen Jurnal Mengajar')) return;
+              window.print();
+            }}
             className="btn btn-sm btn-outline"
             style={{ fontSize: 12 }}
           >
@@ -195,8 +199,10 @@ export const JurnalMengajarTab: React.FC<JurnalMengajarTabProps> = ({
             type="button"
             onClick={async () => {
               try {
-                await exportJurnalMengajarToDocx(schoolProfile, kelasHarian);
-                onToast('File Word Jurnal Mengajar (.docx) berhasil diunduh!');
+                const ok = await exportJurnalMengajarToDocx(schoolProfile, kelasHarian);
+                if (ok) {
+                  onToast('File Word Jurnal Mengajar (.docx) berhasil diunduh!');
+                }
               } catch (e: any) {
                 alert('Gagal mengunduh: ' + e.message);
               }

@@ -111,8 +111,10 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           <button
             onClick={async () => {
               try {
-                await exportModulAjarToDocx(modul, activeProfile);
-                showToast('File Word (.docx) berhasil diunduh!');
+                const ok = await exportModulAjarToDocx(modul, activeProfile);
+                if (ok) {
+                  showToast('File Word (.docx) berhasil diunduh!');
+                }
               } catch (e: any) {
                 alert('Gagal mengunduh file Word: ' + e.message);
               }

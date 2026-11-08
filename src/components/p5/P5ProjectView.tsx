@@ -23,6 +23,7 @@ import { getKelasHarianData } from '../../utils/kelasHarianStorage';
 import type { P5ProjectDocument, P5Tema, KategoriPerkembanganP5 } from '../../types/p5Project';
 import { P5_TEMA_CATALOG, generateP5Document } from '../../utils/p5Engine';
 import { exportP5ToDocx } from '../../utils/docxP5Exporter';
+import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 
 interface Props {
   profile?: SchoolProfile;
@@ -90,6 +91,7 @@ export const P5ProjectView: React.FC<Props> = ({ profile: propProfile, kelasHari
   };
 
   const handlePrint = () => {
+    if (!requireActiveLicenseForAction('mencetak Modul Projek P5')) return;
     window.print();
   };
 

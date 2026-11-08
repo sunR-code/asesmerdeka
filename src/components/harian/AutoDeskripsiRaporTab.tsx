@@ -11,6 +11,7 @@ import type {
   KelasHarianData,
 } from '../../types/kelasHarian';
 import { exportRekapRaporToDocx } from '../../utils/docxExporter';
+import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 import { generateAutoDeskripsiRapor } from '../../utils/kelasHarianStorage';
 
 interface AutoDeskripsiRaporTabProps {
@@ -146,7 +147,10 @@ export const AutoDeskripsiRaporTab: React.FC<AutoDeskripsiRaporTabProps> = ({
 
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => {
+              if (!requireActiveLicenseForAction('mencetak Rekap Rapor')) return;
+              window.print();
+            }}
             className="btn btn-sm btn-outline"
             style={{ fontSize: 12 }}
           >
@@ -157,8 +161,10 @@ export const AutoDeskripsiRaporTab: React.FC<AutoDeskripsiRaporTabProps> = ({
             type="button"
             onClick={async () => {
               try {
-                await exportRekapRaporToDocx(schoolProfile, kelasHarian, tpList);
-                onToast('File Word Rekap Rapor (.docx) berhasil diunduh!');
+                const ok = await exportRekapRaporToDocx(schoolProfile, kelasHarian, tpList);
+                if (ok) {
+                  onToast('File Word Rekap Rapor (.docx) berhasil diunduh!');
+                }
               } catch (e: any) {
                 alert('Gagal mengunduh: ' + e.message);
               }

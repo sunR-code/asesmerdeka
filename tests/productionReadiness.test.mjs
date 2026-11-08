@@ -1147,6 +1147,61 @@ test('AUD-216: Feedback client service menangani kategori meta, offline-first st
   assert.ok(emptyMd.includes('Tidak ada laporan kendala yang ditemukan.'));
 });
 
+test('AUD-217: Anti-Bypass Cetak PDF & Guarded Export Toast memblokir aksi unlicensed dan mencegah nama dummy di Jurnal', () => {
+  globalThis.localStorage.clear();
+
+  // 1. Unlicensed (Free tier) harus diblokir saat cetak PDF atau ekspor
+  let dispatchedEvent = null;
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    dispatchEvent: (evt) => {
+      dispatchedEvent = evt;
+      return true;
+    },
+    CustomEvent: class CustomEvent {
+      constructor(type, init) {
+        this.type = type;
+        this.detail = init?.detail;
+      }
+    },
+  };
+
+  try {
+    const initial = licenseManager.getUserQuota();
+    assert.equal(initial.tier, 'free');
+
+    // requireActiveLicenseForAction harus return false & dispatch event
+    const canPrintFree = licenseManager.requireActiveLicenseForAction('mencetak dokumen');
+    assert.equal(canPrintFree, false);
+    assert.ok(dispatchedEvent);
+    assert.equal(dispatchedEvent.type, 'asesmerdeka:require-license');
+    assert.ok(dispatchedEvent.detail?.message?.includes('mencetak dokumen'));
+
+    // 2. Saat lisensi diaktifkan (Pro / Sekolah), requireActiveLicenseForAction return true
+    const deviceId = licenseManager.getOrCreateDeviceId();
+    const validCode = licenseManager.computeLicenseCodeForDevice(deviceId);
+    const activated = licenseManager.activateLicense(validCode);
+    assert.ok(activated.success);
+    dispatchedEvent = null;
+    const canPrintLicensed = licenseManager.requireActiveLicenseForAction('mencetak dokumen');
+    assert.equal(canPrintLicensed, true);
+    assert.equal(dispatchedEvent, null);
+
+    // 3. Verifikasi generateDefaultJurnal tidak mengandung nama dummy bawaan
+    const defaultJurnal = kelasHarianStorage.generateDefaultJurnal([], 8);
+    assert.ok(Array.isArray(defaultJurnal));
+    assert.equal(defaultJurnal.length, 8);
+    for (const entry of defaultJurnal) {
+      assert.equal(entry.siswaTidakHadir, 'Nihil (Semua Hadir)');
+      assert.equal(entry.siswaTidakHadir.includes('Andika'), false);
+      assert.equal(entry.siswaTidakHadir.includes('Dimas'), false);
+    }
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
+
+
 
 
 
