@@ -1685,6 +1685,121 @@ test('AUD-221: Menghapus lisensi di Admin Portal langsung mencabut status aktif 
   assert.equal(licenseManager.getUserQuota().tier, 'free');
 });
 
+test('AUD-222: Serverless /api/shared-curriculum mengelola Bank Referensi Modul Ajar & LKPD, membersihkan PII, dan menolak draf rusak', async () => {
+  const { default: sharedHandler, buildSharedCurriculumKey, sanitizeCurriculumForSharing } = await import('../api/shared-curriculum.js');
+
+  const makeMockRes = () => {
+    const out = { statusCode: 200, headers: {}, body: null };
+    return {
+      setHeader(k, v) { out.headers[k] = v; return this; },
+      status(code) { out.statusCode = code; return this; },
+      json(payload) { out.body = payload; return this; },
+      end() { return this; },
+      get result() { return out; },
+    };
+  };
+
+  // 1. Uji sanitasi Zero PII
+  const rawDoc = {
+    namaSekolah: 'SMP Negeri 1 Merdeka',
+    namaGuru: 'Budi Santoso, S.Pd.',
+    nip: '198501012010011001',
+    alamatSekolah: 'Jl. Merdeka No. 45',
+    materiPokok: 'Teorema Pythagoras',
+    pemahamanBermakna: 'Memahami hubungan sisi segitiga siku-siku dalam arsitektur.',
+    pertanyaanPemantik: ['Bagaimana tukang bangunan memastikan sudut siku?'],
+  };
+  const sanitized = sanitizeCurriculumForSharing(rawDoc);
+  assert.equal(sanitized.namaSekolah, undefined);
+  assert.equal(sanitized.namaGuru, undefined);
+  assert.equal(sanitized.nip, undefined);
+  assert.equal(sanitized.alamatSekolah, undefined);
+  assert.equal(sanitized.materiPokok, 'Teorema Pythagoras');
+
+  // 2. Uji pembentukan kunci komposit presisi
+  const key = buildSharedCurriculumKey({
+    type: 'modul_ajar',
+    jenjang: 'SMP',
+    kelas: '8',
+    mapel: 'Matematika',
+    tpKode: '8.1',
+    materiPokok: 'Teorema Pythagoras',
+    model: 'pbl',
+  });
+  assert.equal(key, 'asesmerdeka:shared:modul_ajar:smp:8:matematika:8-1:teorema-pythagoras:pbl');
+
+  // 3. POST draf modul ajar baru
+  const postRes = makeMockRes();
+  await sharedHandler(
+    {
+      method: 'POST',
+      body: {
+        type: 'modul_ajar',
+        jenjang: 'SMP',
+        kelas: '8',
+        mapel: 'Matematika',
+        tpKode: '8.1',
+        materiPokok: 'Teorema Pythagoras',
+        model: 'pbl',
+        licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
+        data: {
+          materiPokok: 'Teorema Pythagoras',
+          pemahamanBermakna: 'Memahami hubungan kuadrat sisi miring segitiga siku-siku.',
+          pertanyaanPemantik: ['Apa yang terjadi jika tangga disandarkan terlalu miring?'],
+          langkahPembelajaran: [{ pertemuanKe: 1, inti: ['Penyelidikan masalah'] }],
+        },
+      },
+    },
+    postRes
+  );
+  assert.equal(postRes.result.statusCode, 200);
+  assert.equal(postRes.result.body?.ok, true);
+
+  // 4. GET draf yang baru disimpan
+  const getRes = makeMockRes();
+  await sharedHandler(
+    {
+      method: 'GET',
+      query: {
+        type: 'modul_ajar',
+        jenjang: 'SMP',
+        kelas: '8',
+        mapel: 'Matematika',
+        tpKode: '8.1',
+        materiPokok: 'Teorema Pythagoras',
+        model: 'pbl',
+      },
+    },
+    getRes
+  );
+  assert.equal(getRes.result.statusCode, 200);
+  assert.equal(getRes.result.body?.found, true);
+  assert.equal(getRes.result.body?.data?.materiPokok, 'Teorema Pythagoras');
+  assert.equal(getRes.result.body?.data?.namaSekolah, undefined);
+
+  // 5. POST ditolak jika data kosong / rusak (anti-vandalism)
+  const badPostRes = makeMockRes();
+  await sharedHandler(
+    {
+      method: 'POST',
+      body: {
+        type: 'modul_ajar',
+        jenjang: 'SMP',
+        kelas: '8',
+        mapel: 'Matematika',
+        tpKode: '8.1',
+        materiPokok: 'Teorema Pythagoras',
+        model: 'pbl',
+        licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
+        data: {},
+      },
+    },
+    badPostRes
+  );
+  assert.equal(badPostRes.result.statusCode, 400);
+  assert.equal(badPostRes.result.body?.ok, false);
+});
+
 
 
 

@@ -380,7 +380,7 @@ export async function autoRegisterLicenseInAdminRegistry({
   }
 }
 
-function verifyInternalSerialOrDeviceCode(cleanCode, deviceId) {
+export function verifyInternalSerialOrDeviceCode(cleanCode, deviceId) {
   if (!cleanCode) return null;
 
   // Tolak permanen seluruh kode lama (PRO-MERDEKA-... atau ASES-...)
