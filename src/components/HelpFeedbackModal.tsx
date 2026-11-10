@@ -203,6 +203,54 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
           </button>
         </div>
 
+        {/* Quick Guide Banner */}
+        <div
+          style={{
+            background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)',
+            border: '1px solid #bfdbfe',
+            borderRadius: 12,
+            padding: '12px 16px',
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 24, lineHeight: 1 }}>📖</span>
+            <div>
+              <strong style={{ fontSize: 13.5, color: '#1e3a8a', display: 'block' }}>
+                Buku Panduan Praktis Guru (Bisa Dibuka di HP & Laptop)
+              </strong>
+              <span style={{ fontSize: 12, color: '#475569' }}>
+                Tutorial ramah guru, penjelasan tombol, dan alur cepat 3 langkah.
+              </span>
+            </div>
+          </div>
+          <a
+            href="/panduan.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              background: '#1e40af',
+              color: '#ffffff',
+              fontSize: 12.5,
+              fontWeight: 700,
+              padding: '7px 15px',
+              borderRadius: 8,
+              textDecoration: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              boxShadow: '0 2px 6px rgba(30, 64, 175, 0.25)',
+            }}
+          >
+            Buka Buku Panduan ↗
+          </a>
+        </div>
+
         {/* Content: Form Pengiriman Laporan (Sisi Guru) */}
         <div>
           {submitResult?.ok ? (

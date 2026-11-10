@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buku Panduan Praktis AsesMerdeka - Khusus Guru & Pendidik</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1e40af;
+      --primary-light: #eff6ff;
+      --primary-hover: #1d4ed8;
+      --secondary: #059669;
+      --secondary-light: #ecfdf5;
+      --accent: #d97706;
+      --accent-light: #fef3c7;
+      --surface: #ffffff;
+      --bg: #f8fafc;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05);
+      --shadow-md: 0 6px 18px -3px rgba(15, 23, 42, 0.07);
+      --shadow-lg: 0 14px 34px -6px rgba(15, 23, 42, 0.12);
+      --font-base: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: var(--font-base);
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.68;
+      font-size: 16px;
+      scroll-behavior: smooth;
+    }
+
+    /* Top Sticky Navigation */
+    .top-navbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .brand-logo-icon {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, #1e40af, #3b82f6);
+      color: #ffffff;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      box-shadow: 0 4px 10px rgba(37, 99, 235, 0.28);
+    }
+
+    .brand-text h1 {
+      font-size: 17px;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.2;
+    }
+
+    .brand-text p {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-action:hover {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+    }
+
+    .btn-action.btn-print {
+      background: #1e40af;
+      color: #ffffff;
+      border-color: #1e40af;
+    }
+
+    .btn-action.btn-print:hover {
+      background: #1d4ed8;
+    }
+
+    /* Main Container Layout */
+    .page-layout {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 20px 80px 20px;
+      display: grid;
+      grid-template-columns: 270px 1fr;
+      gap: 32px;
+      align-items: start;
+    }
+
+    /* Sidebar Table of Contents */
+    .toc-sidebar {
+      position: sticky;
+      top: 80px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px 16px;
+      box-shadow: var(--shadow-sm);
+      max-height: calc(100vh - 100px);
+      overflow-y: auto;
+    }
+
+    .toc-header {
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .toc-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .toc-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #334155;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+
+    .toc-link:hover {
+      background: var(--primary-light);
+      color: var(--primary);
+      transform: translateX(3px);
+    }
+
+    .toc-link span.num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      background: #f1f5f9;
+      color: #475569;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .toc-link:hover span.num {
+      background: var(--primary);
+      color: #ffffff;
+    }
+
+    /* Content Area */
+    .content-area {
+      min-width: 0;
+    }
+
+    /* Hero Banner */
+    .hero-card {
+      background: linear-gradient(135deg, #1e3a8a, #1e40af 50%, #2563eb);
+      color: #ffffff;
+      border-radius: var(--radius-lg);
+      padding: 36px 32px;
+      box-shadow: var(--shadow-lg);
+      margin-bottom: 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-card::after {
+      content: '';
+      position: absolute;
+      top: -40px;
+      right: -40px;
+      width: 220px;
+      height: 220px;
+      background: radial-gradient(circle, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 70%);
+      border-radius: 50%;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      padding: 5px 14px;
+      border-radius: 9999px;
+      font-size: 12.5px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      backdrop-filter: blur(4px);
+    }
+
+    .hero-card h2 {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.3;
+      margin-bottom: 12px;
+    }
+
+    .hero-card p {
+      font-size: 16px;
+      opacity: 0.92;
+      max-width: 680px;
+      line-height: 1.6;
+    }
+
+    .hero-quickstats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .stat-pill {
+      background: rgba(255, 255, 255, 0.12);
+      padding: 10px 14px;
+      border-radius: 10px;
+    }
+
+    .stat-pill strong {
+      display: block;
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .stat-pill span {
+      font-size: 12px;
+      opacity: 0.85;
+    }
+
+    /* Section Styling */
+    .guide-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px 28px;
+      margin-bottom: 32px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 2px solid #f1f5f9;
+    }
+
+    .section-num {
+      width: 36px;
+      height: 36px;
+      background: var(--primary-light);
+      color: var(--primary);
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .section-head h3 {
+      font-size: 22px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .guide-section p {
+      margin-bottom: 16px;
+      color: #334155;
+    }
+
+    /* Alert Boxes */
+    .callout {
+      border-radius: var(--radius-md);
+      padding: 16px 20px;
+      margin: 20px 0;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      font-size: 14.5px;
+      line-height: 1.6;
+    }
+
+    .callout-icon {
+      font-size: 22px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .callout-tip {
+      background: var(--secondary-light);
+      border-left: 4px solid var(--secondary);
+      color: #065f46;
+    }
+
+    .callout-important {
+      background: #eff6ff;
+      border-left: 4px solid #2563eb;
+      color: #1e3a8a;
+    }
+
+    .callout-warning {
+      background: var(--accent-light);
+      border-left: 4px solid var(--accent);
+      color: #92400e;
+    }
+
+    /* Diagram / Flow Box */
+    .flow-diagram {
+      background: #0f172a;
+      color: #f8fafc;
+      border-radius: var(--radius-md);
+      padding: 24px 20px;
+      margin: 24px 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13.5px;
+      overflow-x: auto;
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.4);
+    }
+
+    .flow-diagram .title {
+      color: #38bdf8;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: block;
+      font-family: var(--font-base);
+    }
+
+    /* Interactive Simulation Cards */
+    .ui-simulation-box {
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: var(--radius-md);
+      padding: 20px;
+      margin: 20px 0;
+    }
+
+    .ui-sim-title {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Button Mockups */
+    .btn-mockup-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .btn-mock {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 13.5px;
+      font-weight: 800;
+      color: #ffffff;
+      cursor: default;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+      border: none;
+    }
+
+    .btn-mock-modul { background: #1e40af; }
+    .btn-mock-lkpd { background: #047857; }
+    .btn-mock-soal { background: #2563eb; }
+    .btn-mock-rangkuman { background: #7c3aed; }
+    .btn-mock-supervisi { background: #059669; }
+
+    /* Step Grid */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin: 24px 0;
+    }
+
+    .step-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 22px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .step-card:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-md);
+      border-color: #cbd5e1;
+    }
+
+    .step-badge {
+      display: inline-block;
+      width: 28px;
+      height: 28px;
+      line-height: 28px;
+      text-align: center;
+      background: #1e40af;
+      color: #ffffff;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+
+    .step-card h4 {
+      font-size: 17px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 8px;
+    }
+
+    .step-card p {
+      font-size: 14px;
+      color: #475569;
+      line-height: 1.55;
+      margin-bottom: 0;
+    }
+
+    /* Comparison / Table */
+    .custom-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 14px;
+    }
+
+    .custom-table th {
+      background: #f1f5f9;
+      color: #1e293b;
+      font-weight: 700;
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 2px solid var(--border);
+    }
+
+    .custom-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      color: #334155;
+    }
+
+    .custom-table tr:hover td {
+      background: #f8fafc;
+    }
+
+    /* Accordion FAQ */
+    .faq-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      margin-bottom: 12px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .faq-question {
+      padding: 16px 20px;
+      font-weight: 700;
+      font-size: 15px;
+      color: #0f172a;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+      background: #fcfdfe;
+    }
+
+    .faq-question:hover {
+      background: #f8fafc;
+    }
+
+    .faq-answer {
+      padding: 16px 20px;
+      font-size: 14.5px;
+      color: #475569;
+      line-height: 1.65;
+      border-top: 1px solid var(--border);
+      background: #ffffff;
+    }
+
+    /* Footer */
+    .page-footer {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+      border-top: 1px solid var(--border);
+      margin-top: 40px;
+    }
+
+    .page-footer strong {
+      color: var(--text);
+    }
+
+    /* Mobile Responsive */
+    @media (max-width: 860px) {
+      .page-layout {
+        grid-template-columns: 1fr;
+        padding: 16px 14px 60px 14px;
+        gap: 20px;
+      }
+
+      .toc-sidebar {
+        display: none;
+      }
+
+      .hero-card {
+        padding: 24px 20px;
+      }
+
+      .hero-card h2 {
+        font-size: 22px;
+      }
+
+      .guide-section {
+        padding: 22px 18px;
+      }
+
+      .top-navbar {
+        padding: 10px 14px;
+      }
+
+      .btn-action span.label {
+        display: none;
+      }
+    }
+
+    /* Print Styles */
+    @media print {
+      body {
+        background: #ffffff;
+        font-size: 12pt;
+      }
+      .top-navbar, .toc-sidebar, .btn-action, .hero-card::after {
+        display: none !important;
+      }
+      .page-layout {
+        display: block;
+        max-width: 100%;
+        padding: 0;
+      }
+      .guide-section {
+        border: 1px solid #ccc;
+        box-shadow: none;
+        page-break-inside: avoid;
+        margin-bottom: 20px;
+      }
+      .hero-card {
+        background: #1e3a8a !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sticky Top Bar -->
+  <header class="top-navbar no-print">
+    <a href="#" class="brand-wrap">
+      <div class="brand-logo-icon">✨</div>
+      <div class="brand-text">
+        <h1>AsesMerdeka</h1>
+        <p>Buku Panduan Lengkap Guru & Pendidik</p>
+      </div>
+    </a>
+    <div class="nav-actions">
+      <button class="btn-action" onclick="toggleTextSize()" title="Ubah Ukuran Tulisan">
+        🔤 <span class="label">Ukuran Tulisan</span>
+      </button>
+      <button class="btn-action btn-print" onclick="window.print()" title="Cetak atau Simpan PDF">
+        🖨️ <span class="label">Cetak / Simpan PDF</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Page Layout -->
+  <div class="page-layout">
+
+    <!-- Table of Contents (Sticky on Desktop) -->
+    <aside class="toc-sidebar no-print">
+      <div class="toc-header">
+        <span>Daftar Isi Panduan</span>
+        <span>📖</span>
+      </div>
+      <ul class="toc-list">
+        <li><a href="#quickstart" class="toc-link"><span class="num">0</span> Prinsip 3 Langkah Cepat</a></li>
+        <li><a href="#bagian1" class="toc-link"><span class="num">1</span> Mengenal Layar Utama</a></li>
+        <li><a href="#bagian2" class="toc-link"><span class="num">2</span> Menyetel Kelas & Profil</a></li>
+        <li><a href="#bagian3" class="toc-link"><span class="num">3</span> Modul Ajar (RPP) & LKPD</a></li>
+        <li><a href="#bagian4" class="toc-link"><span class="num">4</span> Soal Evaluasi & Rangkuman</a></li>
+        <li><a href="#bagian5" class="toc-link"><span class="num">5</span> Presensi, Jurnal & Rapor</a></li>
+        <li><a href="#bagian6" class="toc-link"><span class="num">6</span> Paket Siap Supervisi (ZIP)</a></li>
+        <li><a href="#bagian7" class="toc-link"><span class="num">7</span> Kamus Istilah Guru</a></li>
+        <li><a href="#faq" class="toc-link"><span class="num">8</span> Tanya Jawab (FAQ)</a></li>
+      </ul>
+    </aside>
+
+    <!-- Main Content Articles -->
+    <main class="content-area">
+
+      <!-- Hero Welcome Card -->
+      <section class="hero-card">
+        <div class="hero-badge">Panduan Resmi Kurikulum Merdeka 2026</div>
+        <h2>Buku Panduan AsesMerdeka untuk Guru</h2>
+        <p>
+          Bapak/Ibu Guru yang hebat, selamat datang! Kami tahu tugas mengajar di kelas sudah sangat menyita energi. 
+          Aplikasi ini hadir bukan untuk menambah beban administrasi baru, melainkan untuk <strong>menyelesaikan seluruh berkas mengajar dalam hitungan menit</strong> secara santai.
+        </p>
+
+        <div class="hero-quickstats">
+          <div class="stat-pill">
+            <strong>3 Langkah</strong>
+            <span>Pola pengerjaan super cepat</span>
+          </div>
+          <div class="stat-pill">
+            <strong>Word (.docx)</strong>
+            <span>Bisa diedit di Microsoft Word</span>
+          </div>
+          <div class="stat-pill">
+            <strong>1-Klik Ekspor</strong>
+            <span>Paket lengkap siap supervisi</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Quickstart 3 Langkah -->
+      <article id="quickstart" class="guide-section">
+        <div class="section-head">
+          <div class="section-num">0</div>
+          <h3>Prinsip 3 Langkah: Cara Tercepat Memakai Aplikasi</h3>
+        </div>
+        <p>
+          Jika Bibi atau Bapak/Ibu merasa tombol di layar terlalu ramai, <strong>cukup ingat pola 3 langkah ini</strong>. 80% pekerjaan sehari-hari guru cukup selesai dengan alur ini:
+        </p>
+
+        <div class="flow-diagram">
+          <span class="title">ALUR KILAT GURU (80% PEKERJAAN):</span>
+[Langkah 1: Pilih Kelas & Mapel]
+       │
+       ▼
+[Langkah 2: Buka Menu "Peta TP & Modul Ajar"]
+       │
+       ▼
+[Langkah 3: Klik Tombol Dokumen yang Diinginkan]
+       ├── 📘 Modul Ajar (RPP) ──▶ Pilih Model (PBL/PjBL) ──▶ Unduh Word
+       ├── 📄 LKPD Murid       ──▶ Cetak Langsung untuk Tugas Kelas
+       └── 📝 Soal Evaluasi    ──▶ 10 Soal + Kunci Jawaban Otomatis
+        </div>
+
+        <div class="callout callout-tip">
+          <div class="callout-icon">💡</div>
+          <div>
+            <strong>Kunci Ketenangan:</strong> Anda <em>tidak perlu</em> membuka semua tombol setiap hari! Cukup buka menu <strong>Peta TP & Modul Ajar</strong> untuk bahan mengajar minggu ini.
+          </div>
+        </div>
+      </article>
+
+      <!-- Section 1: Mengenal Layar Utama -->
+      <article id="bagian1" class="guide-section">
+        <div class="section-head">
+          <div class="section-num">1</div>
+          <h3>Mengenal 3 Ruang Kerja di Layar</h3>
+        </div>
+        <p>Ketika aplikasi dibuka di laptop atau HP, layar terbagi menjadi 3 wilayah yang jelas:</p>
+
+        <div class="steps-grid">
+          <div class="step-card">
+            <span class="step-badge">A</span>
+            <h4>Bar Atas (Header)</h4>
+            <p>Berisi nama sekolah, nama kelas yang aktif, tombol <strong>"Profil Sekolah"</strong> untuk mengatur NIP & Kepala Sekolah, serta status lisensi.</p>
+          </div>
+          <div class="step-card">
+            <span class="step-badge">B</span>
+            <h4>Menu Kiri (Sidebar)</h4>
+            <p>Daftar seluruh ruangan administrasi: Peta TP, Program Tahunan (Prota), Program Semester (Promes), Presensi, Jurnal, dan Nilai.</p>
+          </div>
+          <div class="step-card">
+            <span class="step-badge">C</span>
+            <h4>Lembar Kerja Tengah</h4>
+            <p>Tempat dokumen Anda ditampilkan. Di sini Anda bisa membaca materi, mengedit teks secara langsung, dan mengunduh berkas Word.</p>
+          </div>
+        </div>
+      </article>
+
+      <!-- Section 2: Menyetel Kelas & Profil -->
+      <article id="bagian2" class="guide-section">
+        <div class="section-head">
+          <div class="section-num">2</div>
+          <h3>Menyetel Kelas dan Profil Guru</h3>
+        </div>
+        <p>Langkah ini hanya dilakukan <strong>sekali saja</strong> di awal semester atau saat Bapak/Ibu ingin berganti kelas yang diajar.</p>
+
+        <h4 style="margin: 20px 0 10px 0; color: #1e3a8a;">Langkah 2.1: Memilih Kelas & Mata Pelajaran</h4>
+        <ol style="margin-left: 20px; line-height: 1.8; color: #334155;">
+          <li>Klik tombol <strong>"Pilih Kelas & Mata Pelajaran"</strong> yang berada di bagian paling atas.</li>
+          <li>Pilih <strong>Jenjang</strong>: SD, SMP, atau SMA/SMK.</li>
+          <li>Pilih <strong>Kelas</strong>: Misalnya Kelas 4 (Fase B) atau Kelas 7 (Fase D).</li>
+          <li>Pilih <strong>Mata Pelajaran</strong>: Matematika, Bahasa Indonesia, IPAS, Bahasa Inggris, PAI, PJOK, dsb.</li>
+          <li>Pilih <strong>Semester</strong>: Semester 1 (Ganjil) atau Semester 2 (Genap).</li>
+          <li>Klik tombol hijau <strong>"Simpan & Masuk ke Kelas Ini"</strong>.</li>
+        </ol>
+
+        <div class="callout callout-important">
+          <div class="callout-icon">✨</div>
+          <div>
+            <strong>Otomatis Resmi:</strong> Begitu tombol simpan diklik, sistem AsesMerdeka langsung memuat seluruh Capaian Pembelajaran (CP) dan Alur Tujuan Pembelajaran (ATP) resmi dari Kementerian Pendidikan. Bapak/Ibu tidak perlu mengetik nama bab lagi!
+          </div>
+        </div>
+
+        <h4 style="margin: 28px 0 10px 0; color: #1e3a8a;">Langkah 2.2: Mengisi Profil Sekolah & Tanda Tangan</h4>
+        <p>Agar berkas yang diunduh sudah lengkap dengan kop dan tanda tangan resmi:</p>
+        <ol style="margin-left: 20px; line-height: 1.8; color: #334155;">
+          <li>Di pojok kanan atas, klik tombol <strong>"Profil Sekolah"</strong> (ikon gedung sekolah).</li>
+          <li>Isi nama sekolah Anda (misal: <em>SD Negeri 2 Wonosobo</em>).</li>
+          <li>Ketik nama Anda dan NIP.</li>
+          <li>Ketik nama Kepala Sekolah dan NIP.</li>
+          <li>Klik <strong>"Simpan Profil"</strong>.</li>
+        </ol>
+      </article>
+
+      <!-- Section 3: Modul Ajar (RPP) & LKPD -->
+      <article id="bagian3" class="guide-section">
+        <div class="section-head">
+          <div class="section-num">3</div>
+          <h3>Membuat Modul Ajar (RPP) & LKPD Murid</h3>
+        </div>
+        <p>
+          Inilah menu yang paling sering dipakai! Klik menu paling atas di sisi kiri: <strong>"Peta TP & Modul Ajar"</strong>.
+          Bapak/Ibu akan melihat kartu materi untuk setiap bab (Bab 1, Bab 2, dst). Di bawah tiap bab ada 4 tombol utama:
+        </p>
+
+        <div class="ui-simulation-box">
+          <div class="ui-sim-title">Tampilan Tombol Aksi di Tiap Bab Pembelajaran:</div>
+          <div class="btn-mockup-group">
+            <button class="btn-mock btn-mock-modul">📘 Modul Ajar (RPP)</button>
+            <button class="btn-mock btn-mock-lkpd">📄 LKPD Siswa</button>
+            <button class="btn-mock btn-mock-soal">📝 Buat Soal Evaluasi</button>
+            <button class="btn-mock btn-mock-rangkuman">📖 Rangkuman Materi</button>
+          </div>
+        </div>
+
+        <h4 style="margin: 24px 0 8px 0; color: #1e3a8a;">1. Tombol Biru Tua: `📘 Modul Ajar (RPP)`</h4>
+        <p>
+          Klik tombol ini untuk membuka draf RPP lengkap Kurikulum Merdeka (Identitas, Profil Pelajar Pancasila, Sarana Prasarana, Target Peserta Didik, Rincian Kegiatan Pembelajaran Pertemuan 1–3, Asesmen Formatif, Lampiran Refleksi, dan Glosarium).
+        </p>
+        <ul style="margin-left: 20px; line-height: 1.8; color: #334155;">
+          <li><strong>Pilihan Model Pembelajaran:</strong> Anda bisa memilih model pembelajaran sesuai kebutuhan: <em>Problem Based Learning (PBL)</em>, <em>Project Based Learning (PjBL)</em>, <em>Inkuiri</em>, <em>Berdiferensiasi</em>, atau <em>Kontekstual</em>.</li>
+          <li><strong>Edit Teks Langsung di Layar:</strong> Seluruh teks (tujuan, langkah pembelajaran, pertanyaan pemantik) bisa diklik dan diedit langsung di layar jika ingin menambahkan catatan khusus.</li>
+          <li><strong>Unduh Word (.docx):</strong> Klik tombol biru di kanan atas untuk menyimpan file Word ke laptop. File ini rapi dan siap dicetak!</li>
+          <li><strong>🤝 Bagikan ke Bank Referensi:</strong> Guru juga bisa membagikan draf buatannya ke Cloud agar dapat dijadikan inspirasi oleh guru lain di seluruh Indonesia (Data pribadi sekolah/NIP otomatis dirahasiakan 100%).</li>
+        </ul>
+
+        <h4 style="margin: 24px 0 8px 0; color: #047857;">2. Tombol Hijau: `📄 LKPD Siswa`</h4>
+        <p>
+          Klik tombol ini untuk membuka <strong>Lembar Kerja Peserta Didik</strong>. LKPD ini sudah dilengkapi:
+        </p>
+        <ul style="margin-left: 20px; line-height: 1.8; color: #334155;">
+          <li>Stimulus cerita atau kasus nyata di awal soal.</li>
+          <li>Tugas mandiri dan tugas kelompok.</li>
+          <li>Tabel panduan observasi dan rubrik penskoran guru.</li>
+          <li>Tinggal klik <strong>"Cetak PDF"</strong> atau <strong>"Unduh Word"</strong> untuk dibagikan ke meja siswa.</li>
+        </ul>
+      </article>
+
+      <!-- Section 4: Soal Evaluasi & Rangkuman AI -->
+      <article id="bagian4" class="guide-section">
+        <div class="section-head">
+          <div class="section-num">4</div>
+          <h3>Membuat Soal Latihan & Rangkuman Otomatis</h3>
+        </div>
+        <p>
+          Bapak/Ibu tidak perlu pusing memikirkan butir soal dari nol saat menjelang ulangan harian atau kuis:
+        </p>
+
+        <div class="steps-grid">
+          <div class="step-card">
+            <span class="step-badge">📝</span>
+            <h4>Soal Evaluasi AI</h4>
+            <p>
+              Klik tombol <strong>"Buat Soal Evaluasi"</strong> pada bab materi. AI AsesMerdeka akan menyusunkan 5–10 soal (Pilihan Ganda & Uraian HOTS), lengkap dengan tabel kisi-kisi dan kunci jawaban guru.
+            </p>
+          </div>
+          <div class="step-card">
+            <span class="step-badge">📖</span>
+            <h4>Rangkuman Materi AI</h4>
+            <p>
+              Klik tombol <strong>"Rangkuman Materi"</strong> untuk menyusun ringkasan intisari konsep materi bab tersebut dengan bahasa yang ramah anak, cocok untuk bahan belajar murid di rumah.
+            </p>
+          </div>
+        </div>
+
+        <div class="callout callout-tip">
+          <div class="callout-icon">💡</div>
+          <div>
+            <strong>Hemat Kuota:</strong> Seluruh soal yang pernah dibuat otomatis tersimpan rapi di menu <strong>"Bank Soal & Arsip Guru"</strong>. Bapak/Ibu bisa membuka dan mencetaknya kapan saja tanpa perlu generate ulang!
+          </div>
+        </div>
+      </article>
+
+      <!-- Section 5: Presensi, Jurnal, dan Rapor -->
+      <article id="bagian5" class="guide-section">
+        <div class="section-head">
+          <div class="section-num">5</div>
+          <h3>Administrasi Harian: Presensi, Jurnal & e-Rapor</h3>
+        </div>
+        <p>
+          Pada menu sebelah kiri di bagian <strong>"KELAS HARIAN & RAPOR"</strong>, terdapat 4 alat pembantu harian:
+        </p>
+
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th style="width: 25%;">Nama Fitur</th>
+              <th>Apa Fungsinya?</th>
+              <th style="width: 30%;">Cara Pakainya</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Presensi Siswa</strong></td>
+              <td>Mencatat absensi siswa selama 16 kali pertemuan satu semester.</td>
+              <td>Cukup klik tombol H (Hadir), S (Sakit), I (Izin), atau A (Alpa). Sistem menghitung persentase otomatis.</td>
+            </tr>
+            <tr>
+              <td><strong>2. Jurnal Mengajar</strong></td>
+              <td>Buku catatan agenda materi harian guru di kelas.</td>
+              <td>Materi TP otomatis terhubung dengan jadwal pertemuan tanpa perlu menulis ulang deskripsi panjang.</td>
+            </tr>
+            <tr>
+              <td><strong>3. Buku Nilai</strong></td>
+              <td>Mengelola nilai tugas formatif harian, nilai STS, dan SAS.</td>
+              <td>Cukup ketik angka nilai (0–100). Nilai akhir semester dan predikat huruf (A/B/C) langsung dihitung otomatis.</td>
+            </tr>
+            <tr>
+              <td><strong>4. Auto-Deskripsi e-Rapor</strong></td>
+              <td>✨ <em>Fitur Juara:</em> Merangkai kalimat narasi rapor secara otomatis!</td>
+              <td>Sistem membaca capaian tertinggi dan terendah murid, lalu menyusunkan kalimat deskripsi siap salin ke e-Rapor resmi!</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+      <!-- Section 6: Paket Siap Supervisi -->
+      <article id="bagian6" class="guide-section">
+        <div class="section-head">
+          <div class="section-num">6</div>
+          <h3>Menghadapi Supervisi Kepala Sekolah & Pengawas</h3>
+        </div>
+        <p>
+          Ketika Kepala Sekolah atau Pengawas menjadwalkan pemeriksaan administrasi guru, Anda tidak perlu lembur berhari-hari menyusun map berkas:
+        </p>
+
+        <div class="callout callout-important">
+          <div class="callout-icon">🛡️</div>
+          <div>
+            <strong>Menu "Paket Siap Supervisi" (Ikon Perisai Hijau):</strong><br>
+            Cukup klik menu ini di sidebar kiri, lalu klik tombol hijau besar <strong>"Unduh Paket Supervisi Lengkap (.ZIP)"</strong>.
+          </div>
+        </div>
+
+        <p>Satu kali klik tersebut akan otomatis mengunduh satu paket arsip ZIP berisi:</p>
+        <ul style="margin-left: 20px; line-height: 1.8; color: #334155;">
+          <li>✅ Berkas Alur Tujuan Pembelajaran (ATP) format Word resmi.</li>
+          <li>✅ Program Tahunan (Prota) & Program Semester (Promes) siap cetak.</li>
+          <li>✅ Seluruh Modul Ajar (RPP) dari Bab 1 hingga bab terakhir.</li>
+          <li>✅ Seluruh Lembar Kerja Peserta Didik (LKPD).</li>
+          <li>✅ Lembar Presensi Siswa & Rekap Jurnal Mengajar Guru.</li>
+          <li>✅ Berkas Naskah Ujian Sumatif Semester.</li>
+        </ul>
+        <p style="margin-top: 14px;">
+          Tinggal buka file ZIP tersebut, cetak, masukkan ke map snelhecter, dan serahkan ke Kepala Sekolah dengan percaya diri!
+        </p>
+      </article>
+
+      <!-- Section 7: Kamus Istilah Guru -->
+      <article id="bagian7" class="guide-section">
+        <div class="section-head">
+          <div class="section-num">7</div>
+          <h3>Kamus Istilah Singkat (Biar Tidak Bingung)</h3>
+        </div>
+        <p>Kurikulum Merdeka banyak menggunakan istilah baru. Berikut contekan artinya dalam bahasa sehari-hari:</p>
+
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th style="width: 28%;">Istilah di Aplikasi</th>
+              <th>Artinya dalam Bahasa Sehari-hari Guru</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>CP (Capaian Pembelajaran)</strong></td>
+              <td>Standar kompetensi utama yang harus dicapai anak di akhir satu fase (misal 2 tahun belajar).</td>
+            </tr>
+            <tr>
+              <td><strong>TP (Tujuan Pembelajaran)</strong></td>
+              <td>Target materi pembelajaran per bab yang diajarkan setiap minggu.</td>
+            </tr>
+            <tr>
+              <td><strong>ATP (Alur Tujuan)</strong></td>
+              <td>Urutan susunan bab dari semester 1 sampai semester 2 (dulu mirip silabus).</td>
+            </tr>
+            <tr>
+              <td><strong>Modul Ajar</strong></td>
+              <td>RPP versi baru Kurikulum Merdeka yang memuat skenario mengajar guru.</td>
+            </tr>
+            <tr>
+              <td><strong>LKPD</strong></td>
+              <td>Lembar kerja murid untuk tugas diskusi kelompok atau latihan mandiri.</td>
+            </tr>
+            <tr>
+              <td><strong>STS & SAS</strong></td>
+              <td>Ujian Tengah Semester (STS) dan Ujian Akhir Semester (SAS).</td>
+            </tr>
+            <tr>
+              <td><strong>PBL (Problem Based)</strong></td>
+              <td>Model belajar di mana guru mengawali kelas dengan menyajikan masalah nyata sehari-hari.</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+      <!-- Section 8: FAQ -->
+      <article id="faq" class="guide-section">
+        <div class="section-head">
+          <div class="section-num">8</div>
+          <h3>Tanya Jawab yang Sering Ditanyakan (FAQ)</h3>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>Apakah ketikan saya akan hilang jika laptop mati atau browser ditutup?</span>
+            <span>➕</span>
+          </div>
+          <div class="faq-answer">
+            <strong>Tidak akan hilang.</strong> Aplikasi AsesMerdeka otomatis menyimpan data ke memori penyimpanan lokal browser secara instan. Bahkan jika Anda terhubung ke akun lisensi, data juga disinkronkan aman ke Cloud. Begitu aplikasi dibuka kembali, semua tulisan Anda tetap ada persis seperti semula.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>Bagaimana cara memasukkan daftar nama murid asli saya?</span>
+            <span>➕</span>
+          </div>
+          <div class="faq-answer">
+            Buka menu <strong>Presensi Siswa</strong> atau <strong>Buku Nilai</strong> di menu sebelah kiri. Klik tombol <strong>"Kelola Siswa"</strong> atau <strong>"Impor dari Excel"</strong>. Anda bisa langsung menempelkan (paste) daftar nama anak murid kelas Anda, dan seluruh 30 data dummy bawaan akan otomatis tergantikan.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>Bagaimana cara mencetak Modul Ajar dan LKPD ke kertas fisik?</span>
+            <span>➕</span>
+          </div>
+          <div class="faq-answer">
+            Ada dua cara mudah:<br>
+            <strong>Cara 1 (Paling Disukai):</strong> Klik tombol <strong>"Unduh Word (.docx)"</strong> di kanan atas dokumen. Buka berkasnya di Microsoft Word laptop Anda, lalu klik File &gt; Print seperti biasa.<br>
+            <strong>Cara 2:</strong> Klik tombol <strong>"Cetak PDF"</strong> langsung di peramban web untuk mencetak seketika tanpa membuka Word.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>Bisa dipakai di HP dan Laptop sekaligus?</span>
+            <span>➕</span>
+          </div>
+          <div class="faq-answer">
+            <strong>Bisa sekali!</strong> Satu lisensi Guru Mandiri mendukung 2 perangkat aktif (1 Laptop + 1 HP). Cukup masukkan kode lisensi yang sama di HP dan klik "Sinkronkan dari Cloud" agar riwayat nilai dan modul ajar Anda saling tersambung.
+          </div>
+        </div>
+      </article>
+
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="page-footer">
+    <p><strong>AsesMerdeka</strong> &copy; 2026. Pendamping Administrasi Guru & Pendidik Indonesia.</p>
+    <p style="font-size: 12.5px; margin-top: 6px;">Bebas Ribet • Lengkap Resmi • Siap Supervisi</p>
+  </footer>
+
+  <script>
+    // Toggle Text Size for comfortable reading
+    let isLargeFont = false;
+    function toggleTextSize() {
+      isLargeFont = !isLargeFont;
+      document.body.style.fontSize = isLargeFont ? '18px' : '16px';
+      alert(isLargeFont ? 'Ukuran tulisan diperbesar untuk kenyamanan membaca.' : 'Ukuran tulisan kembali normal.');
+    }
+
+    // Toggle Accordion FAQ
+    function toggleFaq(element) {
+      const answer = element.nextElementSibling;
+      const icon = element.querySelector('span:last-child');
+      if (answer.style.display === 'block') {
+        answer.style.display = 'none';
+        icon.textContent = '➕';
+      } else {
+        answer.style.display = 'block';
+        icon.textContent = '➖';
+      }
+    }
+
+    // Initialize all FAQ answers open by default for easy reading
+    document.querySelectorAll('.faq-answer').forEach(el => el.style.display = 'block');
+    document.querySelectorAll('.faq-question span:last-child').forEach(el => el.textContent = '➖');
+  </script>
+</body>
+</html>
