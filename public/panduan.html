@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Buku Panduan Praktis AsesMerdeka - Alur Kerja Nyata Guru</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -70,20 +71,58 @@
       gap: 10px;
       text-decoration: none;
       color: inherit;
+      padding: 6px 12px 6px 8px;
+      margin: -6px 0 -6px -8px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .brand-wrap:hover {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+      transform: translateY(-1px);
     }
 
     .brand-logo-icon {
       width: 40px;
       height: 40px;
-      background: linear-gradient(135deg, #1e40af, #3b82f6);
-      color: #ffffff;
       border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: 800;
-      font-size: 20px;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28);
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.24);
+      overflow: hidden;
+    }
+
+    .brand-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .back-home-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #1e40af;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+
+    .brand-wrap:hover .back-home-pill {
+      background: #1e40af;
+      color: #ffffff;
+      border-color: #1e40af;
     }
 
     .brand-text h1 {
@@ -751,6 +790,15 @@
       .btn-action span.label {
         display: none;
       }
+
+      .brand-text p {
+        font-size: 11px;
+      }
+
+      .back-home-pill {
+        font-size: 10px;
+        padding: 1px 7px;
+      }
     }
 
     /* Print Styles */
@@ -785,10 +833,43 @@
 
   <!-- Sticky Top Bar -->
   <header class="top-navbar no-print">
-    <a href="#" class="brand-wrap">
-      <div class="brand-logo-icon">✨</div>
+    <a href="/" onclick="goHome(event)" class="brand-wrap" title="Kembali ke Halaman Utama AsesMerdeka" aria-label="Kembali ke Halaman Utama AsesMerdeka">
+      <div class="brand-logo-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="40" height="40" fill="none" style="display:block;">
+          <defs>
+            <linearGradient id="am_bg" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#1e40af" />
+              <stop offset="52%" stop-color="#2563eb" />
+              <stop offset="100%" stop-color="#0d9488" />
+            </linearGradient>
+            <linearGradient id="am_page_left" x1="24" y1="30" x2="60" y2="92" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#ffffff" />
+              <stop offset="100%" stop-color="#e0f2fe" />
+            </linearGradient>
+            <linearGradient id="am_page_right" x1="60" y1="30" x2="96" y2="92" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#f0fdf4" />
+              <stop offset="100%" stop-color="#ccfbf1" />
+            </linearGradient>
+            <linearGradient id="am_gold" x1="72" y1="14" x2="104" y2="46" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#fde047" />
+              <stop offset="50%" stop-color="#fbbf24" />
+              <stop offset="100%" stop-color="#f59e0b" />
+            </linearGradient>
+          </defs>
+          <rect x="4" y="4" width="112" height="112" rx="28" fill="url(#am_bg)" />
+          <rect x="6" y="6" width="108" height="108" rx="26" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2" />
+          <path d="M60 40C49 33 34 32 23 35C21.3 35.5 20 37 20 38.8V82.5C20 84.6 21.9 86.2 24 85.7C35 83.2 49 84.5 60 92V40Z" fill="url(#am_page_left)" />
+          <path d="M60 40C71 33 86 32 97 35C98.7 35.5 100 37 100 38.8V82.5C100 84.6 98.1 86.2 96 85.7C85 83.2 71 84.5 60 92V40Z" fill="url(#am_page_right)" />
+          <path d="M60 20L36 70H46.5L52 58H68L73.5 70H84L60 20ZM55.8 47.5L60 37.8L64.2 47.5H55.8Z" fill="#ffffff" />
+          <path d="M46 75L56 84L78 62" stroke="#0d9488" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M90 14C90.7 21.8 94.2 25.3 102 26C94.2 26.7 90.7 30.2 90 38C89.3 30.2 85.8 26.7 78 26C85.8 25.3 89.3 21.8 90 14Z" fill="url(#am_gold)" />
+        </svg>
+      </div>
       <div class="brand-text">
-        <h1>AsesMerdeka</h1>
+        <div class="brand-title-row">
+          <h1>AsesMerdeka</h1>
+          <span class="back-home-pill">← Halaman Utama</span>
+        </div>
         <p>Buku Panduan Alur Kerja Nyata Guru</p>
       </div>
     </a>
@@ -1246,6 +1327,17 @@
   </footer>
 
   <script>
+    function goHome(e) {
+      if (window.location.protocol === 'file:') {
+        e.preventDefault();
+        if (window.history.length > 1) {
+          window.history.back();
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }
+    }
+
     let isLargeFont = false;
     function toggleTextSize() {
       isLargeFont = !isLargeFont;
