@@ -8,6 +8,7 @@ import {
   getSavedCustomTPList,
   saveCustomTPList,
   resetCustomTPList,
+  markSavedLKPDDraftsNeedsReview,
 } from '../utils/schoolProfileStorage';
 import { tabContentVariants } from '../utils/motionPresets';
 import { getSemesterCurriculumPlan } from '../utils/kurikulumCatalog';
@@ -201,7 +202,37 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
 
   const handleSaveEditTP = () => {
     if (!draftTP) return;
-    const nextList = tpList.map((item) => (item.id === draftTP.id ? draftTP : item));
+    const normalizedTP: CustomTPItem = {
+      ...draftTP,
+      statusReview: draftTP.statusReview || 'ditinjau',
+    };
+    const nextList = tpList.map((item) => (item.id === draftTP.id ? normalizedTP : item));
+    setTpList(nextList);
+    saveCustomTPList(
+      schoolProfile.mataPelajaranUtama,
+      schoolProfile.kelasUtama,
+      schoolProfile.semester,
+      nextList
+    );
+    const affectedLkpdCount = markSavedLKPDDraftsNeedsReview(draftTP.id, normalizedTP);
+    setIsCustomTP(true);
+    setEditingTPId(null);
+    setDraftTP(null);
+    pushWorkspaceToCloud().catch(() => {});
+    triggerToast(
+      affectedLkpdCount > 0
+        ? `TP ${draftTP.kode} disimpan. ${affectedLkpdCount} draf LKPD ditandai perlu tinjau ulang tanpa menimpa editan Anda.`
+        : `Materi Bab/TP ${draftTP.kode} berhasil disimpan.`
+    );
+  };
+
+  const handleToggleReviewTP = (tp: CustomTPItem) => {
+    const order: Array<'draft' | 'ditinjau' | 'disetujui'> = ['draft', 'ditinjau', 'disetujui'];
+    const currentIdx = order.indexOf(tp.statusReview || 'draft');
+    const nextStatus = order[(currentIdx + 1) % order.length];
+    const nextList = tpList.map((item) =>
+      item.id === tp.id ? { ...item, statusReview: nextStatus } : item
+    );
     setTpList(nextList);
     saveCustomTPList(
       schoolProfile.mataPelajaranUtama,
@@ -210,10 +241,11 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       nextList
     );
     setIsCustomTP(true);
-    setEditingTPId(null);
-    setDraftTP(null);
-    pushWorkspaceToCloud().catch(() => {});
-    triggerToast(`Materi Bab/TP ${draftTP.kode} berhasil disimpan.`);
+    triggerToast(
+      `Status tinjauan TP ${tp.kode}: ${
+        nextStatus === 'disetujui' ? 'Disetujui Guru' : nextStatus === 'ditinjau' ? 'Sudah Ditinjau' : 'Draf Aplikasi'
+      }.`
+    );
   };
 
   const handleAddNewTP = () => {
@@ -376,12 +408,14 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
                   isCustomTP={isCustomTP}
                   currentFase={currentFase}
                   capaianPembelajaran={defaultPlan.capaianPembelajaran}
+                  referensiCatatan={defaultPlan.referensiCatatan}
                   editingTPId={editingTPId}
                   draftTP={draftTP}
                   setEditingTPId={setEditingTPId}
                   setDraftTP={setDraftTP}
                   onStartEditTP={handleStartEditTP}
                   onSaveEditTP={handleSaveEditTP}
+                  onToggleReviewTP={handleToggleReviewTP}
                   onAddNewTP={handleAddNewTP}
                   onDeleteTP={handleDeleteTP}
                   onResetDefaultTP={handleResetDefaultTP}

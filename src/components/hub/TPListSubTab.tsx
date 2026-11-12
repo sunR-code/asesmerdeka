@@ -24,12 +24,14 @@ interface TPListSubTabProps {
   isCustomTP: boolean;
   currentFase: string;
   capaianPembelajaran: string;
+  referensiCatatan?: string;
   editingTPId: string | null;
   draftTP: CustomTPItem | null;
   setEditingTPId: (id: string | null) => void;
   setDraftTP: (tp: CustomTPItem | null) => void;
   onStartEditTP: (tp: CustomTPItem) => void;
   onSaveEditTP: () => void;
+  onToggleReviewTP?: (tp: CustomTPItem) => void;
   onAddNewTP: () => void;
   onDeleteTP: (id: string, kode: string) => void;
   onResetDefaultTP: () => void;
@@ -49,12 +51,14 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
   isCustomTP,
   currentFase,
   capaianPembelajaran,
+  referensiCatatan,
   editingTPId,
   draftTP,
   setEditingTPId,
   setDraftTP,
   onStartEditTP,
   onSaveEditTP,
+  onToggleReviewTP,
   onAddNewTP,
   onDeleteTP,
   onResetDefaultTP,
@@ -159,9 +163,14 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
             }}
           >
             <strong style={{ color: '#172033', display: 'block', marginBottom: 4 }}>
-              Capaian Pembelajaran (CP) Fase {currentFase}:
+              Ringkasan Orientasi CP Fase {currentFase}:
             </strong>
-            {capaianPembelajaran}
+            <div>{capaianPembelajaran}</div>
+            {referensiCatatan && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #cbd5e1', fontSize: 12, color: '#64748b' }}>
+                Catatan Rujukan: {referensiCatatan}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -192,22 +201,53 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: '#1d4ed8', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Edit3 size={15} aria-hidden="true" /> Ubah Materi / Tujuan Pembelajaran (TP {draftTP.kode})
                   </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <label className="form-label" style={{ fontSize: 12 }}>Judul Materi Pokok / Bab</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={draftTP.materiPokok}
-                      onChange={(e) => setDraftTP({ ...draftTP, materiPokok: e.target.value })}
-                    />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label className="form-label" style={{ fontSize: 12 }}>Judul Materi Pokok / Bab</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={draftTP.materiPokok}
+                        onChange={(e) => setDraftTP({ ...draftTP, materiPokok: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label" style={{ fontSize: 12 }}>Elemen Materi / CP</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={draftTP.elemen}
+                        onChange={(e) => setDraftTP({ ...draftTP, elemen: e.target.value })}
+                      />
+                    </div>
                   </div>
-                  <div style={{ marginBottom: 12 }}>
+                  <div style={{ marginBottom: 10 }}>
                     <label className="form-label" style={{ fontSize: 12 }}>Tujuan Pembelajaran (TP)</label>
                     <textarea
                       className="form-textarea"
                       rows={2}
                       value={draftTP.tujuanPembelajaran}
                       onChange={(e) => setDraftTP({ ...draftTP, tujuanPembelajaran: e.target.value })}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label className="form-label" style={{ fontSize: 12 }}>
+                      Prasyarat Materi (pisahkan dengan koma, opsional)
+                    </label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={(draftTP.prasyarat || []).join(', ')}
+                      onChange={(e) =>
+                        setDraftTP({
+                          ...draftTP,
+                          prasyarat: e.target.value
+                            .split(',')
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                      placeholder="Contoh: Bentuk aljabar satu variabel, operasi bilangan bulat"
                     />
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -277,6 +317,45 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                         <span className="tabular-nums" style={{ fontSize: 12, color: '#475569', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                           <Clock size={12} aria-hidden="true" /> {tp.alokasiJP} JP
                         </span>
+                        {onToggleReviewTP && (
+                          <button
+                            type="button"
+                            onClick={() => onToggleReviewTP(tp)}
+                            title="Klik untuk memperbarui status tinjauan guru"
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: '2px 8px',
+                              borderRadius: 6,
+                              border: '1px solid',
+                              cursor: 'pointer',
+                              borderColor:
+                                tp.statusReview === 'disetujui'
+                                  ? '#86efac'
+                                  : tp.statusReview === 'ditinjau'
+                                  ? '#93c5fd'
+                                  : '#fde68a',
+                              background:
+                                tp.statusReview === 'disetujui'
+                                  ? '#f0fdf4'
+                                  : tp.statusReview === 'ditinjau'
+                                  ? '#eff6ff'
+                                  : '#fffbeb',
+                              color:
+                                tp.statusReview === 'disetujui'
+                                  ? '#166534'
+                                  : tp.statusReview === 'ditinjau'
+                                  ? '#1d4ed8'
+                                  : '#92400e',
+                            }}
+                          >
+                            {tp.statusReview === 'disetujui'
+                              ? 'Disetujui Guru'
+                              : tp.statusReview === 'ditinjau'
+                              ? 'Sudah Ditinjau'
+                              : 'Perlu Review Guru'}
+                          </button>
+                        )}
                       </div>
 
                       <div style={{ fontSize: 15.5, fontWeight: 700, color: '#172033', marginBottom: 3 }}>
@@ -286,6 +365,22 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                       <div style={{ fontSize: 13.5, color: '#475569', lineHeight: 1.55 }}>
                         {tp.tujuanPembelajaran}
                       </div>
+
+                      {(tp.prasyarat?.length || tp.subTP?.length) ? (
+                        <div style={{ marginTop: 8, padding: '8px 10px', background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9', fontSize: 12, color: '#475569' }}>
+                          {tp.prasyarat && tp.prasyarat.length > 0 && (
+                            <div style={{ marginBottom: tp.subTP?.length ? 4 : 0 }}>
+                              <strong style={{ color: '#334155' }}>Prasyarat:</strong> {tp.prasyarat.join(' · ')}
+                            </div>
+                          )}
+                          {tp.subTP && tp.subTP.length > 0 && (
+                            <div>
+                              <strong style={{ color: '#334155' }}>Rincian Sub-TP ({tp.subTP.length}):</strong>{' '}
+                              {tp.subTP.map((s) => `${s.kode}: ${s.kompetensi}`).join(' | ')}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 

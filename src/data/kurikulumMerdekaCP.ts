@@ -1,4 +1,5 @@
 import type { JenjangFase } from '../types/assessment';
+import type { CPReferenceMeta } from '../utils/schoolProfileStorage';
 
 export interface ElemenCP {
   elemen: string;
@@ -13,6 +14,42 @@ export interface MapelDatabase {
     fase: JenjangFase;
     elemenList: ElemenCP[];
   }[];
+}
+
+export function isKemenagSubject(mataPelajaran: string): boolean {
+  const lower = mataPelajaran.toLowerCase();
+  return (
+    lower.includes('fikih') ||
+    lower.includes('akidah') ||
+    lower.includes('qur') ||
+    lower.includes('hadis') ||
+    lower.includes('ski') ||
+    lower.includes('kebudayaan islam') ||
+    lower.includes('bahasa arab') ||
+    lower.includes('(mi)') ||
+    lower.includes('(mts)') ||
+    lower.includes('(ma)')
+  );
+}
+
+export function resolveCPReferenceMetadata(
+  mataPelajaran: string,
+  jenjangFase: JenjangFase,
+  elemen: string
+): CPReferenceMeta {
+  const isKemenag = isKemenagSubject(mataPelajaran);
+  const faseLabel = jenjangFase || 'Fase D';
+  return {
+    sumber: isKemenag
+      ? 'Katalog Referensi Madrasah AsesMerdeka (ruang lingkup PAI & Bahasa Arab — belum ditautkan ke dokumen KMA resmi)'
+      : 'Katalog Referensi Kurikulum Merdeka AsesMerdeka (ringkasan elemen — belum ditautkan ke naskah keputusan BSKAP resmi)',
+    elemenCP: elemen || 'Pemahaman Konsep & Keterampilan Proses',
+    fase: faseLabel,
+    terverifikasiResmi: false,
+    catatan: isKemenag
+      ? 'Pembagian bab, semester, dan rincian sub-TP adalah rancangan aplikasi. Mohon tinjau terhadap naskah CP/KMA madrasah yang berlaku.'
+      : 'Pembagian bab, semester, dan rincian sub-TP adalah rancangan aplikasi, bukan ketetapan nasional. Silakan tinjau terhadap CP fase satuan pendidikan Anda.',
+  };
 }
 
 export const KURIKULUM_MERDEKA_DATABASE: MapelDatabase[] = [

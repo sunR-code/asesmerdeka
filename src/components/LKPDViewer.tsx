@@ -18,19 +18,24 @@ import {
   Users,
   RefreshCw,
   RotateCcw,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
 import type {
   LKPDDokumen,
   LKPDPresetType,
+  LKPDWorkMode,
   LKPDPertanyaanItem,
   LKPDEksperimenData,
   LKPDDiferensiasiData,
   LKPDProyekData,
 } from '../types/perangkatAjar';
 import type { CustomTPItem, SchoolProfile } from '../utils/schoolProfileStorage';
-import { getSchoolProfile } from '../utils/schoolProfileStorage';
+import { getSchoolProfile, computeTPContentHash } from '../utils/schoolProfileStorage';
 import { buildSmartLKPD } from '../utils/perangkatAjarEngine';
 import { generateContextualLKPDWithAI } from '../utils/lkpdAiService';
+import { normalizeStoredLKPDDraft } from '../utils/lkpdValidator';
+import { cleanTopicHeading } from '../utils/lkpdSubjectBlueprints';
 import { exportLKPDToDocx } from '../utils/docxExporter';
 import { exportElementToImage } from '../utils/imageExporter';
 
@@ -138,7 +143,9 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   const tpKey = lkpd.tpId || lkpd.tpKode || customTP?.id || 'tp-1';
   const initialPreset: LKPDPresetType = lkpd.presetType || 'kasus';
 
-  // Current working LKPD and active preset with lazy restoration from localStorage
+  const expectedTPHash = customTP ? computeTPContentHash(customTP) : undefined;
+
+  // Current working LKPD and active preset with lazy restoration + safe schema migration
   const [currentDoc, setCurrentDoc] = useState<LKPDDokumen>(() => {
     try {
       const key = `lkpd_${tpKey}_${initialPreset}`;
@@ -146,7 +153,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
-          return parsed;
+          return normalizeStoredLKPDDraft(parsed, lkpd, expectedTPHash);
         }
       }
     } catch {
@@ -175,7 +182,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   const effectiveTP: CustomTPItem = customTP || {
     id: tpId,
     kode: currentDoc.tpKode || 'TP-1',
-    elemen: 'Pemahaman Konseptual',
+    elemen: currentDoc.elemen || 'Pemahaman Konseptual',
     materiPokok: currentDoc.materiPokok || 'Materi Pokok',
     tujuanPembelajaran: currentDoc.tujuanPembelajaran || 'Tujuan Pembelajaran',
     arahanRangkuman: '',
@@ -200,9 +207,10 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
         if (saved) {
           const parsed = JSON.parse(saved);
           if (parsed && typeof parsed === 'object') {
-            setCurrentDoc(parsed);
-            setCurrentPreset(parsed.presetType || lkpd.presetType || 'kasus');
-            setKonteksInput(parsed.konteksAktual || lkpd.konteksAktual || '');
+            const migrated = normalizeStoredLKPDDraft(parsed, lkpd, expectedTPHash);
+            setCurrentDoc(migrated);
+            setCurrentPreset(migrated.presetType || lkpd.presetType || 'kasus');
+            setKonteksInput(migrated.konteksAktual || lkpd.konteksAktual || '');
             return;
           }
         }
@@ -213,7 +221,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
       setCurrentPreset(lkpd.presetType || 'kasus');
       setKonteksInput(lkpd.konteksAktual || '');
     }
-  }, [tpKey, lkpd]);
+  }, [tpKey, lkpd, expectedTPHash]);
 
   // Auto-save debounce (400ms) with key lkpd_${tpId}_${presetType}
   useEffect(() => {
@@ -245,14 +253,16 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
 
     setCurrentPreset(presetId);
 
+    const freshReference = buildSmartLKPD(effectiveTP, activeProfile, presetId, konteksInput);
     const storageKey = `lkpd_${tpId}_${presetId}`;
     try {
       const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
-          setCurrentDoc(parsed);
-          setKonteksInput(parsed.konteksAktual || konteksInput);
+          const migrated = normalizeStoredLKPDDraft(parsed, freshReference, expectedTPHash);
+          setCurrentDoc(migrated);
+          setKonteksInput(migrated.konteksAktual || konteksInput);
           showToast(`Draft preset "${presetId}" berhasil dimuat.`);
           return;
         }
@@ -261,10 +271,28 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
       // ignore
     }
 
-    // Build fresh preset heuristic if no saved draft
-    const fresh = buildSmartLKPD(effectiveTP, activeProfile, presetId, konteksInput);
-    setCurrentDoc(fresh);
+    setCurrentDoc(freshReference);
     showToast(`Preset "${presetId}" aktif.`);
+  };
+
+  const handleApplyUpdatedTPMetadata = () => {
+    if (!customTP) return;
+    setCurrentDoc((prev) => ({
+      ...prev,
+      tpKode: customTP.kode,
+      elemen: customTP.elemen,
+      materiPokok: customTP.materiPokok,
+      tujuanPembelajaran: customTP.tujuanPembelajaran,
+      targetSubTP: customTP.subTP?.map((s) => ({
+        id: s.id,
+        kode: s.kode,
+        kompetensi: s.kompetensi,
+      })),
+      prasyaratMateri: customTP.prasyarat || prev.prasyaratMateri,
+      tpSourceHash: computeTPContentHash(customTP),
+      needsReview: false,
+    }));
+    showToast('Metadata TP & Sub-TP diselaraskan ke draf ini tanpa menimpa editan isi Anda.');
   };
 
   // Reset Draft to system default
@@ -391,11 +419,15 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
     onPrint();
   };
 
-  const handleExportDocxClick = async () => {
+  const handleExportDocxClick = async (teacherEdition = false) => {
     try {
-      const ok = await exportLKPDToDocx(currentDoc, activeProfile, showTeacherGuide);
+      const ok = await exportLKPDToDocx(currentDoc, activeProfile, teacherEdition);
       if (ok) {
-        showToast('File Word LKPD (.docx) berhasil diunduh!');
+        showToast(
+          teacherEdition
+            ? 'File Word Panduan Guru LKPD (.docx) berhasil diunduh!'
+            : 'File Word LKPD Siswa (.docx) berhasil diunduh!'
+        );
       }
     } catch (e: any) {
       alert('Gagal mengunduh file Word: ' + e.message);
@@ -660,12 +692,21 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
             </button>
 
             <button
-              onClick={handleExportDocxClick}
+              onClick={() => handleExportDocxClick(false)}
               className="btn btn-sm btn-primary"
               style={{ background: 'linear-gradient(135deg, #0d9488 0%, #059669 100%)' }}
-              title="Download file Microsoft Word (.docx) siap cetak"
+              title="Unduh Lembar Kerja Siswa (.docx) tanpa kunci jawaban guru"
             >
-              <FileDown size={14} /> Unduh Word (.docx)
+              <FileDown size={14} /> Unduh Word Siswa (.docx)
+            </button>
+
+            <button
+              onClick={() => handleExportDocxClick(true)}
+              className="btn btn-sm btn-outline"
+              style={{ borderColor: '#f59e0b', background: '#fffbeb', color: '#92400e', fontWeight: 700 }}
+              title="Unduh Edisi Pegangan Guru lengkap dengan kunci, miskonsepsi, dan rubrik"
+            >
+              <FileDown size={14} /> Unduh Panduan Guru (.docx)
             </button>
 
             <button
@@ -683,6 +724,96 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Status Kualitas / Validasi & Mode Kerja */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+            marginBottom: 12,
+            padding: '8px 12px',
+            borderRadius: 10,
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            fontSize: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {currentDoc.catatanValidasi?.status === 'valid_ai' ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#065f46', fontWeight: 700 }}>
+                <CheckCircle2 size={14} /> Dihasilkan AI Gemini (Lolos Validasi)
+              </span>
+            ) : currentDoc.catatanValidasi?.status === 'valid_terkurasi' ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#065f46', fontWeight: 700 }}>
+                <CheckCircle2 size={14} /> Bank Kurasi Terstruktur (Terverifikasi)
+              </span>
+            ) : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#92400e', fontWeight: 700 }}>
+                <AlertTriangle size={14} /> Draf Adaptif — Mohon Tinjau & Lengkapi Data Lokal Sebelum Dicetak
+              </span>
+            )}
+            {currentDoc.catatanValidasi?.mathVerificationNote && (
+              <span style={{ color: '#0369a1', fontWeight: 600 }}>
+                · {currentDoc.catatanValidasi.mathVerificationNote}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontWeight: 700, color: '#475569' }}>Mode Kerja:</span>
+            <select
+              value={currentDoc.modeKerja || 'Berpasangan'}
+              onChange={(e) => updateDoc({ modeKerja: e.target.value as LKPDWorkMode })}
+              style={{
+                border: '1px solid #cbd5e1',
+                borderRadius: 6,
+                padding: '3px 8px',
+                fontSize: 12,
+                background: '#ffffff',
+                color: '#0f172a',
+                fontWeight: 600,
+              }}
+            >
+              <option value="Individu">Individu</option>
+              <option value="Berpasangan">Berpasangan</option>
+              <option value="Kelompok Kecil (3–4 Siswa)">Kelompok Kecil (3–4 Siswa)</option>
+            </select>
+          </div>
+        </div>
+
+        {currentDoc.needsReview && customTP && (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: '10px 14px',
+              borderRadius: 10,
+              background: '#fffbeb',
+              border: '1px solid #fcd34d',
+              color: '#92400e',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 10,
+              fontSize: 12,
+            }}
+          >
+            <div>
+              <strong>TP Sumber Diperbarui:</strong> Editan manual Anda pada draf ini tetap dipertahankan. Klik untuk menyinkronkan teks TP/Sub-TP atau gunakan Reset Draf bila ingin menyusun ulang seluruh lembar kerja.
+            </div>
+            <button
+              type="button"
+              onClick={handleApplyUpdatedTPMetadata}
+              className="btn btn-sm"
+              style={{ background: '#f59e0b', color: '#ffffff', fontWeight: 700, border: 'none' }}
+            >
+              Terapkan Pembaruan TP
+            </button>
+          </div>
+        )}
 
         {/* 4 Archetype Pill Buttons */}
         <div style={{ marginBottom: 14 }}>
@@ -829,15 +960,18 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
             <span>TOPIK:</span>
             <input
               type="text"
-              value={currentDoc.judul || currentDoc.materiPokok}
+              value={cleanTopicHeading(currentDoc.judul || currentDoc.materiPokok)}
               onChange={(e) => updateDoc({ judul: e.target.value })}
               className="lkpd-inline-input"
-              style={{ fontWeight: 800, textAlign: 'center', maxWidth: 450, color: '#0f172a' }}
+              style={{ fontWeight: 800, textAlign: 'center', maxWidth: 480, color: '#0f172a' }}
               title="Klik untuk mengedit judul/topik LKPD"
             />
           </div>
           <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 4 }}>
-            Archetype: <strong style={{ color: '#0d9488' }}>{ARCHETYPES.find((a) => a.id === currentPreset)?.label}</strong>
+            <strong style={{ color: '#0d9488' }}>
+              {currentDoc.pendekatanKegiatan || ARCHETYPES.find((a) => a.id === currentPreset)?.label}
+            </strong>
+            {currentDoc.elemen && ` • Elemen: ${currentDoc.elemen}`}
             {currentDoc.konteksAktual && ` • Konteks: "${currentDoc.konteksAktual}"`}
           </div>
         </div>
@@ -853,7 +987,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
             padding: '14px 18px',
             borderRadius: 8,
             border: '1px solid #e2e8f0',
-            marginBottom: 20,
+            marginBottom: 16,
             fontSize: 12.5,
           }}
         >
@@ -872,18 +1006,89 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
             </div>
           </div>
           <div>
-            <div style={{ marginBottom: 4 }}>
-              <strong>Nama Kelompok:</strong> ....................................................
-            </div>
-            <div style={{ marginBottom: 2 }}>
-              <strong>Anggota Kelompok:</strong>
-            </div>
-            <div style={{ color: '#475569', fontSize: 12 }}>1. ............................................................................</div>
-            <div style={{ color: '#475569', fontSize: 12 }}>2. ............................................................................</div>
-            <div style={{ color: '#475569', fontSize: 12 }}>3. ............................................................................</div>
-            <div style={{ color: '#475569', fontSize: 12 }}>4. ............................................................................</div>
+            {currentDoc.modeKerja === 'Individu' ? (
+              <>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Nama Siswa:</strong> ........................................................
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Nomor Absen / NIS:</strong> ...........................................
+                </div>
+                <div style={{ marginBottom: 2, color: '#475569', fontSize: 12 }}>
+                  <strong>Tanggal:</strong> .............................................................
+                </div>
+              </>
+            ) : currentDoc.modeKerja === 'Berpasangan' ? (
+              <>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Mode Kerja:</strong> Berpasangan (2 Siswa)
+                </div>
+                <div style={{ color: '#475569', fontSize: 12, marginBottom: 2 }}>
+                  1. ............................................................................
+                </div>
+                <div style={{ color: '#475569', fontSize: 12 }}>
+                  2. ............................................................................
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Nama Kelompok:</strong> ....................................................
+                </div>
+                <div style={{ marginBottom: 2 }}>
+                  <strong>Anggota Kelompok:</strong>
+                </div>
+                <div style={{ color: '#475569', fontSize: 12 }}>1. ............................................................................</div>
+                <div style={{ color: '#475569', fontSize: 12 }}>2. ............................................................................</div>
+                <div style={{ color: '#475569', fontSize: 12 }}>3. ............................................................................</div>
+                <div style={{ color: '#475569', fontSize: 12 }}>4. ............................................................................</div>
+              </>
+            )}
           </div>
         </div>
+
+        {/* Target Belajar & Prasyarat Materi */}
+        {(currentDoc.targetBelajarSiswa?.length || currentDoc.prasyaratMateri?.length) && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: 12,
+              marginBottom: 16,
+              padding: '10px 14px',
+              borderRadius: 8,
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              fontSize: 12,
+              color: '#334155',
+            }}
+          >
+            {currentDoc.targetBelajarSiswa && currentDoc.targetBelajarSiswa.length > 0 && (
+              <div>
+                <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
+                  Sasaran Belajar Sesi Ini:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 16 }}>
+                  {currentDoc.targetBelajarSiswa.map((tb, idx) => (
+                    <li key={idx} style={{ marginBottom: 2 }}>{tb}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {currentDoc.prasyaratMateri && currentDoc.prasyaratMateri.length > 0 && (
+              <div>
+                <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
+                  Prasyarat Pengetahuan:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 16 }}>
+                  {currentDoc.prasyaratMateri.map((pr, idx) => (
+                    <li key={idx} style={{ marginBottom: 2 }}>{pr}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Petunjuk Belajar */}
         <div style={{ marginBottom: 22, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 16px' }}>
@@ -959,9 +1164,51 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
               value={currentDoc.stimulusKasus.teks}
               onChange={(e) => updateStimulus('teks', e.target.value)}
               className="lkpd-inline-textarea"
-              style={{ fontSize: 13, color: '#334155', fontStyle: 'italic', lineHeight: 1.6 }}
-              placeholder="Tulis narasi wacana / stimulus kontekstual di sini..."
+              style={{ fontSize: 13, color: '#334155', lineHeight: 1.6 }}
+              placeholder="Tulis narasi wacana / data stimulus konkret di sini..."
             />
+
+            {/* Data Terstruktur / Tabel / Poin Kunci Stimulus */}
+            {currentDoc.stimulusData?.tabelData && currentDoc.stimulusData.tabelData.kolom.length > 0 && (
+              <div style={{ marginTop: 10, overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: '#ffffff' }}>
+                  <thead>
+                    <tr style={{ background: '#e2e8f0' }}>
+                      {currentDoc.stimulusData.tabelData.kolom.map((col, ci) => (
+                        <th key={ci} style={{ border: '1px solid #cbd5e1', padding: '6px 8px', textAlign: 'left', color: '#0f172a' }}>
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {currentDoc.stimulusData.tabelData.baris.map((row, ri) => (
+                      <tr key={ri}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} style={{ border: '1px solid #cbd5e1', padding: '6px 8px', color: '#334155' }}>
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {currentDoc.stimulusData?.poinKunci && currentDoc.stimulusData.poinKunci.length > 0 && (
+              <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12, color: '#1e293b' }}>
+                {currentDoc.stimulusData.poinKunci.map((pk, pi) => (
+                  <li key={pi} style={{ marginBottom: 2 }}>{pk}</li>
+                ))}
+              </ul>
+            )}
+
+            {currentDoc.stimulusData?.catatanAsumsi && (
+              <div style={{ marginTop: 6, fontSize: 11.5, color: '#475569', fontStyle: 'italic' }}>
+                Catatan: {currentDoc.stimulusData.catatanAsumsi}
+              </div>
+            )}
           </div>
 
           <div style={{ fontSize: 12.5, fontWeight: 700, color: '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1028,6 +1275,29 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                 ))}
               </ul>
             </div>
+
+            {/* Keselamatan Kerja Eksperimen (Jika Relevan) */}
+            {currentDoc.eksperimenData.keselamatanKerja &&
+              currentDoc.eksperimenData.keselamatanKerja.length > 0 && (
+                <div
+                  style={{
+                    marginBottom: 14,
+                    padding: '10px 12px',
+                    borderRadius: 6,
+                    background: '#fff7ed',
+                    border: '1px solid #fed7aa',
+                    fontSize: 12,
+                    color: '#9a3412',
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Keselamatan & Ketertiban Kerja:</div>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {currentDoc.eksperimenData.keselamatanKerja.map((kk, kIdx) => (
+                      <li key={kIdx} style={{ marginBottom: 2 }}>{kk}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
             {/* Hipotesis Awal */}
             <div style={{ marginBottom: 14 }}>
@@ -1562,15 +1832,51 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                   {act.bantuanAtauTabel.map((b, bi) => (
                     <div key={bi} style={{ marginBottom: 2 }}>{b}</div>
                   ))}
+                  {act.ruangJawabanJenis === 'perhitungan' && (
+                    <div style={{ borderTop: '1px dashed #cbd5e1', marginTop: 8, paddingTop: 6, minHeight: 56, color: '#94a3b8', fontSize: 11.5 }}>
+                      Ruang perhitungan langkah ini:
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div style={{ border: '1px dashed #cbd5e1', borderRadius: 6, padding: '12px 14px', minHeight: 60, color: '#94a3b8', fontSize: 12 }}>
-                  Catatan penyelidikan / perhitungan kelompok:
+                <div
+                  style={{
+                    border: '1px dashed #cbd5e1',
+                    borderRadius: 6,
+                    padding: '12px 14px',
+                    minHeight:
+                      act.ruangJawabanJenis === 'perhitungan' ||
+                      act.ruangJawabanJenis === 'langkah_algoritma'
+                        ? 96
+                        : act.ruangJawabanJenis === 'uraian_panjang'
+                        ? 80
+                        : 60,
+                    color: '#94a3b8',
+                    fontSize: 12,
+                  }}
+                >
+                  {act.ruangJawabanJenis === 'perhitungan'
+                    ? 'Ruang pemodelan dan perhitungan langkah demi langkah:'
+                    : act.ruangJawabanJenis === 'langkah_algoritma'
+                    ? 'Ruang penelusuran alur / debug langkah demi langkah:'
+                    : 'Ruang kerja / jawaban:'}
                 </div>
               )}
             </div>
           ))}
         </div>
+
+        {/* PEMERIKSAAN HASIL & DUKUNGAN / PENGAYAAN */}
+        {currentDoc.pemeriksaanHasil && currentDoc.pemeriksaanHasil.length > 0 && (
+          <div style={{ marginBottom: 18, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#0c4a6e' }}>
+            <div style={{ fontWeight: 800, marginBottom: 4 }}>Cek Kembali Hasil Kerjamu:</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {currentDoc.pemeriksaanHasil.map((ph, idx) => (
+                <li key={idx} style={{ marginBottom: 2 }}>{ph}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* III. PERTANYAAN DISKUSI ANALISIS */}
         <div style={{ marginBottom: 24 }}>
@@ -1612,10 +1918,15 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                       color: '#475569',
                     }}
                   >
-                    <option value="Dasar">🟢 Kognitif Dasar</option>
-                    <option value="Menengah">🔵 Kognitif Menengah</option>
-                    <option value="Mahir">🟣 Kognitif Mahir</option>
+                    <option value="Dasar">Tingkat Dasar</option>
+                    <option value="Menengah">Tingkat Menengah</option>
+                    <option value="Mahir">Tingkat Mahir</option>
                   </select>
+                  {pa.alasanTingkatKognitif && (
+                    <span className="no-print" style={{ fontSize: 11, color: '#64748b' }}>
+                      ({pa.alasanTingkatKognitif})
+                    </span>
+                  )}
                 </div>
                 {currentDoc.pertanyaanAnalisis.length > 1 && (
                   <button
@@ -1661,7 +1972,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                   }}
                 >
                   <div style={{ fontSize: 11, fontWeight: 800, color: '#065f46', textTransform: 'uppercase', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>💡 Kunci Jawaban / Panduan Guru:</span>
+                    <span>Kunci Jawaban / Panduan Guru:</span>
                   </div>
                   <AutoExpandingTextarea
                     rows={2}
@@ -1671,15 +1982,57 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                     style={{ fontSize: 12, color: '#064e3b', fontWeight: 600, background: 'transparent' }}
                     placeholder="Panduan kunci jawaban guru..."
                   />
+                  {pa.alternatifJawabanValid && (
+                    <div style={{ marginTop: 4, fontSize: 11.5, color: '#047857' }}>
+                      <strong>Alternatif jawaban sah:</strong> {pa.alternatifJawabanValid}
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div style={{ border: '1px dashed #cbd5e1', borderRadius: 6, padding: '12px 14px', minHeight: 50, color: '#94a3b8', fontSize: 12 }}>
-                  Lembar jawaban kelompok:
+                <div
+                  style={{
+                    border: '1px dashed #cbd5e1',
+                    borderRadius: 6,
+                    padding: '12px 14px',
+                    minHeight:
+                      pa.ruangJawabanJenis === 'perhitungan' ||
+                      pa.ruangJawabanJenis === 'uraian_panjang'
+                        ? 88
+                        : 56,
+                    color: '#94a3b8',
+                    fontSize: 12,
+                  }}
+                >
+                  {pa.ruangJawabanJenis === 'perhitungan'
+                    ? 'Ruang penyelesaian & perhitungan:'
+                    : 'Ruang jawaban siswa:'}
                 </div>
               )}
             </div>
           ))}
         </div>
+
+        {/* Dukungan Pemula & Pengayaan (Student Safe) */}
+        {(currentDoc.dukunganTambahan || currentDoc.pengayaan?.tugas?.length) && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 20 }}>
+            {currentDoc.dukunganTambahan && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#334155' }}>
+                <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>Bantuan Langkah Awal:</div>
+                <div>{currentDoc.dukunganTambahan}</div>
+              </div>
+            )}
+            {currentDoc.pengayaan && currentDoc.pengayaan.tugas.length > 0 && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#334155' }}>
+                <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>{currentDoc.pengayaan.instruksi || 'Tantangan Pengayaan:'}</div>
+                <ul style={{ margin: 0, paddingLeft: 16 }}>
+                  {currentDoc.pengayaan.tugas.map((tg, idx) => (
+                    <li key={idx}>{tg}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* IV. KESIMPULAN & REFLEKSI MANDIRI */}
         <div style={{ marginBottom: 20 }}>
@@ -1715,10 +2068,126 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
           ))}
         </div>
 
+        {/* PANDUAN GURU TERPISAH (HANYA MUNCUL JIKA MODE GURU AKTIF) */}
+        {showTeacherGuide && currentDoc.panduanGuru && (
+          <div
+            style={{
+              marginTop: 22,
+              marginBottom: 20,
+              padding: '16px 18px',
+              background: '#fffbeb',
+              border: '1.5px solid #fcd34d',
+              borderRadius: 10,
+              pageBreakBefore: 'always',
+            }}
+          >
+            <h3 style={{ fontSize: 14, fontWeight: 800, color: '#92400e', textTransform: 'uppercase', margin: '0 0 12px' }}>
+              Lampiran Pegangan Guru: Kunci Penyelesaian, Miskonsepsi & Rubrik
+            </h3>
+
+            {currentDoc.panduanGuru.kunciDanContohJawaban.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: '#78350f', marginBottom: 6 }}>
+                  1. Langkah Penyelesaian & Alternatif Jawaban Sah
+                </div>
+                {currentDoc.panduanGuru.kunciDanContohJawaban.map((k, ki) => (
+                  <div key={ki} style={{ background: '#ffffff', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 12px', marginBottom: 6, fontSize: 12 }}>
+                    <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                      Butir {k.nomor}: {k.jawabanInti}
+                    </div>
+                    {k.langkahPenyelesaian.length > 0 && (
+                      <ol style={{ margin: '4px 0', paddingLeft: 18, color: '#334155' }}>
+                        {k.langkahPenyelesaian.map((step, si) => (
+                          <li key={si}>{step}</li>
+                        ))}
+                      </ol>
+                    )}
+                    {k.alternatifValid && (
+                      <div style={{ fontSize: 11.5, color: '#047857', marginTop: 2 }}>
+                        <strong>Cara alternatif sah:</strong> {k.alternatifValid}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {currentDoc.panduanGuru.miskonsepsiUmum.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: '#78350f', marginBottom: 6 }}>
+                  2. Antisipasi Miskonsepsi Siswa
+                </div>
+                {currentDoc.panduanGuru.miskonsepsiUmum.map((m, mi) => (
+                  <div key={mi} style={{ background: '#ffffff', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 12px', marginBottom: 6, fontSize: 12 }}>
+                    <div><strong>Miskonsepsi:</strong> {m.miskonsepsi}</div>
+                    <div style={{ color: '#334155' }}><strong>Penanganan guru:</strong> {m.caraMenangani}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {currentDoc.panduanGuru.pemetaanTP.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: '#78350f', marginBottom: 6 }}>
+                  3. Keselarasan TP / Sub-TP ke Tugas
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, background: '#ffffff' }}>
+                  <thead>
+                    <tr style={{ background: '#fef3c7' }}>
+                      <th style={{ border: '1px solid #fcd34d', padding: '5px 8px', textAlign: 'left' }}>Sub-TP</th>
+                      <th style={{ border: '1px solid #fcd34d', padding: '5px 8px', textAlign: 'left' }}>Kompetensi Target</th>
+                      <th style={{ border: '1px solid #fcd34d', padding: '5px 8px', textAlign: 'left' }}>Aktivitas / Soal Terkait</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {currentDoc.panduanGuru.pemetaanTP.map((p, pi) => (
+                      <tr key={pi}>
+                        <td style={{ border: '1px solid #fde68a', padding: '5px 8px', fontWeight: 700 }}>{p.kodeSubTP}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '5px 8px' }}>{p.kompetensiTarget}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '5px 8px' }}>{p.aktivitasTerkait}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {currentDoc.panduanGuru.rubrikPenilaian.length > 0 && (
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: '#78350f', marginBottom: 6 }}>
+                  4. Rubrik Penilaian Berbasis Bukti Kinerja
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, background: '#ffffff' }}>
+                  <thead>
+                    <tr style={{ background: '#fef3c7' }}>
+                      <th style={{ border: '1px solid #fcd34d', padding: '5px 6px', textAlign: 'left' }}>Aspek</th>
+                      <th style={{ border: '1px solid #fcd34d', padding: '5px 6px', textAlign: 'left' }}>Perlu Bimbingan</th>
+                      <th style={{ border: '1px solid #fcd34d', padding: '5px 6px', textAlign: 'left' }}>Berkembang</th>
+                      <th style={{ border: '1px solid #fcd34d', padding: '5px 6px', textAlign: 'left' }}>Cakap</th>
+                      <th style={{ border: '1px solid #fcd34d', padding: '5px 6px', textAlign: 'left' }}>Mahir</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {currentDoc.panduanGuru.rubrikPenilaian.map((rb, ri) => (
+                      <tr key={ri}>
+                        <td style={{ border: '1px solid #fde68a', padding: '5px 6px', fontWeight: 700 }}>{rb.aspek}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '5px 6px' }}>{rb.perluBimbingan}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '5px 6px' }}>{rb.berkembang}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '5px 6px' }}>{rb.cakap}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '5px 6px' }}>{rb.mahir}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Footer Dokumen */}
         <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 10, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#94a3b8' }}>
-          <div>{currentDoc.namaSekolah || activeProfile.namaSekolah} • Kurikulum Merdeka</div>
-          <div>Lembar Kerja Peserta Didik (LKPD) • {ARCHETYPES.find((a) => a.id === currentPreset)?.badge}</div>
+          <div>{currentDoc.namaSekolah || activeProfile.namaSekolah} • {currentDoc.elemen || 'Kurikulum Aktif'}</div>
+          <div>Lembar Kerja Peserta Didik • {currentDoc.tpKode || 'TP'}</div>
         </div>
       </div>
     </div>

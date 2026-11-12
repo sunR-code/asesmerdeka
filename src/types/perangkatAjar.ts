@@ -75,18 +75,38 @@ export const LKPD_PRESET_TYPES: readonly LKPDPresetType[] = [
   'proyek',
 ] as const;
 
+export type LKPDWorkMode = 'Individu' | 'Berpasangan' | 'Kelompok Kecil (3–4 Siswa)';
+
+export type LKPDRuangJawabanJenis =
+  | 'perhitungan'
+  | 'tabel'
+  | 'uraian_singkat'
+  | 'uraian_panjang'
+  | 'langkah_algoritma';
+
+export type LKPDValidationStatus =
+  | 'valid_ai'
+  | 'valid_terkurasi'
+  | 'perlu_review_guru'
+  | 'gagal_validasi';
+
 export interface LKPDPertanyaanItem {
   id?: string;
   nomor: number;
   pertanyaan: string;
   tingkatKognitif?: 'Dasar' | 'Menengah' | 'Mahir';
+  alasanTingkatKognitif?: string;
+  pemetaanSubTP?: string;
+  ruangJawabanJenis?: LKPDRuangJawabanJenis;
   panduanJawabanSingkat?: string;
+  alternatifJawabanValid?: string;
   petunjukPengerjaan?: string;
 }
 
 export interface LKPDEksperimenData {
   alatDanBahan: string[];
   hipotesisAwal: string;
+  keselamatanKerja?: string[];
   tabelObservasi: {
     kolom: string[];
     baris: string[][];
@@ -106,12 +126,69 @@ export interface LKPDProyekData {
   rubrikKarya: { kriteria: string; deskripsiSkor: string }[];
 }
 
+export interface LKPDStimulusData {
+  jenisData?: 'tabel' | 'persamaan' | 'kutipan_teks' | 'daftar_fakta' | 'algoritma';
+  tabelData?: {
+    kolom: string[];
+    baris: string[][];
+  };
+  poinKunci?: string[];
+  catatanAsumsi?: string;
+}
+
+export interface LKPDTeacherAnswerKeyItem {
+  nomor: number;
+  jawabanInti: string;
+  langkahPenyelesaian: string[];
+  alternatifValid?: string;
+}
+
+export interface LKPDTeacherMisconception {
+  miskonsepsi: string;
+  caraMenangani: string;
+}
+
+export interface LKPDTeacherTPMapping {
+  kodeSubTP: string;
+  kompetensiTarget: string;
+  aktivitasTerkait: string;
+}
+
+export interface LKPDTeacherRubricRow {
+  aspek: string;
+  perluBimbingan: string;
+  berkembang: string;
+  cakap: string;
+  mahir: string;
+}
+
+export interface LKPDTeacherGuide {
+  kunciDanContohJawaban: LKPDTeacherAnswerKeyItem[];
+  miskonsepsiUmum: LKPDTeacherMisconception[];
+  pemetaanTP: LKPDTeacherTPMapping[];
+  rubrikPenilaian: LKPDTeacherRubricRow[];
+  dukunganTambahanGuru?: string;
+  pengayaanGuru?: string;
+  catatanKurikulum?: string;
+}
+
+export interface LKPDPipelineValidation {
+  status: LKPDValidationStatus;
+  usedFallback: boolean;
+  isCuratedFixture: boolean;
+  issues: string[];
+  warnings: string[];
+  mathVerificationNote?: string;
+}
+
 export interface LKPDDokumen {
   id: string;
   tpId?: string;
   presetType?: LKPDPresetType;
   konteksAktual?: string;
   judul: string;
+  pendekatanKegiatan?: string;
+  modeKerja?: LKPDWorkMode;
   mataPelajaran: string;
   jenjangFase: string;
   kelas: string;
@@ -125,9 +202,15 @@ export interface LKPDDokumen {
   createdAt: string;
 
   tpKode: string;
+  elemen?: string;
   materiPokok: string;
   tujuanPembelajaran: string;
+  targetBelajarSiswa?: string[];
+  prasyaratMateri?: string[];
+  targetSubTP?: { id: string; kode: string; kompetensi: string }[];
   alokasiWaktu: string;
+  tpSourceHash?: string;
+  needsReview?: boolean;
 
   petunjukPengerjaan: string[];
   stimulusKasus: {
@@ -135,14 +218,11 @@ export interface LKPDDokumen {
     teks: string;
     pertanyaanAwal?: string;
   };
+  stimulusData?: LKPDStimulusData;
 
-  // Archetype 1 & 2: Eksperimen & Penyelidikan Terstruktur
+  // Model aktivitas terstruktur
   eksperimenData?: LKPDEksperimenData;
-
-  // Archetype 3: Tugas Berdiferensiasi Terstruktur
   diferensiasiData?: LKPDDiferensiasiData;
-
-  // Archetype 4: Proyek & Pembagian Peran Tim Terstruktur
   proyekData?: LKPDProyekData;
 
   langkahAktivitas: {
@@ -150,9 +230,20 @@ export interface LKPDDokumen {
     judulLangkah?: string;
     instruksi: string;
     bantuanAtauTabel?: string[];
+    ruangJawabanJenis?: LKPDRuangJawabanJenis;
+    pemetaanSubTP?: string;
   }[];
+  pemeriksaanHasil?: string[];
   pertanyaanAnalisis: LKPDPertanyaanItem[];
+  dukunganTambahan?: string;
+  pengayaan?: {
+    instruksi: string;
+    tugas: string[];
+  };
   kesimpulanRefleksi: string[];
+
+  panduanGuru?: LKPDTeacherGuide;
+  catatanValidasi?: LKPDPipelineValidation;
 }
 
 export interface ATPItem {

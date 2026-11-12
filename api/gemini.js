@@ -19,7 +19,15 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-    const { prompt, contents, generationConfig, temperature = 0.4, tier = 'guru' } = body;
+    const {
+      prompt,
+      contents,
+      systemInstruction,
+      generationConfig,
+      temperature = 0.4,
+      maxOutputTokens = 4096,
+      tier = 'guru',
+    } = body;
 
     // Prioritaskan GEMINI_API_KEY (Server Secret), fallback ke VITE_GEMINI_API_KEY jika ada
     const apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '').trim();
@@ -38,6 +46,14 @@ export default async function handler(req, res) {
 
     // Susun payload untuk Google Gemini API
     const geminiPayload = {
+      ...(systemInstruction
+        ? {
+            systemInstruction:
+              typeof systemInstruction === 'string'
+                ? { parts: [{ text: systemInstruction }] }
+                : systemInstruction,
+          }
+        : {}),
       contents: contents || [
         {
           parts: [{ text: prompt || '' }],
@@ -45,6 +61,7 @@ export default async function handler(req, res) {
       ],
       generationConfig: {
         temperature: typeof temperature === 'number' ? temperature : 0.4,
+        maxOutputTokens: typeof maxOutputTokens === 'number' ? maxOutputTokens : 4096,
         responseMimeType: 'application/json',
         ...(generationConfig || {}),
       },

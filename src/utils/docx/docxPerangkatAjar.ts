@@ -10,6 +10,7 @@ import {
   TableCell,
   WidthType,
   BorderStyle,
+  PageBreak,
 } from 'docx';
 import saveAs from 'file-saver';
 import type {
@@ -23,6 +24,7 @@ import type {
 } from '../../types/perangkatAjar';
 import { getSchoolProfile } from '../schoolProfileStorage';
 import type { SchoolProfile } from '../schoolProfileStorage';
+import { cleanTopicHeading } from '../lkpdSubjectBlueprints';
 import { buildSignatureBlockTable } from './docxShared';
 
 /**
@@ -289,20 +291,64 @@ export async function exportLKPDToDocx(
     );
   }
 
+  const cleanTopic = cleanTopicHeading(lkpd.judul || lkpd.materiPokok).toUpperCase();
+
   children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 40 },
+      spacing: { after: 30 },
       children: headerRuns,
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 120 },
-      children: [new TextRun({ text: (lkpd.judul || lkpd.materiPokok).toUpperCase(), bold: true, size: 22, font: 'Calibri' })],
+      spacing: { after: lkpd.pendekatanKegiatan ? 30 : 120 },
+      children: [new TextRun({ text: cleanTopic, bold: true, size: 22, font: 'Calibri' })],
     })
   );
 
-  // Tabel Identitas Kelompok
+  if (lkpd.pendekatanKegiatan || lkpd.elemen) {
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 100 },
+        children: [
+          new TextRun({
+            text: [lkpd.pendekatanKegiatan, lkpd.elemen ? `Elemen: ${lkpd.elemen}` : '']
+              .filter(Boolean)
+              .join('  •  '),
+            italics: true,
+            size: 18,
+            color: '475569',
+            font: 'Calibri',
+          }),
+        ],
+      })
+    );
+  }
+
+  const identityRightChildren: Paragraph[] =
+    lkpd.modeKerja === 'Individu'
+      ? [
+          new Paragraph({ children: [new TextRun({ text: 'Nama Siswa  : ..........................................', bold: true, size: 19 })] }),
+          new Paragraph({ children: [new TextRun({ text: 'No. Absen   : ..........................................', size: 18 })] }),
+          new Paragraph({ children: [new TextRun({ text: 'Tanggal     : ..........................................', size: 18 })] }),
+        ]
+      : lkpd.modeKerja === 'Berpasangan'
+      ? [
+          new Paragraph({ children: [new TextRun({ text: 'Mode Kerja : Berpasangan (2 Siswa)', bold: true, size: 18 })] }),
+          new Paragraph({ children: [new TextRun({ text: '1. .................................................', size: 18 })] }),
+          new Paragraph({ children: [new TextRun({ text: '2. .................................................', size: 18 })] }),
+        ]
+      : [
+          new Paragraph({ children: [new TextRun({ text: 'Kelompok : ...................................', bold: true, size: 19 })] }),
+          new Paragraph({ children: [new TextRun({ text: 'Anggota  :', bold: true, size: 18 })] }),
+          new Paragraph({ children: [new TextRun({ text: '1. .................................................', size: 18 })] }),
+          new Paragraph({ children: [new TextRun({ text: '2. .................................................', size: 18 })] }),
+          new Paragraph({ children: [new TextRun({ text: '3. .................................................', size: 18 })] }),
+          new Paragraph({ children: [new TextRun({ text: '4. .................................................', size: 18 })] }),
+        ];
+
+  // Tabel Identitas Siswa / Kelompok
   children.push(
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
@@ -316,7 +362,7 @@ export async function exportLKPDToDocx(
               children: [
                 new Paragraph({ children: [new TextRun({ text: `Mata Pelajaran : ${lkpd.mataPelajaran}`, bold: true, size: 19 })] }),
                 new Paragraph({ children: [new TextRun({ text: `Kelas / Rombel : Kelas ${lkpd.kelas} (${profile.rombelAktif || lkpd.rombel})`, size: 19 })] }),
-                new Paragraph({ children: [new TextRun({ text: `Alokasi Waktu : ${lkpd.alokasiWaktu}`, size: 19 })] }),
+                new Paragraph({ children: [new TextRun({ text: `Alokasi Waktu  : ${lkpd.alokasiWaktu}`, size: 19 })] }),
                 new Paragraph({ children: [new TextRun({ text: `Tujuan Belajar : ${lkpd.tujuanPembelajaran}`, size: 18 })] }),
               ],
             }),
@@ -324,21 +370,45 @@ export async function exportLKPDToDocx(
               width: { size: 45, type: WidthType.PERCENTAGE },
               borders: cellBorders,
               margins: cellPadding,
-              children: [
-                new Paragraph({ children: [new TextRun({ text: 'Kelompok : ...................................', bold: true, size: 19 })] }),
-                new Paragraph({ children: [new TextRun({ text: 'Anggota  :', bold: true, size: 18 })] }),
-                new Paragraph({ children: [new TextRun({ text: '1. .................................................', size: 18 })] }),
-                new Paragraph({ children: [new TextRun({ text: '2. .................................................', size: 18 })] }),
-                new Paragraph({ children: [new TextRun({ text: '3. .................................................', size: 18 })] }),
-                new Paragraph({ children: [new TextRun({ text: '4. .................................................', size: 18 })] }),
-              ],
+              children: identityRightChildren,
             }),
           ],
         }),
       ],
     }),
-    new Paragraph({ spacing: { after: 120 } })
+    new Paragraph({ spacing: { after: 100 } })
   );
+
+  // Sasaran Belajar & Prasyarat (Bila Ada)
+  if (lkpd.targetBelajarSiswa?.length) {
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: 'SASARAN BELAJAR SESI INI:', bold: true, size: 19, color: '0F172A' })],
+        spacing: { after: 30 },
+      })
+    );
+    lkpd.targetBelajarSiswa.forEach((tb) => {
+      children.push(
+        new Paragraph({
+          indent: { left: 240 },
+          children: [new TextRun({ text: `• ${tb}`, size: 18 })],
+          spacing: { after: 20 },
+        })
+      );
+    });
+  }
+
+  if (lkpd.prasyaratMateri?.length) {
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({ text: 'Prasyarat Pengetahuan: ', bold: true, size: 18, color: '334155' }),
+          new TextRun({ text: lkpd.prasyaratMateri.join('; '), size: 18, color: '475569' }),
+        ],
+        spacing: { before: 20, after: 80 },
+      })
+    );
+  }
 
   // Petunjuk
   children.push(
@@ -367,10 +437,69 @@ export async function exportLKPDToDocx(
       spacing: { before: 80, after: 40 },
     }),
     new Paragraph({
-      children: [new TextRun({ text: lkpd.stimulusKasus.teks, italics: true, size: 19 })],
+      children: [new TextRun({ text: lkpd.stimulusKasus.teks, size: 19 })],
       spacing: { after: 40 },
     })
   );
+
+  // Tabel Data Terstruktur Stimulus & Poin Kunci
+  if (lkpd.stimulusData?.tabelData && lkpd.stimulusData.tabelData.kolom.length > 0) {
+    const stimCols = lkpd.stimulusData.tabelData.kolom;
+    const widthPct = Math.floor(100 / Math.max(1, stimCols.length));
+    const stimHeader = new TableRow({
+      children: stimCols.map(
+        (col) =>
+          new TableCell({
+            width: { size: widthPct, type: WidthType.PERCENTAGE },
+            shading: { fill: 'E2E8F0' },
+            borders: cellBorders,
+            margins: cellPadding,
+            children: [new Paragraph({ children: [new TextRun({ text: col, bold: true, size: 18, color: '0F172A' })] })],
+          })
+      ),
+    });
+    const stimRows = lkpd.stimulusData.tabelData.baris.map(
+      (row) =>
+        new TableRow({
+          children: stimCols.map((_, ci) =>
+            new TableCell({
+              width: { size: widthPct, type: WidthType.PERCENTAGE },
+              borders: cellBorders,
+              margins: cellPadding,
+              children: [new Paragraph({ children: [new TextRun({ text: row[ci] || '', size: 18 })] })],
+            })
+          ),
+        })
+    );
+    children.push(
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [stimHeader, ...stimRows],
+      }),
+      new Paragraph({ spacing: { after: 60 } })
+    );
+  }
+
+  if (lkpd.stimulusData?.poinKunci?.length) {
+    lkpd.stimulusData.poinKunci.forEach((pk) => {
+      children.push(
+        new Paragraph({
+          indent: { left: 240 },
+          children: [new TextRun({ text: `• ${pk}`, size: 18, color: '1E293B' })],
+          spacing: { after: 20 },
+        })
+      );
+    });
+  }
+
+  if (lkpd.stimulusData?.catatanAsumsi) {
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: `Catatan/Asumsi: ${lkpd.stimulusData.catatanAsumsi}`, italics: true, size: 18, color: '475569' })],
+        spacing: { after: 40 },
+      })
+    );
+  }
 
   if (lkpd.stimulusKasus.pertanyaanAwal) {
     children.push(
@@ -400,6 +529,25 @@ export async function exportLKPDToDocx(
           new Paragraph({
             indent: { left: 360 },
             children: [new TextRun({ text: `• ${item}`, size: 19 })],
+            spacing: { after: 20 },
+          })
+        );
+      });
+    }
+
+    if (exp.keselamatanKerja && exp.keselamatanKerja.length > 0) {
+      children.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_3,
+          children: [new TextRun({ text: 'KESELAMATAN & KETERTIBAN KERJA', bold: true, size: 19, color: 'C2410C' })],
+          spacing: { before: 60, after: 20 },
+        })
+      );
+      exp.keselamatanKerja.forEach((kk) => {
+        children.push(
+          new Paragraph({
+            indent: { left: 360 },
+            children: [new TextRun({ text: `! ${kk}`, size: 18, color: '9A3412' })],
             spacing: { after: 20 },
           })
         );
@@ -803,12 +951,33 @@ export async function exportLKPDToDocx(
       act.bantuanAtauTabel.forEach((b) => {
         children.push(new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: b, size: 18, color: '555555' })], spacing: { after: 20 } }));
       });
+      if (act.ruangJawabanJenis === 'perhitungan') {
+        children.push(
+          new Paragraph({
+            indent: { left: 240 },
+            children: [
+              new TextRun({
+                text: 'Ruang Perhitungan:\n................................................................................................................................................\n................................................................................................................................................',
+                color: '94A3B8',
+                size: 18,
+              }),
+            ],
+            spacing: { before: 30, after: 50 },
+          })
+        );
+      }
     } else {
+      const workPrompt =
+        act.ruangJawabanJenis === 'perhitungan'
+          ? 'Ruang Pemodelan & Perhitungan (tulis permisalan dan langkah hitungan):\n................................................................................................................................................\n................................................................................................................................................\n................................................................................................................................................'
+          : act.ruangJawabanJenis === 'langkah_algoritma'
+          ? 'Tabel Penelusuran / Alur Proses:\n................................................................................................................................................\n................................................................................................................................................'
+          : 'Ruang Kerja / Catatan Siswa:\n................................................................................................................................................\n................................................................................................................................................';
       children.push(
         new Paragraph({
           children: [
             new TextRun({
-              text: 'Ruang Kerja / Catatan Diskusi Kelompok:\n..........................................................................................................................................................................................................................................................................................................................................................................................',
+              text: workPrompt,
               color: '888888',
               size: 18,
             }),
@@ -818,6 +987,24 @@ export async function exportLKPDToDocx(
       );
     }
   });
+
+  if (lkpd.pemeriksaanHasil && lkpd.pemeriksaanHasil.length > 0) {
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: 'CEK KEMBALI HASIL KERJAMU:', bold: true, size: 19, color: '0369A1' })],
+        spacing: { before: 60, after: 30 },
+      })
+    );
+    lkpd.pemeriksaanHasil.forEach((ph) => {
+      children.push(
+        new Paragraph({
+          indent: { left: 240 },
+          children: [new TextRun({ text: `[  ] ${ph}`, size: 18, color: '0C4A6E' })],
+          spacing: { after: 20 },
+        })
+      );
+    });
+  }
 
   // Pertanyaan Diskusi Kritis & Analisis
   const pertanyaanHeading =
@@ -884,6 +1071,9 @@ export async function exportLKPDToDocx(
                       children: [
                         new TextRun({ text: '💡 Kunci Jawaban / Panduan Guru:\n', bold: true, size: 17, color: '065F46' }),
                         new TextRun({ text: pa.panduanJawabanSingkat, size: 18, color: '064E3B' }),
+                        ...(pa.alternatifJawabanValid
+                          ? [new TextRun({ text: `\nAlternatif Sah: ${pa.alternatifJawabanValid}`, italics: true, size: 17, color: '047857' })]
+                          : []),
                       ],
                     }),
                   ],
@@ -895,11 +1085,15 @@ export async function exportLKPDToDocx(
         new Paragraph({ spacing: { after: 40 } })
       );
     } else {
+      const answerLines =
+        pa.ruangJawabanJenis === 'perhitungan' || pa.ruangJawabanJenis === 'uraian_panjang'
+          ? 'Ruang Penyelesaian / Jawaban:\n................................................................................................................................................\n................................................................................................................................................\n................................................................................................................................................\n................................................................................................................................................'
+          : 'Ruang Jawaban:\n................................................................................................................................................\n................................................................................................................................................';
       children.push(
         new Paragraph({
           children: [
             new TextRun({
-              text: 'Jawaban Kelompok:\n..........................................................................................................................................................................................................................................................................................................................................................................................',
+              text: answerLines,
               color: '888888',
               size: 18,
             }),
@@ -909,6 +1103,30 @@ export async function exportLKPDToDocx(
       );
     }
   });
+
+  // Bantuan Pemula & Pengayaan (Student Safe)
+  if (lkpd.dukunganTambahan) {
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({ text: 'Bantuan Langkah Awal: ', bold: true, size: 18, color: '0F172A' }),
+          new TextRun({ text: lkpd.dukunganTambahan, size: 18, color: '334155' }),
+        ],
+        spacing: { before: 60, after: 40 },
+      })
+    );
+  }
+  if (lkpd.pengayaan && lkpd.pengayaan.tugas?.length > 0) {
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: lkpd.pengayaan.instruksi || 'Tantangan Pengayaan:', bold: true, size: 18, color: '0F172A' })],
+        spacing: { before: 40, after: 20 },
+      })
+    );
+    lkpd.pengayaan.tugas.forEach((tg) => {
+      children.push(new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• ${tg}`, size: 18 })], spacing: { after: 20 } }));
+    });
+  }
 
   // Kesimpulan & Refleksi Mandiri
   const kesimpulanHeading =
@@ -934,10 +1152,149 @@ export async function exportLKPDToDocx(
     children.push(new Paragraph({ spacing: { after: 160 } }), buildSignatureBlockTable(profile, lkpd.namaGuru));
   }
 
+  // LAMPIRAN PANDUAN GURU TERPISAH (HANYA JIKA isTeacherMode === true)
+  if (isTeacherMode && lkpd.panduanGuru) {
+    const pg = lkpd.panduanGuru;
+    children.push(
+      new Paragraph({ children: [new PageBreak()] }),
+      new Paragraph({
+        heading: HeadingLevel.HEADING_2,
+        children: [new TextRun({ text: 'LAMPIRAN PEGANGAN GURU (PANDUAN, KUNCI, MISKONSEPSI & RUBRIK)', bold: true, size: 22, color: '92400E' })],
+        spacing: { after: 100 },
+      })
+    );
+
+    if (pg.kunciDanContohJawaban.length > 0) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: '1. Kunci Jawaban & Langkah Penyelesaian', bold: true, size: 20, color: '0F172A' })],
+          spacing: { before: 60, after: 40 },
+        })
+      );
+      pg.kunciDanContohJawaban.forEach((kj) => {
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: `Butir ${kj.nomor}: ${kj.jawabanInti}`, bold: true, size: 18 })],
+            spacing: { before: 30, after: 20 },
+          })
+        );
+        kj.langkahPenyelesaian.forEach((st, idx) => {
+          children.push(new Paragraph({ indent: { left: 280 }, children: [new TextRun({ text: `${idx + 1}. ${st}`, size: 18 })], spacing: { after: 15 } }));
+        });
+        if (kj.alternatifValid) {
+          children.push(new Paragraph({ indent: { left: 280 }, children: [new TextRun({ text: `Alternatif Sah: ${kj.alternatifValid}`, italics: true, size: 17, color: '047857' })], spacing: { after: 30 } }));
+        }
+      });
+    }
+
+    if (pg.miskonsepsiUmum.length > 0) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: '2. Miskonsepsi Umum & Cara Menangani', bold: true, size: 20, color: '0F172A' })],
+          spacing: { before: 80, after: 40 },
+        })
+      );
+      pg.miskonsepsiUmum.forEach((ms) => {
+        children.push(
+          new Paragraph({
+            indent: { left: 240 },
+            children: [
+              new TextRun({ text: `• Miskonsepsi: ${ms.miskonsepsi} `, bold: true, size: 18 }),
+              new TextRun({ text: `→ Penanganan: ${ms.caraMenangani}`, size: 18 }),
+            ],
+            spacing: { after: 25 },
+          })
+        );
+      });
+    }
+
+    if (pg.pemetaanTP.length > 0) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: '3. Pemetaan Sub-TP ke Tugas & Soal', bold: true, size: 20, color: '0F172A' })],
+          spacing: { before: 80, after: 40 },
+        }),
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: ['Sub-TP', 'Kompetensi Target', 'Aktivitas / Soal Terkait'].map(
+                (col, ci) =>
+                  new TableCell({
+                    width: { size: ci === 0 ? 18 : ci === 1 ? 47 : 35, type: WidthType.PERCENTAGE },
+                    shading: { fill: 'FEF3C7' },
+                    borders: cellBorders,
+                    margins: cellPadding,
+                    children: [new Paragraph({ children: [new TextRun({ text: col, bold: true, size: 17 })] })],
+                  })
+              ),
+            }),
+            ...pg.pemetaanTP.map(
+              (mapRow) =>
+                new TableRow({
+                  children: [mapRow.kodeSubTP, mapRow.kompetensiTarget, mapRow.aktivitasTerkait].map(
+                    (val, ci) =>
+                      new TableCell({
+                        width: { size: ci === 0 ? 18 : ci === 1 ? 47 : 35, type: WidthType.PERCENTAGE },
+                        borders: cellBorders,
+                        margins: cellPadding,
+                        children: [new Paragraph({ children: [new TextRun({ text: val, size: 17 })] })],
+                      })
+                  ),
+                })
+            ),
+          ],
+        })
+      );
+    }
+
+    if (pg.rubrikPenilaian.length > 0) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: '4. Rubrik Penilaian Berbasis Bukti Kinerja', bold: true, size: 20, color: '0F172A' })],
+          spacing: { before: 100, after: 40 },
+        }),
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              children: ['Aspek', 'Perlu Bimbingan', 'Berkembang', 'Cakap', 'Mahir'].map(
+                (col) =>
+                  new TableCell({
+                    width: { size: 20, type: WidthType.PERCENTAGE },
+                    shading: { fill: 'FEF3C7' },
+                    borders: cellBorders,
+                    margins: cellPadding,
+                    children: [new Paragraph({ children: [new TextRun({ text: col, bold: true, size: 17 })] })],
+                  })
+              ),
+            }),
+            ...pg.rubrikPenilaian.map(
+              (r) =>
+                new TableRow({
+                  children: [r.aspek, r.perluBimbingan, r.berkembang, r.cakap, r.mahir].map(
+                    (val) =>
+                      new TableCell({
+                        width: { size: 20, type: WidthType.PERCENTAGE },
+                        borders: cellBorders,
+                        margins: cellPadding,
+                        children: [new Paragraph({ children: [new TextRun({ text: val, size: 16 })] })],
+                      })
+                  ),
+                })
+            ),
+          ],
+        })
+      );
+    }
+  }
+
   const doc = new Document({ sections: [{ properties: {}, children }] });
   const blob = await Packer.toBlob(doc);
   const cleanMateri = lkpd.materiPokok.replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Siswa';
-  const cleanFilename = `LKPD_${cleanMateri}_${lkpd.presetType || 'kasus'}.docx`;
+  const cleanFilename = isTeacherMode
+    ? `Panduan_Guru_LKPD_${cleanMateri}_${lkpd.presetType || 'kasus'}.docx`
+    : `LKPD_${cleanMateri}_${lkpd.presetType || 'kasus'}.docx`;
   if (typeof window !== 'undefined') {
     saveAs(blob, cleanFilename);
   } else {

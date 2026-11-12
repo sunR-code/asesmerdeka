@@ -1,5 +1,24 @@
 import type { JenjangFase } from '../types/assessment';
 
+export interface SubTPItem {
+  id: string;
+  kode: string;
+  kompetensi: string;
+  fokusMateri: string;
+  buktiKetercapaian: string;
+  estimasiMenit?: number;
+}
+
+export interface CPReferenceMeta {
+  sumber: string;
+  elemenCP: string;
+  fase: string;
+  terverifikasiResmi: boolean;
+  catatan: string;
+}
+
+export type TPReviewStatus = 'draft' | 'ditinjau' | 'disetujui';
+
 export interface CustomTPItem {
   id: string;
   kode: string;
@@ -10,6 +29,29 @@ export interface CustomTPItem {
   alokasiJP: number;
   mingguMulai: number;
   mingguSelesai: number;
+  kompetensiInti?: string;
+  lingkupMateri?: string;
+  prasyarat?: string[];
+  buktiKetercapaian?: string[];
+  estimasiMenitSesi?: number;
+  statusReview?: TPReviewStatus;
+  referensiCP?: CPReferenceMeta;
+  subTP?: SubTPItem[];
+}
+
+export function computeTPContentHash(tp: Pick<CustomTPItem, 'kode' | 'elemen' | 'materiPokok' | 'tujuanPembelajaran' | 'alokasiJP'>): string {
+  const payload = [
+    tp.kode || '',
+    tp.elemen || '',
+    tp.materiPokok || '',
+    tp.tujuanPembelajaran || '',
+    String(tp.alokasiJP || ''),
+  ].join('|');
+  let hash = 5381;
+  for (let i = 0; i < payload.length; i++) {
+    hash = ((hash << 5) + hash + payload.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36);
 }
 
 export interface SchoolProfile {
@@ -271,6 +313,38 @@ export function exportBackupDataJson(): string {
     null,
     2
   );
+}
+
+export function markSavedLKPDDraftsNeedsReview(
+  tpId: string,
+  latestTP: CustomTPItem
+): number {
+  let updatedCount = 0;
+  try {
+    if (typeof localStorage === 'undefined') return 0;
+    const prefix = `lkpd_${tpId}_`;
+    const newHash = computeTPContentHash(latestTP);
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(prefix)) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object' && parsed.tpSourceHash !== newHash) {
+            parsed.needsReview = true;
+            localStorage.setItem(key, JSON.stringify(parsed));
+            updatedCount++;
+          }
+        } catch {
+          // ignore malformed saved draft
+        }
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return updatedCount;
 }
 
 export function importBackupDataJson(rawJson: string): {

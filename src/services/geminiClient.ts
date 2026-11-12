@@ -7,9 +7,42 @@ const GEMINI_TIMEOUT_MS = 35_000;
 
 export interface GeminiCallParams {
   prompt: string;
+  systemInstruction?: string;
+  maxOutputTokens?: number;
   temperature?: number;
   tier?: LicenseTier;
   geminiApiKey?: string;
+}
+
+function extractParsedGeminiResponse(resultJson: any, sourceLabel: string): any {
+  const candidate =
+    resultJson?.data?.candidates?.[0] || resultJson?.candidates?.[0];
+  const finishReason = candidate?.finishReason;
+  const textOutput = candidate?.content?.parts?.[0]?.text;
+
+  if (!textOutput || typeof textOutput !== 'string') {
+    throw new Error(`Format respon ${sourceLabel} tidak memiliki teks kandidat.`);
+  }
+
+  const cleanJson = textOutput
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleanJson);
+  } catch (parseErr: any) {
+    throw new Error(
+      `Respon JSON dari ${sourceLabel} tidak valid${finishReason === 'MAX_TOKENS' ? ' (terpotong batas MAX_TOKENS)' : ''}: ${parseErr?.message || 'Parse error'}`
+    );
+  }
+
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && finishReason === 'MAX_TOKENS') {
+    parsed._geminiFinishReason = 'MAX_TOKENS';
+  }
+  return parsed;
 }
 
 /**
@@ -18,7 +51,9 @@ export interface GeminiCallParams {
 async function callDirectGoogleGemini(
   prompt: string,
   apiKey: string,
-  temperature = 0.4
+  temperature = 0.4,
+  systemInstruction?: string,
+  maxOutputTokens = 4096
 ): Promise<any> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
@@ -32,9 +67,13 @@ async function callDirectGoogleGemini(
       },
       signal: controller.signal,
       body: JSON.stringify({
+        ...(systemInstruction
+          ? { systemInstruction: { parts: [{ text: systemInstruction }] } }
+          : {}),
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature,
+          maxOutputTokens,
           responseMimeType: 'application/json',
         },
       }),
@@ -45,13 +84,7 @@ async function callDirectGoogleGemini(
     }
 
     const result = await response.json();
-    const textOutput = result.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!textOutput || typeof textOutput !== 'string') {
-      throw new Error('Tidak ada respon teks yang diterima dari Gemini Direct.');
-    }
-
-    const cleanJson = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanJson);
+    return extractParsedGeminiResponse(result, 'Gemini Direct');
   } finally {
     clearTimeout(timer);
   }
@@ -63,7 +96,9 @@ async function callDirectGoogleGemini(
 async function callVercelServerlessGemini(
   prompt: string,
   tier: LicenseTier,
-  temperature = 0.4
+  temperature = 0.4,
+  systemInstruction?: string,
+  maxOutputTokens = 4096
 ): Promise<any> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
@@ -84,8 +119,10 @@ async function callVercelServerlessGemini(
       signal: controller.signal,
       body: JSON.stringify({
         prompt,
+        ...(systemInstruction ? { systemInstruction } : {}),
         tier,
         temperature,
+        maxOutputTokens,
       }),
     });
 
@@ -97,16 +134,7 @@ async function callVercelServerlessGemini(
     }
 
     const resJson = await response.json();
-    const textOutput =
-      resJson.data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      resJson.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!textOutput || typeof textOutput !== 'string') {
-      throw new Error('Format respon /api/gemini tidak memiliki teks kandidat.');
-    }
-
-    const cleanJson = textOutput.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanJson);
+    return extractParsedGeminiResponse(resJson, '/api/gemini');
   } finally {
     clearTimeout(timer);
   }
@@ -123,11 +151,18 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
   const currentQuota = getUserQuota();
   const userTier: LicenseTier = params.tier || currentQuota.tier || 'guru';
   const customKey = params.geminiApiKey || getSavedGeminiKey();
+  const maxTokens = params.maxOutputTokens ?? 4096;
 
   // 1. Prioritas BYOK Klien (Kunci Kustom Pengguna)
   if (customKey) {
     try {
-      return await callDirectGoogleGemini(params.prompt, customKey, params.temperature ?? 0.4);
+      return await callDirectGoogleGemini(
+        params.prompt,
+        customKey,
+        params.temperature ?? 0.4,
+        params.systemInstruction,
+        maxTokens
+      );
     } catch (err) {
       console.warn('Gagal memanggil direct Gemini dengan BYOK, mencoba /api/gemini:', err);
     }
@@ -135,7 +170,13 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
 
   // 2. Prioritas Serverless Proxy /api/gemini (Produksi Vercel)
   try {
-    return await callVercelServerlessGemini(params.prompt, userTier, params.temperature ?? 0.4);
+    return await callVercelServerlessGemini(
+      params.prompt,
+      userTier,
+      params.temperature ?? 0.4,
+      params.systemInstruction,
+      maxTokens
+    );
   } catch (serverlessErr) {
     console.warn('Panggilan ke /api/gemini gagal atau offline:', serverlessErr);
 
@@ -143,7 +184,13 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
     const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
     if (envKey && envKey !== customKey) {
       try {
-        return await callDirectGoogleGemini(params.prompt, envKey, params.temperature ?? 0.4);
+        return await callDirectGoogleGemini(
+          params.prompt,
+          envKey,
+          params.temperature ?? 0.4,
+          params.systemInstruction,
+          maxTokens
+        );
       } catch (directEnvErr) {
         console.warn('Fallback direct dev key juga gagal:', directEnvErr);
       }
