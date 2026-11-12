@@ -395,3 +395,11 @@ export function applyNewStudentRoster(
     daftarJurnal: updatedJurnal,
   };
 }
+
+export function filterSiswaRoster(daftarSiswa: SiswaItem[], query: string): SiswaItem[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return daftarSiswa;
+  return daftarSiswa.filter(
+    (s) => s.nama.toLowerCase().includes(q) || s.nis.toLowerCase().includes(q)
+  );
+}

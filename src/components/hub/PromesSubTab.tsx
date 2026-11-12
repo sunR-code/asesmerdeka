@@ -1,11 +1,9 @@
 import React from 'react';
-import { motion } from 'framer-motion';
 import { Download, Printer, FileSpreadsheet } from 'lucide-react';
 import type { SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
 import { buildSmartPromes } from '../../utils/perangkatAjarEngine';
 import { exportPromesToDocx } from '../../utils/docxExporter';
 import { requireActiveLicenseForAction } from '../../utils/licenseManager';
-import { cardTapMotion } from '../../utils/motionPresets';
 
 interface PromesSubTabProps {
   tpList: CustomTPItem[];
@@ -48,22 +46,18 @@ export const PromesSubTab: React.FC<PromesSubTabProps> = ({
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
-          <motion.button
+          <button
             type="button"
-            whileTap={cardTapMotion}
             onClick={() => {
               if (!requireActiveLicenseForAction('mencetak dokumen Promes')) return;
               window.print();
             }}
             className="btn btn-sm btn-outline"
-            style={{ borderRadius: 10, fontSize: 12.5, fontWeight: 700 }}
           >
-            <Printer size={14} /> Cetak
-          </motion.button>
-          <motion.button
+            <Printer size={14} aria-hidden="true" /> Cetak
+          </button>
+          <button
             type="button"
-            whileHover={{ scale: 1.02 }}
-            whileTap={cardTapMotion}
             onClick={async () => {
               try {
                 const ok = await exportPromesToDocx(promesDoc, schoolProfile);
@@ -75,71 +69,69 @@ export const PromesSubTab: React.FC<PromesSubTabProps> = ({
               }
             }}
             className="btn btn-sm btn-primary"
-            style={{ borderRadius: 10, fontSize: 12.5, fontWeight: 800, padding: '7px 14px' }}
           >
-            <Download size={14} /> Unduh Promes (.docx)
-          </motion.button>
+            <Download size={14} aria-hidden="true" /> Unduh Promes (.docx)
+          </button>
         </div>
       </div>
 
-      <div className="v21-bento-card" style={{ overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-            <thead>
-              <tr style={{ background: '#1e3a8a', color: '#ffffff', textAlign: 'center' }}>
-                <th style={{ padding: '8px', border: '1px solid #3b82f6', width: '3%' }}>No</th>
-                <th style={{ padding: '8px', border: '1px solid #3b82f6', width: '6%' }}>Kode</th>
-                <th style={{ padding: '8px', border: '1px solid #3b82f6', width: '25%', textAlign: 'left' }}>Materi Pokok & TP</th>
-                <th style={{ padding: '8px', border: '1px solid #3b82f6', width: '5%' }}>JP</th>
-                {promesDoc.columns.map((col, idx) => (
-                  <th
-                    key={idx}
-                    style={{
-                      padding: '6px 4px',
-                      border: '1px solid #3b82f6',
-                      background: col.isEfektif ? '#1e3a8a' : '#334155',
-                      fontSize: 10,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {col.bulanNama.slice(0, 3)}<br />M{col.mingguKe}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {promesDoc.rows.map((row, rIdx) => (
-                <tr key={row.no} style={{ background: rIdx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                  <td style={{ padding: '8px 6px', border: '1px solid #e2e8f0', textAlign: 'center', fontWeight: 600 }}>{row.no}</td>
-                  <td style={{ padding: '8px 6px', border: '1px solid #e2e8f0', textAlign: 'center', fontWeight: 800, color: '#1d4ed8' }}>{row.kodeTP}</td>
-                  <td style={{ padding: '8px 8px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontWeight: 800, color: '#0f172a' }}>{row.materiPokok}</div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{row.tujuanPembelajaran}</div>
-                  </td>
-                  <td style={{ padding: '8px 6px', border: '1px solid #e2e8f0', textAlign: 'center', fontWeight: 800, color: '#0369a1' }}>{row.alokasiJP}</td>
-                  {promesDoc.columns.map((col, cIdx) => {
-                    const jp = row.distribusiJP[cIdx];
-                    return (
-                      <td
-                        key={cIdx}
-                        style={{
-                          padding: '6px 3px',
-                          border: '1px solid #e2e8f0',
-                          textAlign: 'center',
-                          background: jp ? '#dbeafe' : col.isEfektif ? 'transparent' : '#f1f5f9',
-                          color: jp ? '#1e40af' : '#94a3b8',
-                          fontWeight: jp ? 800 : 400,
-                        }}
-                      >
-                        {jp ? `${jp}` : ''}
-                      </td>
-                    );
-                  })}
-                </tr>
+      <div className="ws-table-wrap">
+        <table className="ws-table">
+          <thead>
+            <tr>
+              <th style={{ width: '3%', textAlign: 'center' }}>No</th>
+              <th style={{ width: '6%', textAlign: 'center' }}>Kode</th>
+              <th style={{ width: '25%', textAlign: 'left' }}>Materi Pokok & TP</th>
+              <th style={{ width: '5%', textAlign: 'center' }}>JP</th>
+              {promesDoc.columns.map((col, idx) => (
+                <th
+                  key={idx}
+                  style={{
+                    padding: '6px 4px',
+                    background: col.isEfektif ? '#f8fafc' : '#e2e8f0',
+                    color: col.isEfektif ? '#172033' : '#475569',
+                    fontSize: 10.5,
+                    fontWeight: 600,
+                    textAlign: 'center',
+                  }}
+                >
+                  {col.bulanNama.slice(0, 3)}
+                  <br />M{col.mingguKe}
+                </th>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </thead>
+          <tbody>
+            {promesDoc.rows.map((row) => (
+              <tr key={row.no}>
+                <td style={{ textAlign: 'center', fontWeight: 500, color: '#64748b' }}>{row.no}</td>
+                <td style={{ textAlign: 'center', fontWeight: 600, color: '#1d4ed8' }}>{row.kodeTP}</td>
+                <td>
+                  <div style={{ fontWeight: 600, color: '#172033' }}>{row.materiPokok}</div>
+                  <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>{row.tujuanPembelajaran}</div>
+                </td>
+                <td style={{ textAlign: 'center', fontWeight: 600, color: '#172033' }}>{row.alokasiJP}</td>
+                {promesDoc.columns.map((col, cIdx) => {
+                  const jp = row.distribusiJP[cIdx];
+                  return (
+                    <td
+                      key={cIdx}
+                      style={{
+                        padding: '6px 3px',
+                        textAlign: 'center',
+                        background: jp ? '#eff6ff' : col.isEfektif ? 'transparent' : '#f1f5f9',
+                        color: jp ? '#1d4ed8' : '#94a3b8',
+                        fontWeight: jp ? 700 : 400,
+                      }}
+                    >
+                      {jp ? `${jp}` : ''}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

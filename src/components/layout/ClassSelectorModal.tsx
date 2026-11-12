@@ -141,12 +141,12 @@ export const ClassSelectorModal: React.FC<ClassSelectorModalProps> = ({
         transition={{ type: 'spring', stiffness: 450, damping: 28 }}
         style={{
           background: '#ffffff',
-          borderRadius: 20,
+          borderRadius: 14,
           width: '100%',
           maxWidth: 680,
           maxHeight: '90vh',
           overflowY: 'auto',
-          boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
+          boxShadow: 'var(--shadow-lg)',
           border: '1px solid #e2e8f0',
         }}
         onClick={(e) => e.stopPropagation()}
@@ -154,48 +154,49 @@ export const ClassSelectorModal: React.FC<ClassSelectorModalProps> = ({
         {/* Header Modal */}
         <div
           style={{
-            padding: '20px 24px',
+            padding: '18px 22px',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)',
+            background: '#f8fafc',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div
               style={{
-                width: 40,
-                height: 40,
-                borderRadius: 12,
-                background: '#2563eb',
-                color: '#ffffff',
+                width: 36,
+                height: 36,
+                borderRadius: 9,
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                color: '#2563eb',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 4px 10px rgba(37,99,235,0.3)',
               }}
             >
-              <School size={20} />
+              <School size={18} aria-hidden="true" />
             </div>
             <div>
-              <h2 style={{ fontSize: 17, fontWeight: 800, color: '#0f172a' }}>
-                Ganti Kelas, Rombel & Mata Pelajaran
+              <h2 style={{ fontSize: 16.5, fontWeight: 700, color: '#172033', margin: 0 }}>
+                Ganti kelas, rombel & mapel
               </h2>
-              <p style={{ fontSize: 12.5, color: '#64748b' }}>
-                Pilih kelas dan mapel yang ingin Anda kelola saat ini
+              <p style={{ fontSize: 12.5, color: '#64748b', margin: '2px 0 0' }}>
+                Pilih kelas dan mata pelajaran yang ingin Anda kelola saat ini.
               </p>
             </div>
           </div>
           <button
             type="button"
+            aria-label="Tutup modal ganti kelas"
             onClick={onClose}
             style={{
               background: '#ffffff',
               border: '1px solid #cbd5e1',
-              borderRadius: 10,
-              width: 34,
-              height: 34,
+              borderRadius: 8,
+              width: 32,
+              height: 32,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -203,7 +204,7 @@ export const ClassSelectorModal: React.FC<ClassSelectorModalProps> = ({
               color: '#475569',
             }}
           >
-            <X size={18} />
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
 

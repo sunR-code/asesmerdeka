@@ -98,37 +98,22 @@ export const AutoDeskripsiRaporTab: React.FC<AutoDeskripsiRaporTabProps> = ({
         }}
       >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span
-              style={{
-                background: '#dcfce7',
-                color: '#166534',
-                fontWeight: 800,
-                fontSize: 11,
-                padding: '3px 10px',
-                borderRadius: 99,
-              }}
-            >
-              Standar e-Rapor Kurikulum Merdeka (Kemendikbudristek)
-            </span>
-            <span style={{ fontSize: 12, color: '#64748b' }}>
-              Sintesis Otomatis TP Tertinggi & Terendah Siswa
-            </span>
-          </div>
-          <h2 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
-            Rekapitulasi Capaian & Auto-Deskripsi Rapor Siswa
+          <h2 style={{ fontSize: 19, fontWeight: 700, color: '#172033', margin: 0 }}>
+            Auto-deskripsi rapor siswa
           </h2>
+          <p style={{ fontSize: 13, color: '#64748b', margin: '3px 0 0' }}>
+            Kelas {schoolProfile.rombelAktif} · Sintesis kalimat e-Rapor dari nilai TP tertinggi dan terendah
+          </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={handleRegenerateAll}
             className="btn btn-sm btn-outline"
-            style={{ fontSize: 12, color: '#0369a1', borderColor: '#7dd3fc' }}
             title="Sintesis ulang seluruh kalimat deskripsi berdasarkan nilai TP"
           >
-            <RefreshCw size={13} /> Refresh Sintesis
+            <RefreshCw size={13} aria-hidden="true" /> Segarkan sintesis
           </button>
 
           <button
@@ -136,13 +121,12 @@ export const AutoDeskripsiRaporTab: React.FC<AutoDeskripsiRaporTabProps> = ({
             onClick={handleCopyAllTSV}
             className="btn btn-sm btn-outline"
             style={{
-              fontSize: 12,
-              borderColor: copiedAll ? '#15803d' : '#2563eb',
-              color: copiedAll ? '#15803d' : '#2563eb',
-              background: copiedAll ? '#dcfce7' : '#eff6ff',
+              borderColor: copiedAll ? '#15803d' : undefined,
+              color: copiedAll ? '#15803d' : undefined,
+              background: copiedAll ? '#ecfdf5' : undefined,
             }}
           >
-            {copiedAll ? <Check size={13} /> : <Copy size={13} />} Salin ke Excel (Ctrl+V)
+            {copiedAll ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />} Salin semua (TSV)
           </button>
 
           <button
@@ -152,9 +136,8 @@ export const AutoDeskripsiRaporTab: React.FC<AutoDeskripsiRaporTabProps> = ({
               window.print();
             }}
             className="btn btn-sm btn-outline"
-            style={{ fontSize: 12 }}
           >
-            <Printer size={13} /> Cetak
+            <Printer size={13} aria-hidden="true" /> Cetak
           </button>
 
           <button
@@ -170,53 +153,42 @@ export const AutoDeskripsiRaporTab: React.FC<AutoDeskripsiRaporTabProps> = ({
               }
             }}
             className="btn btn-sm btn-primary"
-            style={{ fontSize: 12 }}
           >
-            <Download size={13} /> Unduh Rekap Rapor (.docx)
+            <Download size={13} aria-hidden="true" /> Unduh Rekap Rapor (.docx)
           </button>
         </div>
       </div>
 
-      {/* Info Banner Edukatif */}
+      {/* Info Ringkas e-Rapor */}
       <div
         style={{
-          background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)',
-          border: '1px solid #bfdbfe',
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
           borderRadius: 10,
-          padding: '12px 16px',
-          marginBottom: 16,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
+          padding: '10px 14px',
+          marginBottom: 14,
+          fontSize: 12.5,
+          color: '#334155',
+          lineHeight: 1.5,
         }}
       >
-        <div style={{ fontSize: 12.5, color: '#1e3a8a', lineHeight: 1.5 }}>
-          ✨ <strong>Panduan e-Rapor Kurikulum Merdeka:</strong> Kalimat deskripsi dirumuskan secara naratif dengan menyebutkan <strong>capaian tertinggi yang dikuasai optimal</strong> dan <strong>materi yang perlu bimbingan/penguatan lanjutan</strong>. Klik tombol <strong>Salin</strong> di sebelah kanan untuk langsung menempelkan (paste) kalimat ke aplikasi e-Rapor sekolah!
-        </div>
+        <strong style={{ color: '#172033' }}>Catatan e-Rapor:</strong> Deskripsi dirumuskan dari TP dengan capaian tertinggi dan TP yang masih perlu penguatan. Anda dapat menyunting teks langsung di tabel lalu menyalinnya ke aplikasi e-Rapor.
       </div>
 
       {/* Tabel Deskripsi Rapor */}
-      <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+      <div className="ws-table-wrap">
+        <table className="ws-table">
           <thead>
-            <tr style={{ background: '#1e3a8a', color: '#ffffff' }}>
-              <th style={{ padding: '10px 6px', border: '1px solid #cbd5e1', width: 40, textAlign: 'center' }}>No</th>
-              <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', width: 80, textAlign: 'center' }}>NIS</th>
-              <th style={{ padding: '10px 10px', border: '1px solid #cbd5e1', width: 170, textAlign: 'left' }}>
-                Nama Peserta Didik
-              </th>
-              <th style={{ padding: '10px 6px', border: '1px solid #cbd5e1', width: 60, textAlign: 'center', background: '#059669' }}>
-                N.Akhir
-              </th>
-              <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', width: 95, textAlign: 'center' }}>
-                Predikat
-              </th>
-              <th style={{ padding: '10px 10px', border: '1px solid #cbd5e1', minWidth: 320, textAlign: 'left' }}>
+            <tr>
+              <th style={{ width: 40, textAlign: 'center' }}>No</th>
+              <th style={{ width: 82, textAlign: 'center' }}>NIS</th>
+              <th style={{ width: 170, textAlign: 'left' }}>Nama Peserta Didik</th>
+              <th style={{ width: 64, textAlign: 'center', color: '#15803d' }}>N.Akhir</th>
+              <th style={{ width: 105, textAlign: 'center' }}>Predikat</th>
+              <th style={{ minWidth: 320, textAlign: 'left' }}>
                 Capaian Kompetensi (Deskripsi Naratif e-Rapor)
               </th>
-              <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', width: 85, textAlign: 'center' }}>
+              <th style={{ width: 85, textAlign: 'center' }}>
                 Aksi
               </th>
             </tr>

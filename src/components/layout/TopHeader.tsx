@@ -1,9 +1,20 @@
 import React from 'react';
-import { motion } from 'framer-motion';
-import { Menu, School, Sparkles, ShieldCheck, HelpCircle } from 'lucide-react';
+import {
+  Menu,
+  School,
+  Key,
+  HelpCircle,
+  HardDrive,
+  Cloud,
+  AlertTriangle,
+  RefreshCw,
+} from 'lucide-react';
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
 
+export type WorkspaceStorageStatus = 'local' | 'syncing' | 'synced' | 'sync_error';
+
 interface TopHeaderProps {
+  pageSection?: string;
   pageTitle: string;
   pageSubtitle?: string;
   schoolProfile: SchoolProfile;
@@ -11,10 +22,53 @@ interface TopHeaderProps {
   onOpenLicenseModal?: () => void;
   onOpenHelpModal?: () => void;
   isPro?: boolean;
+  storageStatus?: WorkspaceStorageStatus;
   onToggleMobileSidebar: () => void;
+  mobileMenuButtonRef?: React.RefObject<HTMLButtonElement | null>;
 }
 
+const STORAGE_STATUS_META: Record<
+  WorkspaceStorageStatus,
+  {
+    label: string;
+    title: string;
+    dotColor: string;
+    textColor: string;
+    icon: 'local' | 'syncing' | 'synced' | 'sync_error';
+  }
+> = {
+  local: {
+    label: 'Tersimpan lokal',
+    title: 'Perubahan tersimpan di penyimpanan peramban perangkat ini',
+    dotColor: '#64748b',
+    textColor: '#475569',
+    icon: 'local',
+  },
+  syncing: {
+    label: 'Menyinkronkan...',
+    title: 'Menyimpan perubahan ke cadangan cloud lisensi Anda',
+    dotColor: '#2563eb',
+    textColor: '#1d4ed8',
+    icon: 'syncing',
+  },
+  synced: {
+    label: 'Lokal & cloud',
+    title: 'Data tersimpan di perangkat ini dan tersinkron ke cloud lisensi aktif',
+    dotColor: '#059669',
+    textColor: '#047857',
+    icon: 'synced',
+  },
+  sync_error: {
+    label: 'Hanya lokal',
+    title: 'Sinkronisasi cloud gagal saat ini; data tetap tersimpan di peramban perangkat ini',
+    dotColor: '#d97706',
+    textColor: '#b45309',
+    icon: 'sync_error',
+  },
+};
+
 export const TopHeader: React.FC<TopHeaderProps> = ({
+  pageSection,
   pageTitle,
   pageSubtitle,
   schoolProfile,
@@ -22,16 +76,19 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenLicenseModal,
   onOpenHelpModal,
   isPro,
+  storageStatus = 'local',
   onToggleMobileSidebar,
+  mobileMenuButtonRef,
 }) => {
+  const statusInfo = STORAGE_STATUS_META[storageStatus] || STORAGE_STATUS_META.local;
+
   return (
     <header
       className="app-top-header no-print"
       style={{
-        background: 'rgba(255, 255, 255, 0.9)',
-        backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(226, 232, 240, 0.85)',
-        padding: '12px 24px',
+        background: '#ffffff',
+        borderBottom: '1px solid #e2e8f0',
+        padding: '11px 24px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -39,37 +96,72 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         position: 'sticky',
         top: 0,
         zIndex: 40,
-        boxShadow: '0 2px 10px rgba(15, 23, 42, 0.02)',
       }}
     >
-      <div className="app-top-header-left" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+      <div
+        className="app-top-header-left"
+        style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}
+      >
         <button
+          ref={mobileMenuButtonRef}
           type="button"
           onClick={onToggleMobileSidebar}
           className="mobile-sidebar-toggle"
           aria-label="Buka menu navigasi"
           title="Buka menu navigasi"
         >
-          <Menu size={20} />
+          <Menu size={19} />
         </button>
 
         <div style={{ minWidth: 0, flex: 1 }}>
-          <h1
-            className="app-top-header-title"
-            style={{
-              fontSize: 18,
-              fontWeight: 900,
-              color: '#0f172a',
-              letterSpacing: '-0.3px',
-              lineHeight: 1.25,
-            }}
-          >
-            {pageTitle}
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {pageSection && (
+              <>
+                <span
+                  className="app-top-header-breadcrumb"
+                  style={{
+                    fontSize: 12.5,
+                    color: '#64748b',
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {pageSection}
+                </span>
+                <span
+                  className="app-top-header-breadcrumb"
+                  style={{ fontSize: 12.5, color: '#cbd5e1' }}
+                  aria-hidden="true"
+                >
+                  /
+                </span>
+              </>
+            )}
+            <h1
+              className="app-top-header-title"
+              style={{
+                fontSize: 16.5,
+                fontWeight: 700,
+                color: '#172033',
+                letterSpacing: '-0.015em',
+                lineHeight: 1.3,
+              }}
+            >
+              {pageTitle}
+            </h1>
+          </div>
           {pageSubtitle && (
             <p
               className="app-top-header-subtitle"
-              style={{ fontSize: 12.5, color: '#64748b', marginTop: 2, fontWeight: 500 }}
+              style={{
+                fontSize: 12.5,
+                color: '#64748b',
+                marginTop: 1,
+                fontWeight: 400,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
             >
               {pageSubtitle}
             </p>
@@ -77,126 +169,84 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         </div>
       </div>
 
-      <div className="app-top-header-right" style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-        {/* Status Penyimpanan Otomatis Real-time */}
+      <div
+        className="app-top-header-right"
+        style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}
+      >
+        {/* Indikator penyimpanan sesuai kondisi nyata perangkat/cloud */}
         <div
           className="header-pill-autosave"
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 7,
-            background: '#ecfdf5',
-            border: '1px solid #a7f3d0',
-            borderRadius: 9999,
-            padding: '5px 12px',
-            fontSize: 12,
-            fontWeight: 800,
-            color: '#065f46',
-            boxShadow: '0 1px 3px rgba(5, 150, 105, 0.08)',
-          }}
-          title="Semua perubahan data langsung tersimpan aman secara otomatis di peramban Anda"
-        >
-          <span
-            className="animate-pulse-subtle"
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              background: '#10b981',
-              display: 'inline-block',
-            }}
-          />
-          <ShieldCheck size={14} color="#059669" />
-          <span className="header-pill-autosave-text">Data Tersimpan Aman</span>
-        </div>
-
-        {/* Sekolah Pill Button */}
-        <motion.button
-          type="button"
-          whileHover={{ y: -1 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={onOpenSchoolModal}
-          className="header-pill-school"
-          style={{
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
             gap: 6,
-            background: '#ffffff',
-            border: '1px solid #cbd5e1',
-            borderRadius: 9999,
-            padding: '5px 13px',
+            padding: '5px 10px',
+            borderRadius: 8,
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
             fontSize: 12,
-            fontWeight: 800,
-            color: '#1e293b',
-            cursor: 'pointer',
-            boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
+            fontWeight: 500,
+            color: statusInfo.textColor,
           }}
-          title="Klik untuk mengubah Kop & Identitas Sekolah"
+          title={statusInfo.title}
         >
-          <School size={14} color="#2563eb" style={{ flexShrink: 0 }} />
-          <span className="header-pill-school-text">{schoolProfile.namaSekolah || 'Set Kop Sekolah'}</span>
-        </motion.button>
+          {statusInfo.icon === 'syncing' ? (
+            <RefreshCw size={13} className="animate-spin" style={{ color: statusInfo.dotColor }} />
+          ) : statusInfo.icon === 'synced' ? (
+            <Cloud size={13} style={{ color: statusInfo.dotColor }} />
+          ) : statusInfo.icon === 'sync_error' ? (
+            <AlertTriangle size={13} style={{ color: statusInfo.dotColor }} />
+          ) : (
+            <HardDrive size={13} style={{ color: statusInfo.dotColor }} />
+          )}
+          <span className="header-pill-autosave-text">{statusInfo.label}</span>
+        </div>
 
-        {/* Lisensi PRO Status Pill */}
+        {/* Profil sekolah (aksi sekunder) */}
+        <button
+          type="button"
+          onClick={onOpenSchoolModal}
+          className="header-pill-btn header-pill-school"
+          title="Pengaturan profil & kop surat sekolah"
+          aria-label="Profil sekolah"
+        >
+          <School size={14} style={{ color: '#475569', flexShrink: 0 }} />
+          <span className="header-pill-school-text">
+            {schoolProfile.namaSekolah || 'Profil sekolah'}
+          </span>
+        </button>
+
+        {/* Status Lisensi (aksi sekunder) */}
         {onOpenLicenseModal && (
-          <motion.button
+          <button
             type="button"
-            whileHover={{ y: -1 }}
-            whileTap={{ scale: 0.98 }}
             onClick={onOpenLicenseModal}
-            className="header-pill-license"
+            className="header-pill-btn header-pill-license"
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              background: isPro
-                ? 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)'
-                : 'linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%)',
-              border: `1px solid ${isPro ? '#a7f3d0' : '#bfdbfe'}`,
-              borderRadius: 9999,
-              padding: '5px 14px',
-              fontSize: 12,
-              fontWeight: 800,
-              color: isPro ? '#065f46' : '#1d4ed8',
-              cursor: 'pointer',
-              boxShadow: isPro
-                ? '0 2px 8px rgba(16, 185, 129, 0.16)'
-                : '0 2px 8px rgba(37, 99, 235, 0.12)',
+              borderColor: isPro ? '#a7f3d0' : '#e2e8f0',
+              background: isPro ? '#ecfdf5' : '#ffffff',
+              color: isPro ? '#047857' : '#334155',
             }}
-            title={isPro ? 'Lisensi Resmi Aktif Permanen' : 'Aktivasi Lisensi Resmi via Mayar'}
+            title={isPro ? 'Kelola lisensi aktif' : 'Aktivasi kode lisensi'}
+            aria-label={isPro ? 'Lisensi aktif' : 'Lisensi'}
           >
-            <Sparkles size={14} color={isPro ? '#059669' : '#2563eb'} style={{ flexShrink: 0 }} />
-            <span className="header-pill-license-text">{isPro ? 'Lisensi Aktif' : 'Aktivasi Lisensi'}</span>
-          </motion.button>
+            <Key size={14} style={{ color: isPro ? '#059669' : '#475569', flexShrink: 0 }} />
+            <span className="header-pill-license-text">{isPro ? 'Lisensi aktif' : 'Lisensi'}</span>
+          </button>
         )}
 
-        {/* Bantuan & Lapor Kendala Pill Button */}
+        {/* Bantuan */}
         {onOpenHelpModal && (
-          <motion.button
+          <button
             type="button"
-            whileHover={{ y: -1 }}
-            whileTap={{ scale: 0.98 }}
             onClick={onOpenHelpModal}
-            className="header-pill-help"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              background: '#f0f9ff',
-              border: '1px solid #bae6fd',
-              borderRadius: 9999,
-              padding: '5px 12px',
-              fontSize: 12,
-              fontWeight: 800,
-              color: '#0369a1',
-              cursor: 'pointer',
-              boxShadow: '0 1px 3px rgba(2, 132, 199, 0.08)',
-            }}
-            title="Pusat Bantuan & Lapor Kendala"
+            className="header-pill-btn header-pill-help"
+            title="Pusat bantuan & lapor kendala"
+            aria-label="Bantuan"
           >
-            <HelpCircle size={14} color="#0284c7" style={{ flexShrink: 0 }} />
+            <HelpCircle size={14} style={{ color: '#475569', flexShrink: 0 }} />
             <span className="header-pill-help-text">Bantuan</span>
-          </motion.button>
+          </button>
         )}
       </div>
     </header>

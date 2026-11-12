@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
 import {
   CheckCircle2,
   Download,
@@ -36,7 +35,6 @@ import {
   buildSmartProta,
   buildSmartPromes,
 } from '../utils/perangkatAjarEngine';
-import { cardTapMotion } from '../utils/motionPresets';
 
 interface PaketSupervisiDashboardProps {
   schoolProfile: SchoolProfile;
@@ -202,239 +200,180 @@ export const PaketSupervisiDashboard: React.FC<PaketSupervisiDashboardProps> = (
   ];
 
   return (
-    <div style={{ maxWidth: 1140, margin: '0 auto', padding: '16px 20px 48px' }}>
+    <div style={{ maxWidth: 1080, margin: '0 auto', padding: '4px 0 28px' }}>
       {/* Top Bar Navigasi Balik */}
-      <div style={{ marginBottom: 16 }}>
-        <motion.button
+      <div style={{ marginBottom: 14 }}>
+        <button
           type="button"
-          whileHover={{ x: -2 }}
-          whileTap={cardTapMotion}
           onClick={onBackToClassHub}
           className="btn btn-sm btn-outline"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            background: '#ffffff',
-            borderColor: '#93c5fd',
-            color: '#1d4ed8',
-            fontWeight: 800,
-            fontSize: 12.5,
-            borderRadius: 10,
-          }}
         >
-          <ArrowLeft size={14} /> Kembali ke Kelas & Peta TP
-        </motion.button>
+          <ArrowLeft size={14} aria-hidden="true" />
+          <span>Kembali ke Kelas & Peta TP</span>
+        </button>
       </div>
 
-      {/* HERO BANNER V21: 100% SIAP SUPERVISI */}
+      {/* Header Card Calm Workspace: Paket Administrasi Supervisi */}
       <div
         className="v21-bento-card"
         style={{
-          background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #064e3b 100%)',
-          borderRadius: 18,
-          padding: '30px 34px',
-          color: '#ffffff',
-          boxShadow: '0 12px 36px -6px rgba(15, 23, 42, 0.45)',
-          marginBottom: 24,
-          border: '1px solid rgba(255, 255, 255, 0.12)',
+          background: '#ffffff',
+          borderRadius: 12,
+          padding: '22px 24px',
+          color: '#172033',
+          boxShadow: 'var(--shadow-sm)',
+          marginBottom: 20,
+          border: '1px solid #e2e8f0',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
           <span
+            className="tabular-nums"
             style={{
-              background: '#059669',
-              color: '#ffffff',
-              fontWeight: 800,
+              background: '#eff6ff',
+              color: '#1d4ed8',
+              border: '1px solid #bfdbfe',
+              fontWeight: 600,
               fontSize: 12,
-              padding: '4px 12px',
+              padding: '3px 10px',
               borderRadius: 9999,
               display: 'inline-flex',
               alignItems: 'center',
               gap: 5,
-              boxShadow: '0 2px 8px rgba(5, 150, 105, 0.4)',
             }}
           >
-            <CheckCircle2 size={14} /> Status: 100% Lengkap & Siap Supervisi
-          </span>
-          <span style={{ fontSize: 13, color: '#a7f3d0', fontWeight: 600 }}>
-            9 dari 9 Dokumen Terverifikasi Standar Kemendikbudristek
+            <CheckCircle2 size={13} aria-hidden="true" />
+            <span>{checklistDocuments.length} dokumen paket semester tersedia</span>
           </span>
         </div>
 
-        <h1 style={{ fontSize: 24, fontWeight: 900, marginBottom: 8, letterSpacing: '-0.4px', lineHeight: 1.25 }}>
-          🎓 Dashboard Paket Administrasi Siap Supervisi & Akreditasi Guru
+        <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6, letterSpacing: '-0.02em', lineHeight: 1.25, color: '#172033' }}>
+          Paket administrasi supervisi
         </h1>
 
-        <p style={{ fontSize: 13.5, color: '#cbd5e1', maxWidth: 860, marginBottom: 20, lineHeight: 1.6 }}>
-          Seluruh instrumen administrasi pembelajaran semester ini telah terintegrasi secara otomatis — mulai dari <strong>Cover Portofolio, Lembar Pengesahan, Instrumen Telaah, ATP, Prota, Promes, Presensi, Jurnal, hingga Buku Nilai & Auto-Deskripsi e-Rapor</strong>. Siap dicetak atau diserahkan ke Kepala Sekolah dan Pengawas Pembina!
+        <p style={{ fontSize: 13.5, color: '#475569', maxWidth: 820, marginBottom: 16, lineHeight: 1.55 }}>
+          Susun dan unduh dokumen administrasi pembelajaran semester ini — mencakup cover portofolio, lembar pengesahan, instrumen telaah, ATP, Prota, Promes, presensi, jurnal mengajar, hingga rekap nilai dan deskripsi rapor.
         </p>
 
         {/* Metadata Strip */}
         <div
           style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            backdropFilter: 'blur(10px)',
-            borderRadius: 12,
-            padding: '10px 18px',
-            marginBottom: 22,
+            background: '#f8fafc',
+            borderRadius: 9,
+            padding: '10px 14px',
+            marginBottom: 18,
             display: 'flex',
             alignItems: 'center',
-            gap: 16,
+            gap: 12,
             flexWrap: 'wrap',
-            fontSize: 13,
-            border: '1px solid rgba(255, 255, 255, 0.12)',
+            fontSize: 12.5,
+            color: '#475569',
+            border: '1px solid #e2e8f0',
           }}
         >
           <div>
-            <span style={{ opacity: 0.75 }}>Mata Pelajaran:</span>{' '}
-            <strong>{schoolProfile.mataPelajaranUtama}</strong>
+            Mapel: <strong style={{ color: '#172033' }}>{schoolProfile.mataPelajaranUtama}</strong>
           </div>
-          <div>•</div>
+          <span aria-hidden="true" style={{ color: '#cbd5e1' }}>·</span>
           <div>
-            <span style={{ opacity: 0.75 }}>Kelas & Rombel:</span>{' '}
-            <strong>Kelas {schoolProfile.kelasUtama} ({schoolProfile.rombelAktif})</strong>
+            Kelas & Rombel:{' '}
+            <strong style={{ color: '#172033' }}>
+              Kelas {schoolProfile.kelasUtama} ({schoolProfile.rombelAktif})
+            </strong>
           </div>
-          <div>•</div>
+          <span aria-hidden="true" style={{ color: '#cbd5e1' }}>·</span>
           <div>
-            <span style={{ opacity: 0.75 }}>Semester:</span> <strong>{schoolProfile.semester}</strong>
+            Semester: <strong style={{ color: '#172033' }}>{schoolProfile.semester}</strong>
           </div>
-          <div>•</div>
+          <span aria-hidden="true" style={{ color: '#cbd5e1' }}>·</span>
           <div>
-            <span style={{ opacity: 0.75 }}>Guru:</span>{' '}
-            <strong>{schoolProfile.namaGuru || 'Bapak/Ibu Guru'}</strong>
+            Guru:{' '}
+            <strong style={{ color: '#172033' }}>
+              {schoolProfile.namaGuru || 'Belum diisi'}
+            </strong>
           </div>
         </div>
 
-        {/* 2 TOMBOL UTAMA SUPERVISI */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <motion.button
+        {/* Tombol Ekspor Paket */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
             type="button"
-            whileHover={{ scale: 1.02 }}
-            whileTap={cardTapMotion}
             onClick={handleDownloadMaster}
             disabled={isDownloadingMaster}
-            style={{
-              padding: '13px 26px',
-              borderRadius: 12,
-              border: 'none',
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              color: '#ffffff',
-              fontWeight: 900,
-              fontSize: 14,
-              cursor: isDownloadingMaster ? 'wait' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              boxShadow: '0 4px 16px rgba(16, 185, 129, 0.45)',
-            }}
+            className="btn btn-primary"
           >
-            <Download size={18} />
-            {isDownloadingMaster ? 'Sedang Menyusun Bundel...' : '📦 Unduh Master Bundel Lengkap (.docx)'}
-          </motion.button>
+            <Download size={16} aria-hidden="true" />
+            <span>
+              {isDownloadingMaster
+                ? 'Menyusun bundel...'
+                : 'Unduh master bundel (.docx)'}
+            </span>
+          </button>
 
-          <motion.button
+          <button
             type="button"
-            whileHover={{ scale: 1.02 }}
-            whileTap={cardTapMotion}
             onClick={handleDownloadZip}
             disabled={isDownloadingZip}
-            style={{
-              padding: '13px 26px',
-              borderRadius: 12,
-              border: 'none',
-              background: '#ffffff',
-              color: '#0f172a',
-              fontWeight: 900,
-              fontSize: 14,
-              cursor: isDownloadingZip ? 'wait' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              boxShadow: '0 4px 14px rgba(255, 255, 255, 0.3)',
-            }}
+            className="btn btn-outline"
           >
-            <Archive size={18} color="#2563eb" />
-            {isDownloadingZip ? 'Sedang Mengemas ZIP...' : '🗂️ Unduh Paket Semua File ZIP (.zip)'}
-          </motion.button>
+            <Archive size={16} aria-hidden="true" />
+            <span>
+              {isDownloadingZip
+                ? 'Mengemas ZIP...'
+                : 'Unduh arsip per file (.zip)'}
+            </span>
+          </button>
 
-          <motion.button
+          <button
             type="button"
-            whileTap={cardTapMotion}
             onClick={() => window.print()}
-            style={{
-              padding: '13px 20px',
-              borderRadius: 12,
-              border: '1px solid rgba(255,255,255,0.3)',
-              background: 'rgba(255,255,255,0.08)',
-              color: '#ffffff',
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
+            className="btn btn-outline"
           >
-            <Printer size={16} /> Cetak Lembar Verifikasi
-          </motion.button>
+            <Printer size={15} aria-hidden="true" />
+            <span>Cetak lembar daftar</span>
+          </button>
         </div>
       </div>
 
-      {/* CHECKLIST 9 DOKUMEN SUPERVISI BENTO GRID */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+      {/* Daftar Dokumen Administrasi */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div>
-            <h2 style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', letterSpacing: '-0.2px' }}>
-              Daftar Kelengkapan Berkas Administrasi (9 Dokumen Resmi)
+            <h2 style={{ fontSize: 17, fontWeight: 700, color: '#172033', margin: 0 }}>
+              Daftar dokumen dalam paket ({checklistDocuments.length} berkas)
             </h2>
-            <p style={{ fontSize: 12.5, color: '#64748b' }}>
-              Setiap dokumen dapat diunduh per file secara individual atau diunduh sekaligus lewat tombol di atas.
+            <p style={{ fontSize: 13, color: '#64748b', margin: '3px 0 0' }}>
+              Unduh masing-masing berkas secara terpisah atau unduh sekaligus melalui tombol di atas.
             </p>
-          </div>
-          <div
-            style={{
-              background: '#ecfdf5',
-              color: '#047857',
-              border: '1px solid #a7f3d0',
-              borderRadius: 9999,
-              padding: '6px 14px',
-              fontWeight: 800,
-              fontSize: 12,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <ShieldCheck size={15} color="#059669" /> 9 / 9 Dokumen Terpenuhi
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: 12 }}>
           {checklistDocuments.map((doc) => {
             const isDownloadingThis = downloadingDocIdx === doc.id;
 
             return (
-              <motion.div
+              <div
                 key={doc.id}
-                whileHover={{ y: -3 }}
                 className="v21-bento-card"
                 style={{
-                  padding: '16px 18px',
+                  padding: '15px 16px',
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
+                  borderRadius: 10,
                 }}
               >
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div
                         style={{
-                          width: 34,
-                          height: 34,
-                          borderRadius: 10,
-                          background: '#f1f5f9',
+                          width: 30,
+                          height: 30,
+                          borderRadius: 8,
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -442,141 +381,122 @@ export const PaketSupervisiDashboard: React.FC<PaketSupervisiDashboardProps> = (
                       >
                         {doc.icon}
                       </div>
-                      <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 600, color: '#64748b' }}>
                         {doc.kategori}
                       </span>
                     </div>
                     <span
                       style={{
-                        background: '#dcfce7',
-                        color: '#15803d',
-                        fontSize: 10.5,
-                        fontWeight: 800,
+                        background: '#f1f5f9',
+                        color: '#334155',
+                        border: '1px solid #e2e8f0',
+                        fontSize: 11,
+                        fontWeight: 600,
                         padding: '2px 8px',
-                        borderRadius: 9999,
+                        borderRadius: 6,
                       }}
                     >
                       {doc.tag}
                     </span>
                   </div>
 
-                  <h3 style={{ fontSize: 14, fontWeight: 900, color: '#0f172a', marginBottom: 4, lineHeight: 1.35 }}>
-                    {doc.id}. {doc.nama}
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: '#172033', margin: '0 0 4px', lineHeight: 1.35 }}>
+                    <span className="tabular-nums">{doc.id}.</span> {doc.nama}
                   </h3>
-                  <p style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5, marginBottom: 14 }}>
+                  <p style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.5, margin: '0 0 12px' }}>
                     {doc.deskripsi}
                   </p>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #f1f5f9', paddingTop: 10 }}>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: '#15803d', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <CheckCircle2 size={14} /> Terverifikasi
+                  <span style={{ fontSize: 12, fontWeight: 500, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <ShieldCheck size={13} style={{ color: '#2563eb' }} aria-hidden="true" />
+                    <span>Format .docx</span>
                   </span>
-                  <motion.button
+                  <button
                     type="button"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={cardTapMotion}
                     onClick={() => handleDownloadSingle(doc.id)}
                     disabled={isDownloadingThis}
                     className="btn btn-sm btn-outline"
-                    style={{
-                      fontSize: 11.5,
-                      padding: '5px 12px',
-                      borderRadius: 8,
-                      borderColor: '#93c5fd',
-                      color: '#1d4ed8',
-                      fontWeight: 800,
-                    }}
                   >
-                    <Download size={12} /> {isDownloadingThis ? 'Mengunduh...' : 'Unduh (.docx)'}
-                  </motion.button>
+                    <Download size={12} aria-hidden="true" />
+                    <span>{isDownloadingThis ? 'Mengunduh...' : 'Unduh (.docx)'}</span>
+                  </button>
                 </div>
-              </motion.div>
+              </div>
             );
           })}
         </div>
       </div>
 
-      {/* PRATINJAU INSTRUMEN SUPERVISI AKADEMIK */}
+      {/* Ringkasan Format Instrumen Supervisi */}
       <div
         className="v21-bento-card"
         style={{
-          padding: '24px 26px',
+          padding: '18px 20px',
           background: '#ffffff',
+          borderRadius: 12,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <span style={{ background: '#e0f2fe', color: '#0369a1', fontWeight: 800, fontSize: 11, padding: '2px 8px', borderRadius: 9999 }}>
-              Format Resmi Pengawas / Kepala Sekolah
-            </span>
-            <h2 style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', marginTop: 4 }}>
-              Lembar Telaah & Verifikasi Supervisi Akademik Guru
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#172033', margin: 0 }}>
+              Pratinjau daftar telaah dokumen supervisi
             </h2>
+            <p style={{ fontSize: 12.5, color: '#64748b', margin: '3px 0 0' }}>
+              Kolom skor diisi oleh kepala sekolah atau pengawas saat kegiatan telaah berlangsung.
+            </p>
           </div>
 
-          <motion.button
+          <button
             type="button"
-            whileHover={{ scale: 1.02 }}
-            whileTap={cardTapMotion}
             onClick={() => handleDownloadSingle(2)}
-            className="btn btn-sm btn-primary"
-            style={{ fontSize: 12, fontWeight: 800, borderRadius: 10 }}
+            className="btn btn-sm btn-outline"
           >
-            <Download size={13} /> Unduh Instrumen Supervisi (.docx)
-          </motion.button>
+            <Download size={13} aria-hidden="true" />
+            <span>Unduh instrumen supervisi (.docx)</span>
+          </button>
         </div>
 
-        <div style={{ overflowX: 'auto', marginBottom: 16 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+        <div className="ws-table-wrap">
+          <table className="ws-table">
             <thead>
-              <tr style={{ background: '#1e3a8a', color: '#ffffff' }}>
-                <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: 40, textAlign: 'center' }}>No</th>
-                <th style={{ padding: '8px 12px', border: '1px solid #cbd5e1', textAlign: 'left' }}>
-                  Komponen Dokumen Administrasi Pembelajaran
+              <tr>
+                <th style={{ width: 44, textAlign: 'center' }}>No</th>
+                <th style={{ textAlign: 'left' }}>
+                  Komponen dokumen administrasi
                 </th>
-                <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: 110, textAlign: 'center' }}>
-                  Ketersediaan
+                <th style={{ width: 130, textAlign: 'center' }}>
+                  Sumber data
                 </th>
-                <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: 90, textAlign: 'center' }}>
-                  Skor (0-2)
+                <th style={{ width: 110, textAlign: 'center' }}>
+                  Skor telaah
                 </th>
-                <th style={{ padding: '8px 12px', border: '1px solid #cbd5e1', textAlign: 'left' }}>
-                  Catatan Verifikasi Supervisor
+                <th style={{ textAlign: 'left' }}>
+                  Catatan supervisor
                 </th>
               </tr>
             </thead>
             <tbody>
               {checklistDocuments.map((d) => (
-                <tr key={d.id} style={{ background: d.id % 2 === 0 ? '#f8fafc' : '#ffffff' }}>
-                  <td style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700 }}>
+                <tr key={d.id}>
+                  <td style={{ textAlign: 'center', fontWeight: 600, color: '#64748b' }}>
                     {d.id}
                   </td>
-                  <td style={{ padding: '8px 12px', border: '1px solid #cbd5e1', fontWeight: 600 }}>
+                  <td style={{ fontWeight: 600 }}>
                     {d.nama}
                   </td>
-                  <td style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'center', color: '#15803d', fontWeight: 800 }}>
-                    ✓ Ada
+                  <td style={{ textAlign: 'center', color: '#15803d', fontWeight: 600 }}>
+                    Tersedia di kelas
                   </td>
-                  <td style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 800 }}>
-                    2
+                  <td style={{ textAlign: 'center', color: '#64748b' }}>
+                    (0–2)
                   </td>
-                  <td style={{ padding: '8px 12px', border: '1px solid #cbd5e1', color: '#475569', fontSize: 12 }}>
-                    Dokumen lengkap, terintegrasi, dan sesuai ketentuan Kurikulum Merdeka.
+                  <td style={{ color: '#64748b', fontSize: 12 }}>
+                    Diperiksa saat supervisi {schoolProfile.rombelAktif}
                   </td>
                 </tr>
               ))}
-              <tr style={{ background: '#eff6ff', fontWeight: 800 }}>
-                <td colSpan={3} style={{ padding: '10px 12px', border: '1px solid #cbd5e1', textAlign: 'right', color: '#1e40af' }}>
-                  Total Skor Perolehan:
-                </td>
-                <td style={{ padding: '10px', border: '1px solid #cbd5e1', textAlign: 'center', color: '#1e40af' }}>
-                  18 / 18
-                </td>
-                <td style={{ padding: '10px 12px', border: '1px solid #cbd5e1', color: '#15803d' }}>
-                  Nilai: 100% (Kategori: Amat Baik / A)
-                </td>
-              </tr>
             </tbody>
           </table>
         </div>

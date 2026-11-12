@@ -1,6 +1,17 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertCircle, ArrowLeft, Crown, BookOpen, Users, Sparkles, ShieldCheck, Menu } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  Key,
+  BookOpen,
+  Users,
+  Sparkles,
+  ShieldCheck,
+  Menu,
+  CheckCircle2,
+  X,
+} from 'lucide-react';
 import type { SidebarTabId } from './AppSidebar';
 
 export const AppErrorBanner: React.FC<{
@@ -9,36 +20,40 @@ export const AppErrorBanner: React.FC<{
 }> = ({ message, onDismiss }) => {
   if (!message) return null;
   return (
-    <div className="no-print" style={{ marginBottom: 18 }}>
+    <div className="no-print" style={{ marginBottom: 16 }}>
       <div
-        className="v21-bento-card"
+        role="alert"
         style={{
           background: '#fef2f2',
           border: '1px solid #fecaca',
+          borderRadius: 10,
           color: '#b91c1c',
-          padding: '12px 18px',
+          padding: '10px 14px',
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
+          gap: 10,
           fontSize: 13,
-          fontWeight: 700,
+          fontWeight: 500,
         }}
       >
-        <AlertCircle size={18} color="#dc2626" />
+        <AlertCircle size={17} style={{ color: '#dc2626', flexShrink: 0 }} />
         <div style={{ flex: 1 }}>{message}</div>
         <button
           type="button"
           onClick={onDismiss}
+          aria-label="Tutup pemberitahuan error"
           style={{
             background: 'none',
             border: 'none',
             color: '#b91c1c',
             cursor: 'pointer',
-            fontWeight: 800,
-            fontSize: 16,
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: 4,
+            borderRadius: 6,
           }}
         >
-          ✕
+          <X size={16} />
         </button>
       </div>
     </div>
@@ -51,29 +66,16 @@ export const BackToHubButton: React.FC<{
 }> = ({ visible, onBack }) => {
   if (!visible) return null;
   return (
-    <div className="no-print" style={{ marginBottom: 18 }}>
-      <motion.button
+    <div className="no-print" style={{ marginBottom: 14 }}>
+      <button
         type="button"
-        whileHover={{ x: -2 }}
-        whileTap={{ scale: 0.98 }}
         onClick={onBack}
         className="btn btn-sm btn-outline"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 7,
-          background: '#ffffff',
-          borderColor: '#bfdbfe',
-          color: '#1d4ed8',
-          fontWeight: 800,
-          fontSize: 13,
-          padding: '8px 16px',
-          borderRadius: 12,
-          boxShadow: '0 2px 8px rgba(37,99,235,0.08)',
-        }}
+        style={{ fontSize: 13 }}
       >
-        <ArrowLeft size={16} /> Kembali ke Peta TP & Perangkat Semester
-      </motion.button>
+        <ArrowLeft size={15} />
+        <span>Kembali ke Peta TP</span>
+      </button>
     </div>
   );
 };
@@ -90,84 +92,81 @@ export const FloatingProPromoBar: React.FC<{
     <AnimatePresence>
       {visible && (
         <motion.div
-          initial={{ opacity: 0, y: 20, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 20, scale: 0.98 }}
-          className="no-print v21-glass-pro-card floating-pro-promo-bar"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 8 }}
+          transition={{ duration: 0.18 }}
+          className="no-print floating-pro-promo-bar"
           style={{
             position: 'fixed',
             bottom: 18,
             left: '50%',
             transform: 'translateX(-50%)',
             width: 'calc(100% - 32px)',
-            maxWidth: 720,
-            padding: '14px 20px',
+            maxWidth: 660,
+            background: '#ffffff',
+            border: '1px solid #cbd5e1',
+            borderRadius: 12,
+            boxShadow: '0 8px 24px -6px rgba(23, 32, 51, 0.14)',
+            padding: '12px 16px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: 14,
-            zIndex: 9999,
+            gap: 12,
+            zIndex: 900,
             flexWrap: 'wrap',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div
               style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
-                background: 'rgba(255, 255, 255, 0.15)',
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#fbbf24',
+                color: '#2563eb',
+                flexShrink: 0,
               }}
             >
-              <Crown size={20} />
+              <Key size={16} />
             </div>
             <div>
-              <div style={{ fontSize: 13.5, fontWeight: 900, color: '#ffffff' }}>
-                Buka Seluruh Fitur Otomatisasi Guru Tanpa Batas
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#172033' }}>
+                Aktifkan lisensi untuk cetak & unduh dokumen
               </div>
-              <div style={{ fontSize: 11.5, color: '#cbd5e1', marginTop: 1 }}>
-                Bebas watermark • Unduh ZIP 1-Klik • Lisensi Resmi Mayar Sekali Beli Aktif Selamanya
+              <div style={{ fontSize: 12, color: '#64748b' }}>
+                Mode pratinjau membatasi unduhan Word dan arsip ZIP.
               </div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <motion.button
+            <button
               type="button"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
               onClick={onOpenLicenseModal}
-              style={{
-                padding: '8px 16px',
-                fontSize: 12.5,
-                fontWeight: 800,
-                borderRadius: 10,
-                border: 'none',
-                background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
-                color: '#ffffff',
-                cursor: 'pointer',
-                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
-              }}
+              className="btn btn-sm btn-primary"
             >
-              Aktivasi Lisensi PRO →
-            </motion.button>
+              Aktivasi lisensi
+            </button>
             <button
               type="button"
               onClick={onDismiss}
+              aria-label="Tutup bilah info lisensi"
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#94a3b8',
+                color: '#64748b',
                 cursor: 'pointer',
-                fontSize: 18,
-                padding: '0 4px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: 4,
+                borderRadius: 6,
               }}
-              title="Tutup bilah"
             >
-              ×
+              <X size={16} />
             </button>
           </div>
         </motion.div>
@@ -181,31 +180,33 @@ export const AppToastBanner: React.FC<{ message: string | null }> = ({ message }
     <AnimatePresence>
       {message && (
         <motion.div
-          initial={{ opacity: 0, y: 16, scale: 0.96 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 12, scale: 0.96 }}
+          role="status"
+          aria-live="polite"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 8 }}
           transition={{ duration: 0.18 }}
           className="no-print app-toast-banner"
           style={{
             position: 'fixed',
             bottom: 24,
             right: 24,
-            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+            background: '#172033',
             color: '#ffffff',
-            padding: '12px 20px',
-            borderRadius: 14,
-            boxShadow: '0 12px 32px rgba(15, 23, 42, 0.35)',
+            padding: '10px 16px',
+            borderRadius: 10,
+            boxShadow: '0 10px 24px -4px rgba(23, 32, 51, 0.25)',
             zIndex: 99999,
             fontSize: 13,
-            fontWeight: 800,
+            fontWeight: 500,
             display: 'flex',
             alignItems: 'center',
-            gap: 10,
-            border: '1px solid rgba(255, 255, 255, 0.12)',
-            maxWidth: 440,
+            gap: 9,
+            border: '1px solid #334155',
+            maxWidth: 420,
           }}
         >
-          <span style={{ fontSize: 16 }}>✨</span>
+          <CheckCircle2 size={16} style={{ color: '#34d399', flexShrink: 0 }} />
           <span>{message}</span>
         </motion.div>
       )}
@@ -224,13 +225,13 @@ export const MobileBottomNav: React.FC<{
   const isSupervisi = activeTab === 'supervisi' || activeTab === 'ujian_semester' || activeTab === 'p5_project';
 
   return (
-    <nav className="mobile-bottom-nav no-print" aria-label="Navigasi Cepat HP">
+    <nav className="mobile-bottom-nav no-print" aria-label="Navigasi cepat">
       <button
         type="button"
         onClick={() => onSelectTab('tp_list')}
         className={`mobile-bottom-nav-item ${isPersiapan ? 'is-active' : ''}`}
       >
-        <BookOpen size={19} />
+        <BookOpen size={18} />
         <span>Materi & TP</span>
       </button>
 
@@ -239,7 +240,7 @@ export const MobileBottomNav: React.FC<{
         onClick={() => onSelectTab('presensi')}
         className={`mobile-bottom-nav-item ${isHarian ? 'is-active' : ''}`}
       >
-        <Users size={19} />
+        <Users size={18} />
         <span>Kelas Harian</span>
       </button>
 
@@ -248,7 +249,7 @@ export const MobileBottomNav: React.FC<{
         onClick={() => onSelectTab('generator')}
         className={`mobile-bottom-nav-item ${isSoalAi ? 'is-active' : ''}`}
       >
-        <Sparkles size={19} />
+        <Sparkles size={18} />
         <span>Soal AI</span>
       </button>
 
@@ -257,7 +258,7 @@ export const MobileBottomNav: React.FC<{
         onClick={() => onSelectTab('supervisi')}
         className={`mobile-bottom-nav-item ${isSupervisi ? 'is-active' : ''}`}
       >
-        <ShieldCheck size={19} />
+        <ShieldCheck size={18} />
         <span>Supervisi</span>
       </button>
 
@@ -266,7 +267,7 @@ export const MobileBottomNav: React.FC<{
         onClick={onOpenMobileMenu}
         className="mobile-bottom-nav-item"
       >
-        <Menu size={19} />
+        <Menu size={18} />
         <span>Menu</span>
       </button>
     </nav>

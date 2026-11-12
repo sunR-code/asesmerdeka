@@ -50,20 +50,60 @@ export const bentoCardVariants = {
 };
 
 export const tabContentVariants = {
-  initial: { opacity: 0, y: 12 },
+  initial: { opacity: 0, y: 6 },
   animate: {
     opacity: 1,
     y: 0,
     transition: {
-      type: 'spring' as const,
-      stiffness: 380,
-      damping: 28,
+      duration: 0.2,
+      ease: [0.16, 1, 0.3, 1] as const,
     },
   },
   exit: {
     opacity: 0,
-    y: -8,
-    transition: { duration: 0.15 },
+    y: -4,
+    transition: { duration: 0.14 },
   },
+};
+
+export const workspaceSectionVariants = {
+  initial: { opacity: 0, y: 6 },
+  animate: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.2,
+      ease: [0.16, 1, 0.3, 1] as const,
+    },
+  },
+};
+
+export const workspacePopoverVariants = {
+  initial: { opacity: 0, scale: 0.97, y: 4 },
+  animate: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: {
+      duration: 0.16,
+      ease: [0.16, 1, 0.3, 1] as const,
+    },
+  },
+  exit: {
+    opacity: 0,
+    scale: 0.97,
+    y: 2,
+    transition: { duration: 0.12 },
+  },
+};
+
+export const workspaceAccordionTransition = {
+  duration: 0.22,
+  ease: [0.16, 1, 0.3, 1] as const,
+};
+
+export const workspaceSegmentTransition = {
+  duration: 0.18,
+  ease: [0.16, 1, 0.3, 1] as const,
 };
 

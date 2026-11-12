@@ -141,46 +141,31 @@ export const JurnalMengajarTab: React.FC<JurnalMengajarTabProps> = ({
         }}
       >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span
-              style={{
-                background: '#e0f2fe',
-                color: '#0369a1',
-                fontWeight: 800,
-                fontSize: 11,
-                padding: '3px 10px',
-                borderRadius: 99,
-              }}
-            >
-              Administrasi Kelas • Agenda & Jurnal Guru
-            </span>
-            <span style={{ fontSize: 12, color: '#64748b' }}>
-              {schoolProfile.mataPelajaranUtama} • Kelas {schoolProfile.rombelAktif} ({kelasHarian.daftarJurnal.length} Pertemuan Terjadwal)
-            </span>
-          </div>
-          <h2 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
-            Buku Agenda & Jurnal Mengajar Guru Harian
+          <h2 style={{ fontSize: 19, fontWeight: 700, color: '#172033', margin: 0 }}>
+            Jurnal mengajar harian
           </h2>
+          <p className="tabular-nums" style={{ fontSize: 13, color: '#64748b', margin: '3px 0 0' }}>
+            {schoolProfile.mataPelajaranUtama} · Kelas {schoolProfile.rombelAktif} ·{' '}
+            {kelasHarian.daftarJurnal.length} pertemuan terjadwal
+          </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={handleAutoSyncFromTP}
             className="btn btn-sm btn-outline"
-            style={{ fontSize: 12, color: '#0369a1', borderColor: '#7dd3fc' }}
             title="Sinkronkan materi dan tujuan pembelajaran secara otomatis dari Promes"
           >
-            <Sparkles size={13} /> Auto-Isi dari TP
+            <Sparkles size={13} aria-hidden="true" /> Auto-Isi dari TP
           </button>
 
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
             className="btn btn-sm btn-outline"
-            style={{ fontSize: 12 }}
           >
-            <Plus size={13} /> Tambah Pertemuan
+            <Plus size={13} aria-hidden="true" /> Tambah pertemuan
           </button>
 
           <button
@@ -190,9 +175,8 @@ export const JurnalMengajarTab: React.FC<JurnalMengajarTabProps> = ({
               window.print();
             }}
             className="btn btn-sm btn-outline"
-            style={{ fontSize: 12 }}
           >
-            <Printer size={13} /> Cetak
+            <Printer size={13} aria-hidden="true" /> Cetak
           </button>
 
           <button
@@ -208,9 +192,8 @@ export const JurnalMengajarTab: React.FC<JurnalMengajarTabProps> = ({
               }
             }}
             className="btn btn-sm btn-primary"
-            style={{ fontSize: 12 }}
           >
-            <Download size={13} /> Unduh Jurnal (.docx)
+            <Download size={13} aria-hidden="true" /> Unduh Jurnal (.docx)
           </button>
         </div>
       </div>
@@ -364,29 +347,17 @@ export const JurnalMengajarTab: React.FC<JurnalMengajarTabProps> = ({
       )}
 
       {/* Daftar Jurnal / Tabel Agenda */}
-      <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+      <div className="ws-table-wrap">
+        <table className="ws-table">
           <thead>
-            <tr style={{ background: '#1e3a8a', color: '#ffffff' }}>
-              <th style={{ padding: '10px 6px', border: '1px solid #cbd5e1', width: 45, textAlign: 'center' }}>P.Ke</th>
-              <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', width: 140, textAlign: 'left' }}>
-                Hari / Tanggal & Jam
-              </th>
-              <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', width: 180, textAlign: 'left' }}>
-                Kode TP & Materi Pokok
-              </th>
-              <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', minWidth: 260, textAlign: 'left' }}>
-                Uraian Kegiatan Pembelajaran
-              </th>
-              <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', width: 130, textAlign: 'left' }}>
-                Ketidakhadiran
-              </th>
-              <th style={{ padding: '10px 8px', border: '1px solid #cbd5e1', width: 160, textAlign: 'left' }}>
-                Catatan Refleksi
-              </th>
-              <th style={{ padding: '10px 6px', border: '1px solid #cbd5e1', width: 65, textAlign: 'center' }}>
-                Aksi
-              </th>
+            <tr>
+              <th style={{ width: 46, textAlign: 'center' }}>P.Ke</th>
+              <th style={{ width: 140, textAlign: 'left' }}>Hari / Tanggal & Jam</th>
+              <th style={{ width: 185, textAlign: 'left' }}>Kode TP & Materi Pokok</th>
+              <th style={{ minWidth: 250, textAlign: 'left' }}>Uraian Kegiatan Pembelajaran</th>
+              <th style={{ width: 130, textAlign: 'left' }}>Ketidakhadiran</th>
+              <th style={{ width: 160, textAlign: 'left' }}>Catatan Refleksi</th>
+              <th style={{ width: 64, textAlign: 'center' }}>Aksi</th>
             </tr>
           </thead>
           <tbody>

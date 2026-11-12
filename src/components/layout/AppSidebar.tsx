@@ -1,5 +1,4 @@
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { useEffect, useRef } from 'react';
 import {
   Sparkles,
   BookOpen,
@@ -14,11 +13,8 @@ import {
   PlusCircle,
   School,
   ChevronRight,
-  RefreshCw,
   Key,
   HeartHandshake,
-  Crown,
-  UserCheck,
   X,
   HelpCircle,
 } from 'lucide-react';
@@ -47,9 +43,7 @@ interface NavItem {
   id: SidebarTabId;
   label: string;
   icon: React.ReactNode;
-  badge?: string;
   count?: number;
-  highlight?: boolean;
 }
 
 interface NavSection {
@@ -69,6 +63,7 @@ interface AppSidebarProps {
   onOpenHelpModal?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  returnFocusRef?: React.RefObject<HTMLButtonElement | null>;
 }
 
 export const AppSidebar: React.FC<AppSidebarProps> = ({
@@ -83,104 +78,122 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   onOpenHelpModal,
   isMobileOpen = false,
   onCloseMobile,
+  returnFocusRef,
 }) => {
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const wasMobileOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (isMobileOpen) {
+      wasMobileOpenRef.current = true;
+      closeButtonRef.current?.focus();
+    } else if (wasMobileOpenRef.current) {
+      wasMobileOpenRef.current = false;
+      returnFocusRef?.current?.focus();
+    }
+  }, [isMobileOpen, returnFocusRef]);
+
+  useEffect(() => {
+    if (!isMobileOpen || !onCloseMobile) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCloseMobile();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMobileOpen, onCloseMobile]);
+
   const navSections: NavSection[] = [
     {
-      title: 'PERANGKAT SEMESTER',
+      title: 'Perangkat Semester',
       items: [
         {
           id: 'tp_list',
           label: 'Peta TP & Modul Ajar',
-          icon: <BookOpen size={17} />,
-          badge: 'Inti',
+          icon: <BookOpen size={16} />,
         },
         {
           id: 'atp',
           label: 'Alur Tujuan (ATP)',
-          icon: <Table2 size={17} />,
+          icon: <Table2 size={16} />,
         },
         {
           id: 'prota',
-          label: 'Program Tahunan (Prota)',
-          icon: <Calendar size={17} />,
+          label: 'Program Tahunan',
+          icon: <Calendar size={16} />,
         },
         {
           id: 'promes',
-          label: 'Program Semester (Promes)',
-          icon: <FileSpreadsheet size={17} />,
+          label: 'Program Semester',
+          icon: <FileSpreadsheet size={16} />,
         },
         {
           id: 'p5_project',
           label: 'Modul Projek P5',
-          icon: <HeartHandshake size={17} />,
-          badge: 'Kokurikuler',
+          icon: <HeartHandshake size={16} />,
         },
       ],
     },
     {
-      title: 'KELAS HARIAN & RAPOR',
+      title: 'Kelas Harian & Rapor',
       items: [
         {
           id: 'presensi',
           label: 'Presensi Siswa',
-          icon: <Users size={17} />,
-          badge: '16 Pertemuan',
+          icon: <Users size={16} />,
         },
         {
           id: 'jurnal',
-          label: 'Jurnal Mengajar Guru',
-          icon: <FileText size={17} />,
+          label: 'Jurnal Mengajar',
+          icon: <FileText size={16} />,
         },
         {
           id: 'nilai',
           label: 'Buku Nilai Asesmen',
-          icon: <Award size={17} />,
+          icon: <Award size={16} />,
         },
         {
           id: 'rapor',
           label: 'Auto-Deskripsi e-Rapor',
-          icon: <Sparkles size={17} />,
-          badge: 'Otomatis',
+          icon: <Sparkles size={16} />,
         },
       ],
     },
     {
-      title: 'SUPERVISI & EKSPOR',
+      title: 'Supervisi & Ekspor',
       items: [
         {
           id: 'supervisi',
           label: 'Paket Siap Supervisi',
-          icon: <ShieldCheck size={17} />,
-          highlight: true,
-          badge: '1-Klik Master',
+          icon: <ShieldCheck size={16} />,
         },
       ],
     },
     {
-      title: 'EVALUASI & ARSIP',
+      title: 'Evaluasi & Arsip',
       items: [
         {
           id: 'ujian_semester',
           label: 'Naskah Ujian STS & SAS',
-          icon: <Award size={17} />,
-          badge: 'Resmi',
-          highlight: true,
+          icon: <Award size={16} />,
         },
         {
           id: 'bank',
-          label: 'Bank Soal & Arsip Guru',
-          icon: <FolderOpen size={17} />,
+          label: 'Bank Soal & Arsip',
+          icon: <FolderOpen size={16} />,
           count: bankCount,
         },
         {
           id: 'generator',
           label: 'Buat Soal Evaluasi AI',
-          icon: <PlusCircle size={17} />,
+          icon: <PlusCircle size={16} />,
         },
         {
           id: 'rangkuman_gen',
           label: 'Buat Rangkuman AI',
-          icon: <BookOpen size={17} />,
+          icon: <BookOpen size={16} />,
         },
       ],
     },
@@ -194,19 +207,19 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   const isUnlocked = isLicensed(quota.tier);
   const badgeLabel = getTierBadgeLabel(quota.tier);
   const tierTitle = getTierDisplayName(quota.tier);
+  const semesterNum = schoolProfile.semester.startsWith('2') ? '2' : '1';
 
   return (
     <>
-      {/* Mobile Drawer Backdrop */}
       {isMobileOpen && (
         <div
           className="mobile-sidebar-backdrop no-print"
           onClick={onCloseMobile}
+          aria-hidden="true"
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(15, 23, 42, 0.55)',
-            backdropFilter: 'blur(6px)',
+            background: 'rgba(23, 32, 51, 0.4)',
             zIndex: 998,
           }}
         />
@@ -214,188 +227,160 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
       <aside
         className={`app-sidebar no-print ${isMobileOpen ? 'is-mobile-open' : ''}`}
+        role={isMobileOpen ? 'dialog' : undefined}
+        aria-modal={isMobileOpen ? true : undefined}
+        aria-label="Navigasi workspace"
         style={{
-          width: 288,
           background: '#ffffff',
-          borderRight: '1px solid rgba(226, 232, 240, 0.9)',
+          borderRight: '1px solid #e2e8f0',
           display: 'flex',
           flexDirection: 'column',
-          height: '100vh',
+          height: '100dvh',
           position: 'sticky',
           top: 0,
           zIndex: 999,
-          boxShadow: '1px 0 12px rgba(15, 23, 42, 0.03)',
+          overflow: 'hidden',
+          flexShrink: 0,
         }}
       >
-        {/* 1. Header Brand V21 */}
+        {/* 1. Brand Header */}
         <div
           style={{
-            padding: '16px 18px 14px',
+            padding: '14px 16px',
             borderBottom: '1px solid #f1f5f9',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            flexShrink: 0,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <BrandLogo size={38} />
+            <BrandLogo size={32} />
             <div>
               <div
                 style={{
-                  fontSize: 16.5,
-                  fontWeight: 900,
-                  color: '#0f172a',
-                  letterSpacing: '-0.3px',
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: '#172033',
+                  letterSpacing: '-0.015em',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,
                 }}
               >
-                Ases<span style={{ color: '#2563eb' }}>Merdeka</span>
+                <span>AsesMerdeka</span>
                 {isUnlocked && (
                   <span
                     style={{
                       fontSize: 10,
-                      fontWeight: 800,
-                      background:
-                        quota.tier === 'pro' || quota.tier === 'sekolah_pro'
-                          ? 'linear-gradient(135deg, #8b5cf6, #6366f1)'
-                          : 'linear-gradient(135deg, #f59e0b, #d97706)',
-                      color: '#ffffff',
+                      fontWeight: 600,
+                      background: '#ecfdf5',
+                      color: '#047857',
+                      border: '1px solid #a7f3d0',
                       padding: '1px 5px',
-                      borderRadius: 4,
-                      letterSpacing: '0.4px',
+                      borderRadius: 5,
                     }}
                   >
                     {badgeLabel}
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
-                Administrasi Guru Semester
+              <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 400 }}>
+                Administrasi semester
               </div>
             </div>
           </div>
 
           {onCloseMobile && (
             <button
+              ref={closeButtonRef}
               type="button"
               onClick={onCloseMobile}
               className="mobile-sidebar-close"
               aria-label="Tutup menu navigasi"
               title="Tutup menu"
             >
-              <X size={18} />
+              <X size={17} />
             </button>
           )}
         </div>
 
-        {/* 2. Profil Guru & Kelas Aktif Switcher (V21 Style Card) */}
-        <div style={{ padding: '12px 14px 8px' }}>
-          <motion.div
-            whileHover={{ y: -2 }}
-            whileTap={{ scale: 0.985 }}
-            onClick={onOpenClassModal}
-            className="v21-bento-card"
+        {/* 2. Konteks Kelas Ringkas */}
+        <div style={{ padding: '12px 12px 6px', flexShrink: 0 }}>
+          <div
             style={{
-              padding: '11px 13px',
-              cursor: 'pointer',
-              background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)',
-              border: '1px solid #bfdbfe',
+              padding: '10px 12px',
+              borderRadius: 10,
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
             }}
-            title="Klik untuk mengganti jenjang, kelas, atau mata pelajaran"
           >
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                marginBottom: 6,
+                gap: 8,
+                marginBottom: 4,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: '50%',
-                    background: '#2563eb',
-                    color: '#ffffff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 11,
-                  }}
-                >
-                  <UserCheck size={12} />
-                </span>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 800,
-                    color: '#1d4ed8',
-                    letterSpacing: '0.04em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {schoolProfile.namaGuru ? schoolProfile.namaGuru.split(',')[0] : 'Guru Pengampu'}
-                </span>
-              </div>
-
               <span
                 style={{
-                  fontSize: 11,
-                  color: '#1d4ed8',
-                  fontWeight: 800,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 3,
-                  background: '#ffffff',
-                  border: '1px solid #93c5fd',
-                  padding: '2px 7px',
-                  borderRadius: 6,
-                  boxShadow: '0 1px 2px rgba(37,99,235,0.06)',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: '#172033',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                 }}
               >
-                <RefreshCw size={10} /> Ganti
+                Kelas {schoolProfile.rombelAktif} · Sem {semesterNum}
               </span>
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenClassModal();
+                  if (onCloseMobile) onCloseMobile();
+                }}
+                style={{
+                  fontSize: 11.5,
+                  color: '#2563eb',
+                  fontWeight: 600,
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  padding: '2px 8px',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                Ganti
+              </button>
             </div>
-
             <div
               style={{
-                fontSize: 14,
-                fontWeight: 900,
-                color: '#0f172a',
+                fontSize: 12.5,
+                color: '#475569',
+                fontWeight: 500,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
               }}
+              title={`${schoolProfile.mataPelajaranUtama} — ${schoolProfile.namaSekolah || 'Sekolah belum diatur'}`}
             >
-              Kelas {schoolProfile.rombelAktif} • {schoolProfile.mataPelajaranUtama}
+              {schoolProfile.mataPelajaranUtama}
             </div>
-
-            <div
-              style={{
-                fontSize: 11.5,
-                color: '#64748b',
-                marginTop: 2,
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {schoolProfile.namaSekolah || 'Sekolah Belum Diatur'} • Sem {schoolProfile.semester.slice(0, 1)}
-            </div>
-          </motion.div>
+          </div>
         </div>
 
-        {/* 3. Daftar Navigasi Berkelompok (V21 Clean Capsule List) */}
-        <div
+        {/* 3. Navigasi Scrollable */}
+        <nav
+          aria-label="Navigasi fitur"
           style={{
             flex: 1,
+            minHeight: 0,
             overflowY: 'auto',
-            padding: '4px 10px 12px',
+            padding: '8px 10px 14px',
             display: 'flex',
             flexDirection: 'column',
             gap: 14,
@@ -405,12 +390,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             <div key={sec.title}>
               <div
                 style={{
-                  fontSize: 11,
-                  fontWeight: 800,
+                  fontSize: 11.5,
+                  fontWeight: 600,
                   color: '#64748b',
-                  padding: '3px 10px 5px',
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
+                  padding: '2px 10px 4px',
                 }}
               >
                 {sec.title}
@@ -419,200 +402,171 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {sec.items.map((item) => {
                   const isActive = activeTab === item.id;
-                  const isSupervisiHighlight = item.highlight;
 
                   return (
-                    <motion.button
+                    <button
                       key={item.id}
                       type="button"
-                      whileTap={{ scale: 0.985 }}
                       onClick={() => handleItemClick(item.id)}
-                      className={`v21-sidebar-item ${isActive ? (isSupervisiHighlight ? 'is-supervisi-active' : 'is-active') : ''}`}
-                      style={{
-                        background: isActive
-                          ? isSupervisiHighlight
-                            ? '#7c3aed'
-                            : '#2563eb'
-                          : isSupervisiHighlight
-                          ? 'rgba(124, 58, 237, 0.06)'
-                          : 'transparent',
-                        color: isActive
-                          ? '#ffffff'
-                          : isSupervisiHighlight
-                          ? '#6d28d9'
-                          : '#1e293b',
-                        fontWeight: isActive || isSupervisiHighlight ? 800 : 600,
-                      }}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`v21-sidebar-item ${isActive ? 'is-active' : ''}`}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 9,
+                          minWidth: 0,
+                        }}
+                      >
                         <span
                           style={{
-                            color: isActive
-                              ? '#ffffff'
-                              : isSupervisiHighlight
-                              ? '#7c3aed'
-                              : '#64748b',
+                            color: isActive ? '#2563eb' : '#64748b',
                             display: 'flex',
                             alignItems: 'center',
+                            flexShrink: 0,
                           }}
                         >
                           {item.icon}
                         </span>
-                        <span>{item.label}</span>
-                      </div>
+                        <span
+                          style={{
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {item.label}
+                        </span>
+                      </span>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {item.badge && (
-                          <span
-                            style={{
-                              fontSize: 10.5,
-                              fontWeight: 800,
-                              padding: '2px 6px',
-                              borderRadius: 6,
-                              background: isActive
-                                ? 'rgba(255,255,255,0.22)'
-                                : isSupervisiHighlight
-                                ? 'rgba(124, 58, 237, 0.12)'
-                                : '#e2e8f0',
-                              color: isActive
-                                ? '#ffffff'
-                                : isSupervisiHighlight
-                                ? '#6d28d9'
-                                : '#334155',
-                            }}
-                          >
-                            {item.badge}
-                          </span>
-                        )}
-
-                        {item.count !== undefined && item.count > 0 && (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 800,
-                              padding: '1px 7px',
-                              borderRadius: 99,
-                              background: isActive ? '#ffffff' : '#e2e8f0',
-                              color: isActive ? '#1d4ed8' : '#1e293b',
-                            }}
-                          >
-                            {item.count}
-                          </span>
-                        )}
-                      </div>
-                    </motion.button>
+                      {item.count !== undefined && item.count > 0 && (
+                        <span
+                          className="tabular-nums"
+                          style={{
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                            padding: '1px 7px',
+                            borderRadius: 6,
+                            background: isActive ? '#dbeafe' : '#f1f5f9',
+                            color: isActive ? '#1d4ed8' : '#475569',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {item.count}
+                        </span>
+                      )}
+                    </button>
                   );
                 })}
               </div>
             </div>
           ))}
-        </div>
+        </nav>
 
-        {/* 4. Footer Sidebar: V21 Unlock Pro Glass Card & Profil Kop Sekolah */}
+        {/* 4. Footer Tenang: Lisensi, Kuota & Utilitas */}
         <div
           style={{
-            borderTop: '1px solid #f1f5f9',
-            padding: '12px 12px 14px',
+            flexShrink: 0,
+            borderTop: '1px solid #e2e8f0',
+            padding: '10px 12px 12px',
             background: '#ffffff',
             display: 'flex',
             flexDirection: 'column',
-            gap: 8,
+            gap: 6,
           }}
         >
-          {/* V21 Unlock Pro Glass Card */}
-          <motion.div
-            whileHover={{ y: -2 }}
-            whileTap={{ scale: 0.985 }}
-            onClick={onOpenLicenseModal}
-            className="v21-glass-pro-card"
+          <div
             style={{
-              padding: '12px 14px',
-              cursor: 'pointer',
+              padding: '9px 11px',
+              borderRadius: 10,
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
             }}
-            title="Kelola status aktivasi lisensi resmi Mayar"
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Crown size={15} color={isUnlocked ? '#fbbf24' : '#a5b4fc'} />
-                <span style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.02em' }}>
-                  {isUnlocked ? `LISENSI ${badgeLabel}` : 'ASESMERDEKA'}
-                </span>
-              </div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 6,
+              }}
+            >
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#172033' }}>
+                {isUnlocked ? tierTitle : 'Mode Pratinjau'}
+              </span>
               <span
                 style={{
-                  fontSize: 10,
-                  fontWeight: 800,
-                  padding: '2px 6px',
-                  borderRadius: 4,
-                  background: isUnlocked ? '#059669' : 'rgba(255, 255, 255, 0.16)',
-                  color: '#ffffff',
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  padding: '1px 6px',
+                  borderRadius: 5,
+                  background: isUnlocked ? '#ecfdf5' : '#f1f5f9',
+                  color: isUnlocked ? '#047857' : '#475569',
+                  border: isUnlocked ? '1px solid #a7f3d0' : '1px solid #e2e8f0',
                 }}
               >
-                {isUnlocked ? 'AKTIF' : 'PRATINJAU'}
+                {isUnlocked ? 'Aktif' : 'Terbatas'}
               </span>
             </div>
 
-            <p style={{ fontSize: 11, color: '#cbd5e1', lineHeight: 1.4, margin: '2px 0 8px' }}>
+            <div
+              className="tabular-nums"
+              style={{ fontSize: 11.5, color: '#64748b', marginTop: 3 }}
+            >
               {isUnlocked
-                ? `${tierTitle} — Akses penuh dokumen & otomatisasi tak terbatas.`
-                : 'Mode Pratinjau — Aktifkan lisensi untuk membuat & mengunduh dokumen.'}
-            </p>
+                ? `Kuota AI: ${quota.remainingCredits} / ${quota.maxCredits}`
+                : 'Ekspor Word & ZIP terkunci'}
+            </div>
 
             <button
               type="button"
+              onClick={() => {
+                onOpenLicenseModal();
+                if (onCloseMobile) onCloseMobile();
+              }}
+              className="btn btn-sm btn-outline"
               style={{
                 width: '100%',
-                padding: '7px 10px',
-                borderRadius: 8,
-                border: 'none',
-                background: isUnlocked
-                  ? 'rgba(255, 255, 255, 0.18)'
-                  : 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
-                color: '#ffffff',
-                fontSize: 11.5,
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
+                marginTop: 8,
+                fontSize: 12,
+                padding: '5px 10px',
                 justifyContent: 'center',
-                gap: 6,
-                boxShadow: isUnlocked ? 'none' : '0 2px 8px rgba(99, 102, 241, 0.35)',
               }}
             >
-              <Key size={13} />
-              {isUnlocked ? 'Kelola Lisensi & Perangkat' : 'Aktivasi Lisensi Resmi'}
+              <Key size={12} />
+              <span>{isUnlocked ? 'Kelola lisensi' : 'Aktivasi lisensi'}</span>
             </button>
-          </motion.div>
+          </div>
 
-          {/* Profil Kop Sekolah Link */}
           <button
             type="button"
-            onClick={onOpenSchoolModal}
+            onClick={() => {
+              onOpenSchoolModal();
+              if (onCloseMobile) onCloseMobile();
+            }}
             style={{
               width: '100%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '7px 10px',
-              border: '1px solid #f1f5f9',
+              padding: '6px 8px',
+              border: 'none',
               borderRadius: 8,
-              background: '#f8fafc',
+              background: 'transparent',
               cursor: 'pointer',
-              fontSize: 12,
-              fontWeight: 700,
-              color: '#334155',
-              transition: 'background 0.15s ease',
+              fontSize: 12.5,
+              fontWeight: 500,
+              color: '#475569',
             }}
-            title="Ubah Kop & Data Instansi Sekolah"
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <School size={14} color="#2563eb" />
-              <span>Profil Kop Surat Sekolah</span>
-            </div>
-            <ChevronRight size={13} color="#94a3b8" />
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <School size={14} style={{ color: '#64748b' }} />
+              <span>Profil kop sekolah</span>
+            </span>
+            <ChevronRight size={13} style={{ color: '#94a3b8' }} />
           </button>
 
-          {/* Pusat Bantuan & Lapor Kendala */}
           {onOpenHelpModal && (
             <button
               type="button"
@@ -625,23 +579,21 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                padding: '7px 10px',
-                border: '1px solid #e0f2fe',
+                padding: '6px 8px',
+                border: 'none',
                 borderRadius: 8,
-                background: '#f0f9ff',
+                background: 'transparent',
                 cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 700,
-                color: '#0369a1',
-                transition: 'background 0.15s ease',
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: '#475569',
               }}
-              title="Buka Pusat Bantuan & Lapor Kendala"
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <HelpCircle size={15} color="#0284c7" />
-                <span>Pusat Bantuan & Lapor</span>
-              </div>
-              <ChevronRight size={13} color="#0284c7" />
+              <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <HelpCircle size={14} style={{ color: '#64748b' }} />
+                <span>Pusat bantuan</span>
+              </span>
+              <ChevronRight size={13} style={{ color: '#94a3b8' }} />
             </button>
           )}
         </div>

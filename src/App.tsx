@@ -1,7 +1,9 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { MotionConfig } from 'framer-motion';
 import { AppSidebar } from './components/layout/AppSidebar';
 import type { SidebarTabId } from './components/layout/AppSidebar';
 import { TopHeader } from './components/layout/TopHeader';
+import type { WorkspaceStorageStatus } from './components/layout/TopHeader';
 import { ClassSelectorModal } from './components/layout/ClassSelectorModal';
 import { getTabHeaderInfo } from './components/layout/headerMetadata';
 import {
@@ -46,7 +48,7 @@ import {
 import type { SchoolProfile, CustomTPItem } from './utils/schoolProfileStorage';
 import { getKelasHarianData } from './utils/kelasHarianStorage';
 import { getSemesterCurriculumPlan } from './utils/kurikulumCatalog';
-import { pushWorkspaceToCloud } from './utils/cloudSyncManager';
+import { pushWorkspaceToCloud, getLastCloudSyncAt } from './utils/cloudSyncManager';
 
 const GeneratorForm = lazy(() =>
   import('./components/GeneratorForm').then((m) => ({ default: m.GeneratorForm }))
@@ -139,6 +141,14 @@ export function App() {
   const [activeSelectedTP, setActiveTP] = useState<CustomTPItem | null>(null);
   const [dismissPromoBar, setDismissPromoBar] = useState(false);
   const [appToast, setAppToast] = useState<string | null>(null);
+  const [storageStatus, setStorageStatus] = useState<WorkspaceStorageStatus>(() => {
+    const q = getUserQuota();
+    if (isLicensed(q.tier) && q.licenseKey && getLastCloudSyncAt()) {
+      return 'synced';
+    }
+    return 'local';
+  });
+  const mobileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const triggerAppToast = (msg: string) => {
     setAppToast(msg);
@@ -289,9 +299,19 @@ export function App() {
 
   // Otomatis sinkronkan perubahan profil kelas/soal ke Cloud (debounced 2.5 detik) jika pengguna memiliki Kode Lisensi aktif
   useEffect(() => {
-    if (!isLicensed(quota.tier) || !quota.licenseKey) return;
+    if (!isLicensed(quota.tier) || !quota.licenseKey) {
+      setStorageStatus('local');
+      return;
+    }
+    setStorageStatus('syncing');
     const timer = setTimeout(() => {
-      pushWorkspaceToCloud().catch(() => {});
+      pushWorkspaceToCloud()
+        .then((res) => {
+          setStorageStatus(res.ok ? 'synced' : 'sync_error');
+        })
+        .catch(() => {
+          setStorageStatus('sync_error');
+        });
     }, 2500);
     return () => clearTimeout(timer);
   }, [schoolProfile, bankList.length, isClassConfirmed, quota.tier, quota.licenseKey]);
@@ -300,12 +320,13 @@ export function App() {
     const refreshedProf = getSchoolProfile();
     setSchoolProfile(refreshedProf);
     setIsClassConfirmed(hasConfirmedClassSetup());
+    setStorageStatus(getLastCloudSyncAt() ? 'synced' : 'local');
     const refreshedBank = getBankSoal();
     if (refreshedBank.length > 0) {
       setBankList(refreshedBank);
       setCurrentAssessment(refreshedBank[0]);
     }
-    triggerAppToast('☁️ Seluruh riwayat kelas, nilai & bank soal dari perangkat Anda berhasil dimuat!');
+    triggerAppToast('Seluruh riwayat kelas, nilai, dan bank soal berhasil dimuat.');
   };
 
   const handleGenerate = async (req: GenerationRequest) => {
@@ -545,40 +566,49 @@ export function App() {
   );
 
   if (isAdminPortalOpen) {
-    return <AdminPortal onBack={handleCloseAdminPortal} />;
+    return (
+      <MotionConfig reducedMotion="user">
+        <AdminPortal onBack={handleCloseAdminPortal} />
+      </MotionConfig>
+    );
   }
 
   return (
-    <div className="app-shell" style={{ minHeight: '100vh', display: 'flex', background: '#f8fafc' }}>
-      <AppSidebar
-        activeTab={activeTab}
-        onSelectTab={(tab: SidebarTabId) => {
-          handleConfirmClassChange(true);
-          setActiveTab(tab);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
-        schoolProfile={schoolProfile}
-        quota={quota}
-        bankCount={bankList.length}
-        onOpenClassModal={() => setIsClassModalOpen(true)}
-        onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
-        onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
-        onOpenHelpModal={() => setIsHelpModalOpen(true)}
-        isMobileOpen={isMobileSidebarOpen}
-        onCloseMobile={() => setIsMobileSidebarOpen(false)}
-      />
-
-      <div className="app-content-column" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <TopHeader
-          pageTitle={headerInfo.title}
-          pageSubtitle={headerInfo.subtitle}
+    <MotionConfig reducedMotion="user">
+      <div className="app-shell" style={{ minHeight: '100vh', display: 'flex', background: '#f7f8fa' }}>
+        <AppSidebar
+          activeTab={activeTab}
+          onSelectTab={(tab: SidebarTabId) => {
+            handleConfirmClassChange(true);
+            setActiveTab(tab);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
           schoolProfile={schoolProfile}
+          quota={quota}
+          bankCount={bankList.length}
+          onOpenClassModal={() => setIsClassModalOpen(true)}
           onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
           onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
           onOpenHelpModal={() => setIsHelpModalOpen(true)}
-          isPro={isLicensed(quota.tier)}
-          onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
+          isMobileOpen={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
+          returnFocusRef={mobileMenuButtonRef}
         />
+
+        <div className="app-content-column" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <TopHeader
+            pageSection={headerInfo.section}
+            pageTitle={headerInfo.title}
+            pageSubtitle={headerInfo.subtitle}
+            schoolProfile={schoolProfile}
+            onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
+            onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
+            onOpenHelpModal={() => setIsHelpModalOpen(true)}
+            isPro={isLicensed(quota.tier)}
+            storageStatus={storageStatus}
+            onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
+            mobileMenuButtonRef={mobileMenuButtonRef}
+          />
 
         <main className="app-main-container" style={{ flex: 1, padding: '24px 28px 80px', maxWidth: 1240, width: '100%', margin: '0 auto' }}>
           <AppErrorBanner message={errorMessage} onDismiss={() => setErrorMessage(null)} />
@@ -802,8 +832,9 @@ export function App() {
         isPro={isLicensed(quota.tier)}
       />
 
-      <AppToastBanner message={appToast} />
-    </div>
+        <AppToastBanner message={appToast} />
+      </div>
+    </MotionConfig>
   );
 }
 

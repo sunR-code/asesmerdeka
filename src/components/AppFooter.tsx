@@ -1,4 +1,5 @@
 import React from 'react';
+import { Lock } from 'lucide-react';
 
 export interface AppFooterProps {
   onOpenClassModal: () => void;
@@ -18,9 +19,9 @@ export const AppFooter: React.FC<AppFooterProps> = ({
   <footer
     className="no-print"
     style={{
-      borderTop: '1px solid rgba(226, 232, 240, 0.8)',
+      borderTop: '1px solid #e2e8f0',
       background: '#ffffff',
-      padding: '16px 28px',
+      padding: '14px 28px',
       fontSize: 12,
       color: '#64748b',
     }}
@@ -36,58 +37,103 @@ export const AppFooter: React.FC<AppFooterProps> = ({
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span>
-          © 2026 <strong>AsesMerdeka Studio</strong> — Platform Administrasi & Pembelajaran Guru Terintegrasi
+          © 2026 <strong style={{ color: '#172033', fontWeight: 600 }}>AsesMerdeka</strong> · Workspace Administrasi Guru
         </span>
         {onOpenAdminPortal && (
           <button
             type="button"
             onClick={onOpenAdminPortal}
+            className="ws-footer-link"
             style={{
               background: 'transparent',
-              border: 'none',
+              border: '1px solid transparent',
               padding: '2px 8px',
               borderRadius: 6,
               color: '#94a3b8',
-              fontSize: 11,
-              fontWeight: 600,
+              fontSize: 11.5,
+              fontWeight: 500,
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
               gap: 4,
-              transition: 'all 0.15s ease',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = '#475569';
-              e.currentTarget.style.background = '#f1f5f9';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = '#94a3b8';
-              e.currentTarget.style.background = 'transparent';
             }}
             title="Pengaturan Sistem"
           >
-            🔒 Sistem
+            <Lock size={11} />
+            <span>Sistem</span>
           </button>
         )}
       </div>
-      <div style={{ display: 'flex', gap: 14 }}>
-        <span style={{ color: '#2563eb', cursor: 'pointer', fontWeight: 700 }} onClick={onOpenClassModal}>
-          Ganti Kelas/Mapel
-        </span>
-        <span style={{ color: '#cbd5e1' }}>•</span>
-        <span style={{ color: '#0d9488', cursor: 'pointer', fontWeight: 700 }} onClick={onOpenSchoolModal}>
-          Kop Sekolah
-        </span>
-        <span style={{ color: '#cbd5e1' }}>•</span>
-        <span style={{ color: '#7c3aed', cursor: 'pointer', fontWeight: 700 }} onClick={onOpenLicenseModal}>
-          Lisensi PRO
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={onOpenClassModal}
+          className="ws-footer-link"
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: '#475569',
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          Ganti kelas/mapel
+        </button>
+        <span style={{ color: '#cbd5e1' }}>·</span>
+        <button
+          type="button"
+          onClick={onOpenSchoolModal}
+          className="ws-footer-link"
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: '#475569',
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          Profil sekolah
+        </button>
+        <span style={{ color: '#cbd5e1' }}>·</span>
+        <button
+          type="button"
+          onClick={onOpenLicenseModal}
+          className="ws-footer-link"
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: '#475569',
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          Lisensi
+        </button>
         {onOpenHelpModal && (
           <>
-            <span style={{ color: '#cbd5e1' }}>•</span>
-            <span style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 700 }} onClick={onOpenHelpModal}>
-              Bantuan & Lapor
-            </span>
+            <span style={{ color: '#cbd5e1' }}>·</span>
+            <button
+              type="button"
+              onClick={onOpenHelpModal}
+              className="ws-footer-link"
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                color: '#475569',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              Bantuan
+            </button>
           </>
         )}
       </div>

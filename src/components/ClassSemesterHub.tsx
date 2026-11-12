@@ -280,51 +280,56 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
   };
 
   return (
-    <div style={{ maxWidth: 980, margin: '8px auto 24px', padding: '0 4px' }}>
+    <div style={{ maxWidth: 1080, margin: '4px auto 24px', padding: '0 2px' }}>
       <AnimatePresence>
         {toastMsg && (
           <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 12, scale: 0.96 }}
-            transition={{ duration: 0.18 }}
-            className="no-print"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            transition={{ duration: 0.16 }}
+            role="status"
+            aria-live="polite"
+            className="no-print app-toast-banner"
             style={{
               position: 'fixed',
               bottom: 24,
               right: 24,
-              background: '#059669',
+              background: '#172033',
               color: '#ffffff',
-              padding: '12px 20px',
-              borderRadius: 14,
-              boxShadow: '0 10px 25px rgba(5, 150, 105, 0.32)',
+              padding: '10px 16px',
+              borderRadius: 10,
+              border: '1px solid #334155',
+              boxShadow: '0 8px 20px rgba(23, 32, 51, 0.14)',
               zIndex: 999,
               fontSize: 13,
-              fontWeight: 800,
+              fontWeight: 500,
               display: 'flex',
               alignItems: 'center',
               gap: 8,
             }}
           >
-            <Check size={16} /> {toastMsg}
+            <Check size={15} style={{ color: '#4ade80', flexShrink: 0 }} aria-hidden="true" />
+            <span>{toastMsg}</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <HubStepIndicatorBar
-        isClassConfirmed={isClassConfirmed}
-        onSetConfirmedState={setConfirmedState}
-      />
-
       {!isClassConfirmed && (
-        <ClassSetupStepView
-          schoolProfile={schoolProfile}
-          updateAndPersistProfile={updateAndPersistProfile}
-          onOpenSchoolModal={onOpenSchoolModal}
-          onOpenLicenseModal={onOpenLicenseModal}
-          onConfirmClassSetup={handleConfirmClassSetup}
-          onToast={triggerToast}
-        />
+        <>
+          <HubStepIndicatorBar
+            isClassConfirmed={isClassConfirmed}
+            onSetConfirmedState={setConfirmedState}
+          />
+          <ClassSetupStepView
+            schoolProfile={schoolProfile}
+            updateAndPersistProfile={updateAndPersistProfile}
+            onOpenSchoolModal={onOpenSchoolModal}
+            onOpenLicenseModal={onOpenLicenseModal}
+            onConfirmClassSetup={handleConfirmClassSetup}
+            onToast={triggerToast}
+          />
+        </>
       )}
 
       {isClassConfirmed && (
@@ -343,8 +348,9 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
           <div
             className="v21-bento-card hub-main-bento-card"
             style={{
-              padding: '24px 26px',
+              padding: '18px 22px',
               background: '#ffffff',
+              borderRadius: 12,
             }}
           >
             <HubWorkspaceModeSwitcher

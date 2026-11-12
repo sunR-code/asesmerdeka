@@ -1,129 +1,165 @@
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
 import type { AppTab } from '../../App';
 
+const HUB_SETUP_TABS: ReadonlySet<AppTab> = new Set([
+  'tp_list',
+  'atp',
+  'prota',
+  'promes',
+  'presensi',
+  'jurnal',
+  'nilai',
+  'rapor',
+  'supervisi',
+]);
+
 export function getTabHeaderInfo(
   activeTab: AppTab,
   schoolProfile: SchoolProfile,
   studentCount: number,
   isClassConfirmed: boolean = true
-): { title: string; subtitle: string } {
-  if (!isClassConfirmed && activeTab === 'tp_list') {
+): { title: string; subtitle: string; section?: string } {
+  const semesterLabel = schoolProfile.semester.startsWith('2') ? 'Semester 2' : 'Semester 1';
+
+  if (!isClassConfirmed && HUB_SETUP_TABS.has(activeTab)) {
     return {
-      title: '👋 Selamat Datang di AsesMerdeka Studio',
-      subtitle: 'Langkah 1: Pilih jenjang, kelas, & mata pelajaran Bapak/Ibu Guru untuk memulai ruang kerja',
+      section: 'Pengaturan',
+      title: 'Pengaturan ruang kerja',
+      subtitle: `${schoolProfile.jenjang} · Tahun ajaran ${schoolProfile.tahunAjaran}`,
     };
   }
   switch (activeTab) {
     case 'tp_list':
       return {
-        title: '🎯 Peta Materi & Tujuan Pembelajaran (TP)',
-        subtitle: `Materi 1 semester untuk Kelas ${schoolProfile.rombelAktif} • Buat Modul Ajar, LKPD, Soal, & Rangkuman 1-klik`,
+        section: 'Perangkat Semester',
+        title: 'Peta materi & TP',
+        subtitle: `Kelas ${schoolProfile.rombelAktif} · ${schoolProfile.mataPelajaranUtama} · ${semesterLabel}`,
       };
     case 'atp':
       return {
-        title: '📋 Alur Tujuan Pembelajaran (ATP)',
-        subtitle: `Alur sebaran kompetensi dan Jam Pelajaran (JP) ${schoolProfile.mataPelajaranUtama}`,
+        section: 'Perangkat Semester',
+        title: 'Alur tujuan pembelajaran',
+        subtitle: `${schoolProfile.mataPelajaranUtama} · Kelas ${schoolProfile.rombelAktif}`,
       };
     case 'prota':
       return {
-        title: '📅 Program Tahunan (Prota)',
-        subtitle: `Rencana alokasi waktu pembelajaran 2 semester tahun ajaran ${schoolProfile.tahunAjaran}`,
+        section: 'Perangkat Semester',
+        title: 'Program tahunan',
+        subtitle: `${schoolProfile.mataPelajaranUtama} · Tahun ajaran ${schoolProfile.tahunAjaran}`,
       };
     case 'promes':
       return {
-        title: '🗓️ Program Semester (Promes Visual)',
-        subtitle: `Matriks distribusi JP per minggu efektif semester ${schoolProfile.semester}`,
+        section: 'Perangkat Semester',
+        title: 'Program semester',
+        subtitle: `${schoolProfile.mataPelajaranUtama} · ${semesterLabel}`,
       };
     case 'p5_project':
       return {
-        title: '🌟 Modul Projek P5 (Profil Pelajar Pancasila)',
-        subtitle: `Panduan Kokurikuler Kurikulum Merdeka Fase ${
+        section: 'Perangkat Semester',
+        title: 'Modul projek P5',
+        subtitle: `Fase ${
           schoolProfile.jenjang === 'SD/MI'
             ? 'C'
             : schoolProfile.jenjang === 'SMP/MTs'
             ? 'D'
             : 'E'
-        } • Alur 5 Tahap & Rapor Observasi Karakter`,
+        } · Kokurikuler`,
       };
     case 'presensi':
       return {
-        title: '👥 Presensi Siswa',
-        subtitle: `Rekapitulasi kehadiran 16 pertemuan untuk ${studentCount} siswa rombel ${schoolProfile.rombelAktif}`,
+        section: 'Kelas Harian',
+        title: 'Presensi siswa',
+        subtitle: `Kelas ${schoolProfile.rombelAktif} · ${studentCount} siswa · ${semesterLabel}`,
       };
     case 'jurnal':
       return {
-        title: '📖 Agenda & Jurnal Mengajar Guru',
-        subtitle: `Catatan pelaksanaan pembelajaran 16 pertemuan dengan diferensiasi & refleksi`,
+        section: 'Kelas Harian',
+        title: 'Jurnal mengajar',
+        subtitle: `Kelas ${schoolProfile.rombelAktif} · ${schoolProfile.mataPelajaranUtama} · ${semesterLabel}`,
       };
     case 'nilai':
       return {
-        title: '📊 Buku Nilai Asesmen (Formatif & Sumatif)',
-        subtitle: `Daftar nilai seluruh TP, STS, SAS, dan predikat ketercapaian KKTP`,
+        section: 'Kelas Harian',
+        title: 'Buku nilai asesmen',
+        subtitle: `Kelas ${schoolProfile.rombelAktif} · ${schoolProfile.mataPelajaranUtama}`,
       };
     case 'rapor':
       return {
-        title: '📝 Auto-Deskripsi e-Rapor',
-        subtitle: `Sintesis capaian tertinggi dan penguatan siap salin (paste) ke e-Rapor Kemendikbud`,
+        section: 'Kelas Harian',
+        title: 'Auto-deskripsi e-Rapor',
+        subtitle: `Kelas ${schoolProfile.rombelAktif} · ${schoolProfile.mataPelajaranUtama}`,
       };
     case 'supervisi':
       return {
-        title: '🎓 Paket Administrasi Siap Supervisi & Akreditasi',
-        subtitle: `1-Klik Unduh Master Bundel Lengkap (~35 Halaman) & Arsip ZIP 9 Dokumen`,
+        section: 'Supervisi & Ekspor',
+        title: 'Paket siap supervisi',
+        subtitle: `Kelas ${schoolProfile.rombelAktif} · 9 dokumen semester (.docx & .zip)`,
       };
     case 'ujian_semester':
       return {
-        title: '📝 Naskah Ujian Semester (STS & SAS)',
-        subtitle: `Naskah ujian resmi terpadu dari seluruh TP Kelas ${schoolProfile.kelasUtama} (${schoolProfile.rombelAktif}) • Lengkap LJK & Rubrik Penskoran`,
+        section: 'Evaluasi & Arsip',
+        title: 'Naskah ujian STS & SAS',
+        subtitle: `Kelas ${schoolProfile.kelasUtama} (${schoolProfile.rombelAktif}) · ${schoolProfile.mataPelajaranUtama}`,
       };
     case 'bank':
       return {
-        title: '📁 Bank Soal & Arsip Guru',
-        subtitle: `Koleksi soal dan asesmen tersimpan milik Bapak/Ibu`,
+        section: 'Evaluasi & Arsip',
+        title: 'Bank soal & arsip',
+        subtitle: `Koleksi asesmen tersimpan · ${schoolProfile.mataPelajaranUtama}`,
       };
     case 'generator':
       return {
-        title: '⚡ Generator Soal Evaluasi AI',
-        subtitle: `Buat soal asesmen kustom lengkap dengan rubrik & kisi-kisi`,
+        section: 'Evaluasi & Arsip',
+        title: 'Generator soal AI',
+        subtitle: `${schoolProfile.mataPelajaranUtama} · Kelas ${schoolProfile.rombelAktif}`,
       };
     case 'rangkuman_gen':
       return {
-        title: '📖 Generator Rangkuman Belajar AI',
-        subtitle: `Susun ringkasan materi siap ajar dengan bahasa terstruktur`,
+        section: 'Evaluasi & Arsip',
+        title: 'Generator rangkuman AI',
+        subtitle: `${schoolProfile.mataPelajaranUtama} · Kelas ${schoolProfile.rombelAktif}`,
       };
     case 'worksheet':
       return {
-        title: '📄 Lembar Soal & Asesmen Siswa',
-        subtitle: `Pratinjau lembar evaluasi siap cetak & unduh Word`,
+        section: 'Dokumen Asesmen',
+        title: 'Lembar soal & asesmen',
+        subtitle: 'Pratinjau siap cetak & ekspor Word',
       };
     case 'kisi_kisi':
       return {
-        title: '📋 Kisi-Kisi & Kartu Soal Otomatis',
-        subtitle: `Distribusi indikator soal dan tingkat kognitif`,
+        section: 'Dokumen Asesmen',
+        title: 'Kisi-kisi & kartu soal',
+        subtitle: 'Distribusi indikator soal dan level kognitif',
       };
     case 'teacher_guide':
       return {
-        title: '📘 Panduan & Rubrik Asesmen Guru',
-        subtitle: `Kunci jawaban dan kriteria ketercapaian tujuan pembelajaran`,
+        section: 'Dokumen Asesmen',
+        title: 'Panduan & rubrik guru',
+        subtitle: 'Kunci jawaban dan kriteria KKTP',
       };
     case 'modul_ajar':
       return {
-        title: '📘 Modul Ajar (RPP Kurikulum Merdeka)',
-        subtitle: `Perangkat ajar lengkap siap telaah supervisi dan ekspor Word`,
+        section: 'Perangkat Ajar',
+        title: 'Modul ajar',
+        subtitle: 'Dokumen siap telaah supervisi & ekspor Word',
       };
     case 'lkpd':
       return {
-        title: '📄 Lembar Kerja Peserta Didik (LKPD)',
-        subtitle: `Aktivitas penemuan konsep terstruktur untuk siswa`,
+        section: 'Perangkat Ajar',
+        title: 'Lembar kerja peserta didik',
+        subtitle: 'Aktivitas belajar siswa siap cetak & ekspor',
       };
     case 'rangkuman_view':
       return {
-        title: '📚 Lembar Rangkuman Materi Siswa',
-        subtitle: `Bahan bacaan ringkas siap cetak dan pelengkap belajar`,
+        section: 'Perangkat Ajar',
+        title: 'Rangkuman materi siswa',
+        subtitle: 'Bahan bacaan ringkas siap cetak',
       };
     default:
       return {
-        title: 'Ruang Kerja Administrasi Guru',
-        subtitle: `Kelas ${schoolProfile.rombelAktif} • ${schoolProfile.mataPelajaranUtama}`,
+        section: 'Workspace',
+        title: 'Ruang kerja semester',
+        subtitle: `Kelas ${schoolProfile.rombelAktif} · ${schoolProfile.mataPelajaranUtama}`,
       };
   }
 }

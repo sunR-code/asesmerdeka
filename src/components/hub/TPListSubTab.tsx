@@ -16,11 +16,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import type { SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
-import {
-  bentoCardVariants,
-  staggerContainerVariants,
-  cardTapMotion,
-} from '../../utils/motionPresets';
+import { workspaceAccordionTransition } from '../../utils/motionPresets';
 
 interface TPListSubTabProps {
   schoolProfile: SchoolProfile;
@@ -89,93 +85,80 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
         }}
       >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span
-              style={{
-                background: '#ecfdf5',
-                color: '#065f46',
-                fontWeight: 800,
-                fontSize: 11,
-                padding: '3px 10px',
-                borderRadius: 9999,
-                border: '1px solid #a7f3d0',
-              }}
-            >
-              Langkah 2 • Peta Materi & Capaian Semester
-            </span>
+          <h2 style={{ fontSize: 19, fontWeight: 700, color: '#172033', margin: 0 }}>
+            Daftar bab & tujuan pembelajaran — {schoolProfile.mataPelajaranUtama}
+          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+            <p className="tabular-nums" style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
+              Kelas {schoolProfile.rombelAktif} · {currentFase} · Semester {schoolProfile.semester} · {tpList.length} materi
+            </p>
             <button
               type="button"
               onClick={() => setShowCPDetail(!showCPDetail)}
+              aria-expanded={showCPDetail}
               style={{
                 background: 'none',
                 border: 'none',
                 color: '#2563eb',
-                fontSize: 12,
-                fontWeight: 800,
+                fontFamily: 'var(--font-family)',
+                fontSize: 12.5,
+                fontWeight: 600,
                 cursor: 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 4,
+                padding: 0,
               }}
             >
-              <span>{showCPDetail ? 'Tutup Deskripsi CP' : 'Lihat Teks Lengkap Capaian (CP)'}</span>
-              {showCPDetail ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              <span>{showCPDetail ? 'Tutup deskripsi CP' : 'Lihat teks lengkap CP'}</span>
+              {showCPDetail ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
             </button>
           </div>
-          <h2 style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', letterSpacing: '-0.2px' }}>
-            Daftar Bab & Tujuan Pembelajaran (TP) — {schoolProfile.mataPelajaranUtama}
-          </h2>
-          <p style={{ fontSize: 12.5, color: '#64748b', marginTop: 2 }}>
-            Kelas {schoolProfile.rombelAktif} • Fase {currentFase} • Semester {schoolProfile.semester} ({tpList.length} Materi Pembelajaran)
-          </p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {isCustomTP && (
-            <motion.button
+            <button
               type="button"
-              whileTap={cardTapMotion}
               onClick={onResetDefaultTP}
               className="btn btn-sm btn-outline"
-              style={{ fontSize: 12, fontWeight: 700, borderRadius: 10 }}
               title="Kembalikan materi ke standar Kemendikbudristek"
             >
-              <RotateCcw size={13} /> Standar Kurikulum Merdeka
-            </motion.button>
+              <RotateCcw size={13} aria-hidden="true" /> Standar Kurikulum Merdeka
+            </button>
           )}
 
-          <motion.button
+          <button
             type="button"
-            whileHover={{ scale: 1.02 }}
-            whileTap={cardTapMotion}
             onClick={onAddNewTP}
             className="btn btn-sm btn-primary"
-            style={{ fontSize: 12.5, fontWeight: 800, borderRadius: 10, padding: '7px 14px' }}
           >
-            <Plus size={14} /> + Tambah Materi Baru
-          </motion.button>
+            <Plus size={14} aria-hidden="true" /> Tambah Materi
+          </button>
         </div>
       </div>
 
       {/* Accordion Capaian Pembelajaran (CP) */}
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {showCPDetail && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="v21-bento-card"
+            transition={workspaceAccordionTransition}
             style={{
-              background: '#eff6ff',
-              border: '1px solid #bfdbfe',
-              padding: '14px 18px',
-              marginBottom: 16,
-              fontSize: 12.5,
-              color: '#1e3a8a',
-              lineHeight: 1.6,
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: 10,
+              padding: '12px 16px',
+              marginBottom: 14,
+              fontSize: 13,
+              color: '#334155',
+              lineHeight: 1.55,
+              overflow: 'hidden',
             }}
           >
-            <strong style={{ color: '#1d4ed8', display: 'block', marginBottom: 4 }}>
+            <strong style={{ color: '#172033', display: 'block', marginBottom: 4 }}>
               Capaian Pembelajaran (CP) Fase {currentFase}:
             </strong>
             {capaianPembelajaran}
@@ -183,39 +166,31 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Daftar Kartu TP Bento Grid */}
-      <motion.div
-        variants={staggerContainerVariants}
-        initial="hidden"
-        animate="visible"
-        style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-      >
+      {/* Daftar Tujuan Pembelajaran */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {tpList.map((tp, index) => {
           const isEditing = editingTPId === tp.id && draftTP;
           const isThisGenerating = isBusy && activeGeneratingTPId === tp.id;
 
           return (
-            <motion.div
+            <div
               key={tp.id}
-              variants={bentoCardVariants}
-              whileHover={{ y: -2 }}
               className="v21-bento-card"
               style={{
-                padding: '18px 20px',
+                padding: '16px 18px',
+                borderRadius: 10,
                 border: isEditing
-                  ? '2px solid #2563eb'
+                  ? '1.5px solid #2563eb'
                   : isThisGenerating
-                  ? '2px solid #0d9488'
-                  : '1px solid rgba(226, 232, 240, 0.85)',
-                boxShadow: isEditing || isThisGenerating
-                  ? '0 6px 20px rgba(37, 99, 235, 0.15)'
-                  : undefined,
+                  ? '1.5px solid #2563eb'
+                  : '1px solid #e2e8f0',
+                boxShadow: 'var(--shadow-sm)',
               }}
             >
               {isEditing ? (
                 <div>
-                  <div style={{ fontSize: 13.5, fontWeight: 900, color: '#1d4ed8', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Edit3 size={15} /> Ubah Materi / Tujuan Pembelajaran (TP {draftTP.kode})
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: '#1d4ed8', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Edit3 size={15} aria-hidden="true" /> Ubah Materi / Tujuan Pembelajaran (TP {draftTP.kode})
                   </div>
                   <div style={{ marginBottom: 10 }}>
                     <label className="form-label" style={{ fontSize: 12 }}>Judul Materi Pokok / Bab</label>
@@ -243,7 +218,6 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                         setDraftTP(null);
                       }}
                       className="btn btn-sm btn-outline"
-                      style={{ borderRadius: 8 }}
                     >
                       Batal
                     </button>
@@ -251,138 +225,85 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                       type="button"
                       onClick={onSaveEditTP}
                       className="btn btn-sm btn-primary"
-                      style={{ borderRadius: 8 }}
                     >
-                      <Check size={14} /> Simpan Perubahan
+                      <Check size={14} aria-hidden="true" /> Simpan Perubahan
                     </button>
                   </div>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {/* Baris Atas: Nomor, Badge, Judul & Deskripsi TP */}
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {/* Baris Atas: Nomor, Metadata & Deskripsi TP */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                     <div
+                      className="tabular-nums"
                       style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 12,
-                        background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
-                        border: '1.5px solid #bfdbfe',
-                        color: '#1d4ed8',
+                        width: 38,
+                        height: 38,
+                        borderRadius: 9,
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        color: '#334155',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: 16,
-                        fontWeight: 900,
+                        fontSize: 14,
+                        fontWeight: 700,
                         flexShrink: 0,
-                        boxShadow: '0 2px 6px rgba(37,99,235,0.08)',
                       }}
                     >
                       {String(index + 1).padStart(2, '0')}
                     </div>
 
-                    <div style={{ flex: 1, minWidth: 260 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 220 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                         <span
+                          className="tabular-nums"
                           style={{
                             background: '#f1f5f9',
-                            color: '#0f172a',
-                            fontWeight: 800,
-                            fontSize: 11,
-                            padding: '2px 8px',
+                            color: '#172033',
+                            fontWeight: 600,
+                            fontSize: 11.5,
+                            padding: '2px 7px',
                             borderRadius: 6,
-                            border: '1px solid #cbd5e1',
+                            border: '1px solid #e2e8f0',
                           }}
                         >
                           TP {tp.kode}
                         </span>
-                        <span style={{ fontSize: 11.5, color: '#475569', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <Layers size={13} color="#64748b" /> {tp.elemen}
+                        <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Layers size={12} aria-hidden="true" /> {tp.elemen}
                         </span>
-                        <span style={{ color: '#cbd5e1' }}>•</span>
-                        <span style={{ fontSize: 11.5, color: '#0369a1', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <Clock size={13} color="#0284c7" /> Alokasi: {tp.alokasiJP} JP
+                        <span style={{ color: '#cbd5e1' }} aria-hidden="true">·</span>
+                        <span className="tabular-nums" style={{ fontSize: 12, color: '#475569', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Clock size={12} aria-hidden="true" /> {tp.alokasiJP} JP
                         </span>
                       </div>
 
-                      <div style={{ fontSize: 16, fontWeight: 900, color: '#0f172a', letterSpacing: '-0.2px', marginBottom: 4 }}>
+                      <div style={{ fontSize: 15.5, fontWeight: 700, color: '#172033', marginBottom: 3 }}>
                         {tp.materiPokok}
                       </div>
 
-                      <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.55 }}>
+                      <div style={{ fontSize: 13.5, color: '#475569', lineHeight: 1.55 }}>
                         {tp.tujuanPembelajaran}
                       </div>
                     </div>
                   </div>
 
-                  {/* Baris Bawah: Tombol Aksi Kilat Modul & Generator */}
+                  {/* Baris Bawah: Aksi Utama & Sekunder */}
                   <div
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       flexWrap: 'wrap',
-                      gap: 10,
-                      paddingTop: 12,
+                      gap: 8,
+                      paddingTop: 10,
                       borderTop: '1px solid #f1f5f9',
                     }}
                   >
-                    {/* 4 Tombol Utama Aksi Kilat */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <motion.button
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <button
                         type="button"
-                        whileHover={{ y: -1 }}
-                        whileTap={cardTapMotion}
-                        onClick={() => onOpenModulAjar(tp, schoolProfile)}
-                        className="btn btn-sm"
-                        style={{
-                          background: '#1e40af',
-                          color: '#ffffff',
-                          border: 'none',
-                          padding: '8px 14px',
-                          fontSize: 12.5,
-                          fontWeight: 800,
-                          borderRadius: 10,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 8px rgba(30, 64, 175, 0.22)',
-                        }}
-                        title="Buka & Unduh Modul Ajar (RPP Kurikulum Merdeka) untuk materi ini"
-                      >
-                        <BookOpen size={14} /> 📘 Modul Ajar (RPP)
-                      </motion.button>
-
-                      <motion.button
-                        type="button"
-                        whileHover={{ y: -1 }}
-                        whileTap={cardTapMotion}
-                        onClick={() => onOpenLKPD(tp, schoolProfile)}
-                        className="btn btn-sm"
-                        style={{
-                          background: '#047857',
-                          color: '#ffffff',
-                          border: 'none',
-                          padding: '8px 14px',
-                          fontSize: 12.5,
-                          fontWeight: 800,
-                          borderRadius: 10,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 8px rgba(4, 120, 87, 0.22)',
-                        }}
-                        title="Buka & Unduh Lembar Kerja Peserta Didik (LKPD) untuk materi ini"
-                      >
-                        <FileText size={14} /> 📄 LKPD Siswa
-                      </motion.button>
-
-                      <motion.button
-                        type="button"
-                        whileHover={{ y: -1 }}
-                        whileTap={cardTapMotion}
                         disabled={isBusy}
                         onClick={async () => {
                           setActiveGeneratingTPId(tp.id);
@@ -392,32 +313,38 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                             setActiveGeneratingTPId(null);
                           }
                         }}
-                        className="btn btn-sm"
-                        style={{
-                          background: '#2563eb',
-                          color: '#ffffff',
-                          border: 'none',
-                          padding: '8px 14px',
-                          fontSize: 12.5,
-                          fontWeight: 800,
-                          borderRadius: 10,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          cursor: isBusy ? 'not-allowed' : 'pointer',
-                          boxShadow: '0 2px 8px rgba(37, 99, 235, 0.22)',
-                        }}
+                        className="btn btn-sm btn-primary"
                       >
-                        <Sparkles size={14} />
-                        {isThisGenerating && isGeneratingAssessment
-                          ? 'Menyusun Soal...'
-                          : '📝 Buat Soal Evaluasi'}
-                      </motion.button>
+                        <Sparkles size={13} aria-hidden="true" />
+                        <span>
+                          {isThisGenerating && isGeneratingAssessment
+                            ? 'Menyusun Soal...'
+                            : 'Buat Soal Evaluasi'}
+                        </span>
+                      </button>
 
-                      <motion.button
+                      <button
                         type="button"
-                        whileHover={{ y: -1 }}
-                        whileTap={cardTapMotion}
+                        onClick={() => onOpenModulAjar(tp, schoolProfile)}
+                        className="btn btn-sm btn-outline"
+                        title="Buka & Unduh Modul Ajar (RPP Kurikulum Merdeka) untuk materi ini"
+                      >
+                        <BookOpen size={13} aria-hidden="true" />
+                        <span>Modul Ajar</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onOpenLKPD(tp, schoolProfile)}
+                        className="btn btn-sm btn-outline"
+                        title="Buka & Unduh Lembar Kerja Peserta Didik (LKPD) untuk materi ini"
+                      >
+                        <FileText size={13} aria-hidden="true" />
+                        <span>LKPD Siswa</span>
+                      </button>
+
+                      <button
+                        type="button"
                         disabled={isBusy}
                         onClick={async () => {
                           setActiveGeneratingTPId(tp.id);
@@ -427,92 +354,47 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                             setActiveGeneratingTPId(null);
                           }
                         }}
-                        className="btn btn-sm"
-                        style={{
-                          background: '#0d9488',
-                          color: '#ffffff',
-                          border: 'none',
-                          padding: '8px 14px',
-                          fontSize: 12.5,
-                          fontWeight: 800,
-                          borderRadius: 10,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          cursor: isBusy ? 'not-allowed' : 'pointer',
-                          boxShadow: '0 2px 8px rgba(13, 148, 136, 0.22)',
-                        }}
+                        className="btn btn-sm btn-outline"
                       >
-                        <BookOpen size={14} />
-                        {isThisGenerating && isGeneratingRangkuman
-                          ? 'Merangkum...'
-                          : '📖 Rangkuman'}
-                      </motion.button>
+                        <BookOpen size={13} aria-hidden="true" />
+                        <span>
+                          {isThisGenerating && isGeneratingRangkuman
+                            ? 'Merangkum...'
+                            : 'Rangkuman'}
+                        </span>
+                      </button>
                     </div>
 
                     {/* Pengaturan Sekunder */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <button
                         type="button"
                         onClick={() => onCustomAssessmentForm(tp, schoolProfile)}
-                        style={{
-                          padding: '5px 10px',
-                          borderRadius: 8,
-                          background: '#f8fafc',
-                          border: '1px solid #cbd5e1',
-                          color: '#334155',
-                          cursor: 'pointer',
-                          fontWeight: 700,
-                          fontSize: 11.5,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
+                        className="btn btn-sm btn-outline"
+                        style={{ fontSize: 12, padding: '5px 9px' }}
                         title="Atur jumlah soal PG, Uraian, dan tingkat kesulitan"
                       >
-                        <Sliders size={12} /> Atur Soal
+                        <Sliders size={12} aria-hidden="true" /> Atur Soal
                       </button>
 
                       <button
                         type="button"
                         onClick={() => onCustomRangkumanForm(tp, schoolProfile)}
-                        style={{
-                          padding: '5px 10px',
-                          borderRadius: 8,
-                          background: '#f8fafc',
-                          border: '1px solid #cbd5e1',
-                          color: '#334155',
-                          cursor: 'pointer',
-                          fontWeight: 700,
-                          fontSize: 11.5,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
+                        className="btn btn-sm btn-outline"
+                        style={{ fontSize: 12, padding: '5px 9px' }}
                         title="Atur cakupan dan panjang materi rangkuman"
                       >
-                        <Sliders size={12} /> Atur Rangkuman
+                        <Sliders size={12} aria-hidden="true" /> Atur Rangkuman
                       </button>
 
                       <button
                         type="button"
                         onClick={() => onStartEditTP(tp)}
-                        style={{
-                          padding: '5px 10px',
-                          borderRadius: 8,
-                          background: '#f8fafc',
-                          border: '1px solid #cbd5e1',
-                          color: '#334155',
-                          cursor: 'pointer',
-                          fontWeight: 700,
-                          fontSize: 11.5,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
+                        className="btn btn-sm btn-outline"
+                        style={{ fontSize: 12, padding: '5px 9px' }}
                         title="Edit teks materi atau tujuan pembelajaran"
                       >
-                        <Edit3 size={12} /> Edit
+                        <Edit3 size={12} aria-hidden="true" /> Edit
                       </button>
 
                       {tpList.length > 1 && (
@@ -520,31 +402,32 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                           type="button"
                           onClick={() => onDeleteTP(tp.id, tp.kode)}
                           style={{
-                            padding: '5px 10px',
+                            padding: '5px 9px',
                             borderRadius: 8,
                             background: '#fef2f2',
                             border: '1px solid #fecaca',
-                            color: '#dc2626',
+                            color: '#b91c1c',
                             cursor: 'pointer',
-                            fontWeight: 700,
-                            fontSize: 11.5,
-                            display: 'flex',
+                            fontFamily: 'var(--font-family)',
+                            fontWeight: 600,
+                            fontSize: 12,
+                            display: 'inline-flex',
                             alignItems: 'center',
                             gap: 4,
                           }}
                           title="Hapus materi ini dari daftar semester"
                         >
-                          <Trash2 size={12} /> Hapus
+                          <Trash2 size={12} aria-hidden="true" /> Hapus
                         </button>
                       )}
                     </div>
                   </div>
                 </div>
               )}
-            </motion.div>
+            </div>
           );
         })}
-      </motion.div>
+      </div>
     </div>
   );
 };

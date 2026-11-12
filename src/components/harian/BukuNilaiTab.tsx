@@ -148,56 +148,31 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
         }}
       >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span
-              style={{
-                background: '#e0f2fe',
-                color: '#0369a1',
-                fontWeight: 800,
-                fontSize: 11,
-                padding: '3px 10px',
-                borderRadius: 99,
-              }}
-            >
-              Administrasi Kelas • Buku Nilai Formatif & Sumatif
-            </span>
-            <span style={{ fontSize: 12, color: '#64748b' }}>
-              Bobot: Formatif 50% • STS 25% • SAS 25%
-            </span>
-          </div>
-          <h2 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
-            Buku & Rekap Nilai Asesmen Per TP (Kurikulum Merdeka)
+          <h2 style={{ fontSize: 19, fontWeight: 700, color: '#172033', margin: 0 }}>
+            Buku nilai per TP
           </h2>
+          <p className="tabular-nums" style={{ fontSize: 13, color: '#64748b', margin: '3px 0 0' }}>
+            Kelas {schoolProfile.rombelAktif} · Bobot nilai akhir: Formatif 50% · STS 25% · SAS 25%
+          </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={() => setIsImportModalOpen(true)}
             className="btn btn-sm btn-outline"
-            style={{
-              fontSize: 12.5,
-              fontWeight: 700,
-              color: '#047857',
-              borderColor: '#6ee7b7',
-              background: '#ecfdf5',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-            }}
-            title="Import atau salin nama siswa langsung dari file Excel / Dapodik"
+            title="Impor atau salin nama siswa dari file Excel / Dapodik"
           >
-            <FileSpreadsheet size={14} /> Impor Siswa dari Excel
+            <FileSpreadsheet size={14} aria-hidden="true" /> Impor Excel
           </button>
 
           <button
             type="button"
             onClick={handlePopulateRealisticScores}
             className="btn btn-sm btn-outline"
-            style={{ fontSize: 12, color: '#166534', borderColor: '#86efac' }}
             title="Isi contoh nilai asesmen secara otomatis"
           >
-            <Sparkles size={13} /> 🎲 Isi Contoh Nilai
+            <Sparkles size={13} aria-hidden="true" /> Isi contoh nilai
           </button>
 
           <button
@@ -207,9 +182,8 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
               window.print();
             }}
             className="btn btn-sm btn-outline"
-            style={{ fontSize: 12 }}
           >
-            <Printer size={13} /> Cetak
+            <Printer size={13} aria-hidden="true" /> Cetak
           </button>
 
           <button
@@ -225,88 +199,82 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
               }
             }}
             className="btn btn-sm btn-primary"
-            style={{ fontSize: 12 }}
           >
-            <Download size={13} /> Unduh Nilai (.docx)
+            <Download size={13} aria-hidden="true" /> Unduh Nilai (.docx)
           </button>
         </div>
       </div>
 
-      {/* Strip Statistik Capaian Nilai Kelas */}
+      {/* Ringkasan Capaian Nilai Kelas */}
       <div
+        className="tabular-nums"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-          gap: 10,
-          marginBottom: 16,
+          gap: 8,
+          marginBottom: 14,
         }}
       >
-        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: '#64748b' }}>Rata-rata Nilai Kelas</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#1e3a8a' }}>{avgKelas}</div>
-        </div>
-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: '#166534', fontWeight: 600 }}>Sangat Baik (&ge; 86)</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#15803d' }}>{totalSangatBaik} Siswa</div>
-        </div>
-        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 600 }}>Baik (71 - 85)</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#2563eb' }}>{totalBaik} Siswa</div>
-        </div>
-        <div style={{ background: '#fefce8', border: '1px solid #fef08a', borderRadius: 8, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: '#854d0e', fontWeight: 600 }}>Cukup (56 - 70)</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#a16207' }}>{totalCukup} Siswa</div>
-        </div>
-        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: '#991b1b', fontWeight: 600 }}>Perlu Bimbingan (&lt; 56)</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#dc2626' }}>{totalPerluBimbingan} Siswa</div>
-        </div>
+        {[
+          { label: 'Rata-rata kelas', val: avgKelas, dot: '#2563eb' },
+          { label: 'Sangat Baik (>= 86)', val: `${totalSangatBaik} siswa`, dot: '#16a34a' },
+          { label: 'Baik (71–85)', val: `${totalBaik} siswa`, dot: '#0284c7' },
+          { label: 'Cukup (56–70)', val: `${totalCukup} siswa`, dot: '#d97706' },
+          { label: 'Perlu Bimbingan (< 56)', val: `${totalPerluBimbingan} siswa`, dot: '#dc2626' },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: 10,
+              padding: '10px 12px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b', fontWeight: 500 }}>
+              <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: stat.dot, flexShrink: 0 }} />
+              <span>{stat.label}</span>
+            </div>
+            <div style={{ fontSize: 19, fontWeight: 700, color: '#172033', marginTop: 2 }}>{stat.val}</div>
+          </div>
+        ))}
       </div>
 
       {/* Tabel Nilai Lengkap */}
-      <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <div className="ws-table-wrap">
+        <table className="ws-table">
           <thead>
-            <tr style={{ background: '#1e3a8a', color: '#ffffff' }}>
-              <th style={{ padding: '8px 4px', border: '1px solid #cbd5e1', width: 35, textAlign: 'center' }}>No</th>
-              <th style={{ padding: '8px 6px', border: '1px solid #cbd5e1', width: 75, textAlign: 'center' }}>NIS</th>
-              <th style={{ padding: '8px 8px', border: '1px solid #cbd5e1', minWidth: 160, textAlign: 'left' }}>
+            <tr>
+              <th style={{ width: 38, textAlign: 'center' }}>No</th>
+              <th style={{ width: 78, textAlign: 'center' }}>NIS</th>
+              <th style={{ minWidth: 160, textAlign: 'left', borderRight: '2px solid #cbd5e1' }}>
                 Nama Peserta Didik
               </th>
 
               {/* Kolom Formatif per TP */}
-              {tpList.map((tp) => (
+              {tpList.map((tp, idx) => (
                 <th
                   key={tp.kode}
                   style={{
-                    padding: '6px 4px',
-                    border: '1px solid #cbd5e1',
-                    width: 52,
+                    width: 54,
                     textAlign: 'center',
-                    fontSize: 11,
+                    fontSize: 11.5,
+                    borderRight: idx === tpList.length - 1 ? '2px solid #cbd5e1' : undefined,
                   }}
                   title={tp.materiPokok}
                 >
-                  {tp.kode}
-                  <div style={{ fontSize: 8.5, opacity: 0.8, fontWeight: 'normal' }}>Formatif</div>
+                  <div>{tp.kode}</div>
+                  <div style={{ fontSize: 9.5, color: '#64748b', fontWeight: 500 }}>Form</div>
                 </th>
               ))}
 
-              <th style={{ padding: '6px 4px', border: '1px solid #cbd5e1', width: 55, textAlign: 'center', background: '#2563eb' }}>
-                R.Form
-              </th>
-              <th style={{ padding: '6px 4px', border: '1px solid #cbd5e1', width: 52, textAlign: 'center', background: '#d97706' }}>
-                STS
-              </th>
-              <th style={{ padding: '6px 4px', border: '1px solid #cbd5e1', width: 52, textAlign: 'center', background: '#d97706' }}>
-                SAS
-              </th>
-              <th style={{ padding: '6px 4px', border: '1px solid #cbd5e1', width: 55, textAlign: 'center', background: '#059669' }}>
+              <th style={{ width: 58, textAlign: 'center', color: '#1d4ed8' }}>R.Form</th>
+              <th style={{ width: 54, textAlign: 'center' }}>STS</th>
+              <th style={{ width: 54, textAlign: 'center' }}>SAS</th>
+              <th style={{ width: 60, textAlign: 'center', color: '#15803d', borderLeft: '2px solid #cbd5e1' }}>
                 N.Akhir
               </th>
-              <th style={{ padding: '6px 6px', border: '1px solid #cbd5e1', width: 95, textAlign: 'center' }}>
-                Predikat KKTP
-              </th>
+              <th style={{ width: 105, textAlign: 'center' }}>Predikat</th>
             </tr>
           </thead>
           <tbody>
@@ -446,8 +414,8 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
             })}
           </tbody>
         </table>
-        <div style={{ padding: '8px 12px', background: '#f8fafc', fontSize: 11.5, color: '#64748b' }}>
-          💡 <strong>Keterangan KKTP:</strong> &ge; 86 (Sangat Baik) • 71 - 85 (Baik / Tuntas) • 56 - 70 (Cukup) • &lt; 56 (Perlu Bimbingan / Remedial). Seluruh perubahan angka otomatis tersimpan & memperbarui deskripsi rapor siswa!
+        <div style={{ padding: '9px 12px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: 12, color: '#64748b' }}>
+          <strong style={{ color: '#334155' }}>Keterangan KKTP:</strong> &ge; 86 (Sangat Baik) · 71–85 (Baik) · 56–70 (Cukup) · &lt; 56 (Perlu Bimbingan). Perubahan nilai tersimpan lokal di perangkat Anda.
         </div>
       </div>
 
