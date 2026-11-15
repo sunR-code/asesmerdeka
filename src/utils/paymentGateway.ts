@@ -1,4 +1,13 @@
-import { activateLicense, deductQuota, getUserQuota, refundQuota, isLicensed } from './licenseManager';
+import {
+  activateLicense,
+  deductQuota,
+  getUserQuota,
+  refundQuota,
+  isLicensed,
+  isLocallyRevokedLicense,
+  isLegacyRevokedCode,
+  normalizeLicenseCodeInput,
+} from './licenseManager';
 import type { UserQuota } from '../types/assessment';
 
 export { deductQuota, refundQuota };
@@ -60,10 +69,83 @@ export interface PaymentInvoiceSession {
   createdAt: string;
   expiresAt: string;
   externalCheckoutUrl?: string;
+  status?: 'pending_payment' | 'paid' | 'payment_failed' | 'expired';
+  transactionId?: string;
 }
 
 const STORAGE_KEY_MAYAR_INDIVIDU = 'asesmerdeka_mayar_link_individu';
 const STORAGE_KEY_MAYAR_SEKOLAH = 'asesmerdeka_mayar_link_sekolah';
+const STORAGE_KEY_PAYMENT_TX_BINDINGS = 'asesmerdeka_payment_tx_bindings_v1';
+
+interface ServerVerifiedTxRecord {
+  transactionId?: string;
+  licenseCode?: string;
+  planType?: string;
+  amount?: number;
+  invoiceId?: string | null;
+  orderId?: string | null;
+  deviceId?: string | null;
+  customerEmail?: string | null;
+  status?: string;
+  verifiedBy?: string;
+}
+
+const createdInvoiceRegistry = new Map<string, PaymentInvoiceSession>();
+const serverVerifiedTxCache = new Map<string, ServerVerifiedTxRecord>();
+
+export function clearPaymentGatewayClientCaches(): void {
+  createdInvoiceRegistry.clear();
+  serverVerifiedTxCache.clear();
+}
+
+function getServerPaymentAuthority(): {
+  verifiedTransactions?: Map<string, ServerVerifiedTxRecord>;
+  paymentOrders?: Map<string, Partial<PaymentInvoiceSession>>;
+} | null {
+  try {
+    const auth = (globalThis as unknown as { __ASESMERDEKA_SERVER_PAYMENT_AUTHORITY__?: unknown })
+      .__ASESMERDEKA_SERVER_PAYMENT_AUTHORITY__;
+    return auth && typeof auth === 'object'
+      ? (auth as {
+          verifiedTransactions?: Map<string, ServerVerifiedTxRecord>;
+          paymentOrders?: Map<string, Partial<PaymentInvoiceSession>>;
+        })
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function getServerAuthorityOrder(invoiceId: string): Partial<PaymentInvoiceSession> | null {
+  const cleanInv = String(invoiceId || '').trim().toUpperCase();
+  if (!cleanInv) return null;
+  const auth = getServerPaymentAuthority();
+  if (!auth?.paymentOrders) return null;
+  return (
+    auth.paymentOrders.get(`asesmerdeka:mayar:order:v1:${cleanInv}`) ||
+    auth.paymentOrders.get(cleanInv) ||
+    null
+  );
+}
+
+function getServerVerifiedTransaction(txId: string): ServerVerifiedTxRecord | null {
+  const cleanTx = String(txId || '').trim().toUpperCase();
+  if (!cleanTx) return null;
+  const cached = serverVerifiedTxCache.get(cleanTx);
+  if (cached && cached.status === 'paid' && Boolean(cached.verifiedBy)) {
+    return cached;
+  }
+  const auth = getServerPaymentAuthority();
+  if (!auth?.verifiedTransactions) return null;
+  const candidate =
+    auth.verifiedTransactions.get(`asesmerdeka:mayar:tx:v1:${cleanTx}`) ||
+    auth.verifiedTransactions.get(cleanTx) ||
+    null;
+  if (candidate && candidate.status === 'paid' && Boolean(candidate.verifiedBy)) {
+    return candidate;
+  }
+  return null;
+}
 
 export function getMayarPaymentLink(planId: OneTimePlanId): string {
   try {
@@ -266,7 +348,7 @@ export function createPaymentInvoiceSession(params: {
     }
   }
 
-  return {
+  const createdSession: PaymentInvoiceSession = {
     invoiceId,
     planId: plan.id,
     planName: plan.name,
@@ -283,21 +365,403 @@ export function createPaymentInvoiceSession(params: {
     createdAt: now.toLocaleString('id-ID'),
     expiresAt: exp.toLocaleString('id-ID'),
     externalCheckoutUrl,
+    status: 'pending_payment',
   };
+
+  createdInvoiceRegistry.set(invoiceId.toUpperCase(), { ...createdSession });
+
+  return createdSession;
+}
+
+function getTxBindings(): Record<string, { licenseCode: string; amount: number; processedAt: string }> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PAYMENT_TX_BINDINGS);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveTxBinding(txId: string, licenseCode: string, amount: number): void {
+  try {
+    const map = getTxBindings();
+    map[txId.trim().toUpperCase()] = {
+      licenseCode: normalizeLicenseCodeInput(licenseCode),
+      amount,
+      processedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(STORAGE_KEY_PAYMENT_TX_BINDINGS, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
+
+export function applyPaymentGatewayCallback(
+  session: PaymentInvoiceSession,
+  callback: {
+    status: 'paid' | 'settled' | 'pending' | 'failed' | 'cancelled' | 'expired';
+    transactionId?: string;
+    paidAmount?: number;
+    licenseCode?: string;
+    teacherPin?: string;
+  }
+): {
+  ok: boolean;
+  session: PaymentInvoiceSession;
+  activated: boolean;
+  idempotentReplay?: boolean;
+  reason?: string;
+  message: string;
+  quota: UserQuota;
+} {
+  const status = String(callback.status || '').toLowerCase();
+  if (status === 'pending') {
+    return {
+      ok: false,
+      activated: false,
+      reason: 'PAYMENT_PENDING',
+      session: { ...session, status: 'pending_payment' },
+      message: 'Pembayaran masih pending. Lisensi belum diaktifkan sebelum pelunasan terkonfirmasi oleh server.',
+      quota: getUserQuota(),
+    };
+  }
+
+  if (status === 'failed' || status === 'cancelled' || status === 'expired') {
+    const nextStatus = status === 'expired' ? 'expired' : 'payment_failed';
+    return {
+      ok: false,
+      activated: false,
+      reason: status === 'expired' ? 'PAYMENT_EXPIRED' : 'PAYMENT_FAILED',
+      session: { ...session, status: nextStatus },
+      message: `Pembayaran ${status === 'expired' ? 'kedaluwarsa' : 'gagal / dibatalkan'}. Lisensi tidak diaktifkan.`,
+      quota: getUserQuota(),
+    };
+  }
+
+  // Zero-Trust Browser Check: Validasi pesanan & catatan transaksi otoritatif dari server Mayar.id
+  const canonicalPlan = ONE_TIME_PLANS[session.planId];
+  const originalOrder =
+    createdInvoiceRegistry.get(String(session.invoiceId || '').trim().toUpperCase()) ||
+    getServerAuthorityOrder(session.invoiceId);
+
+  if (
+    !canonicalPlan ||
+    session.baseAmount !== canonicalPlan.price ||
+    (originalOrder &&
+      (originalOrder.planId !== session.planId ||
+        originalOrder.baseAmount !== session.baseAmount ||
+        (originalOrder.deviceId &&
+          session.deviceId &&
+          String(originalOrder.deviceId).trim().toUpperCase() !==
+            String(session.deviceId).trim().toUpperCase())))
+  ) {
+    return {
+      ok: false,
+      activated: false,
+      reason: 'PLAN_TAMPERED',
+      session: { ...session, status: 'pending_payment' },
+      message: 'Data paket atau sesi invoice telah dimanipulasi di browser.',
+      quota: getUserQuota(),
+    };
+  }
+
+  const txId = String(callback.transactionId || '').trim().toUpperCase();
+  const serverTx = txId ? getServerVerifiedTransaction(txId) : null;
+  if (!txId || !serverTx || serverTx.status !== 'paid') {
+    return {
+      ok: false,
+      activated: false,
+      reason: 'UNVERIFIED_PAYMENT_TRANSACTION',
+      session: { ...session, status: 'pending_payment' },
+      message: 'Transaksi belum terverifikasi oleh server Mayar.id. Status pembayaran dari browser ditolak.',
+      quota: getUserQuota(),
+    };
+  }
+
+  const canonicalMinAmount = canonicalPlan.price;
+  if (
+    callback.paidAmount !== undefined &&
+    (Number(callback.paidAmount) < canonicalMinAmount ||
+      Number(callback.paidAmount) !== Number(serverTx.amount))
+  ) {
+    return {
+      ok: false,
+      activated: false,
+      reason: 'AMOUNT_MANIPULATED',
+      session: { ...session, status: 'payment_failed' },
+      message: 'Nominal pembayaran dari browser tidak sesuai dengan catatan transaksi server.',
+      quota: getUserQuota(),
+    };
+  }
+
+  if (Number(serverTx.amount) < canonicalMinAmount) {
+    return {
+      ok: false,
+      activated: false,
+      reason: 'AMOUNT_MISMATCH',
+      session: { ...session, status: 'payment_failed' },
+      message: `Nominal transaksi server (${serverTx.amount}) kurang dari harga paket (${canonicalMinAmount}).`,
+      quota: getUserQuota(),
+    };
+  }
+
+  const expectSchool = session.planId === 'pro_sekolah' || session.planId === 'sekolah_pro';
+  const txIsSchool = serverTx.planType === 'sekolah' || serverTx.planType === 'sekolah_pro';
+  const cleanCode = normalizeLicenseCodeInput(callback.licenseCode || serverTx.licenseCode || '');
+  const codeIsSchool = cleanCode.startsWith('ASM-SK26-') || cleanCode.startsWith('ASM-SP26-');
+  if (expectSchool !== txIsSchool || (cleanCode && expectSchool !== codeIsSchool)) {
+    return {
+      ok: false,
+      activated: false,
+      reason: 'PRODUCT_PLAN_MISMATCH',
+      session: { ...session, status: 'payment_failed' },
+      message: 'Jenis paket pada invoice tidak sesuai dengan transaksi server.',
+      quota: getUserQuota(),
+    };
+  }
+
+  if (
+    serverTx.licenseCode &&
+    cleanCode &&
+    normalizeLicenseCodeInput(serverTx.licenseCode) !== cleanCode
+  ) {
+    return {
+      ok: false,
+      activated: false,
+      reason: 'TRANSACTION_ALREADY_BOUND',
+      session: { ...session, status: 'pending_payment' },
+      message: 'ID transaksi sudah terikat pada kode lisensi lain.',
+      quota: getUserQuota(),
+    };
+  }
+
+  const txInvoice = String(serverTx.invoiceId || '').trim().toUpperCase();
+  const sessInvoice = String(session.invoiceId || '').trim().toUpperCase();
+  const txDevice = String(serverTx.deviceId || '').trim().toUpperCase();
+  const sessDevice = String(session.deviceId || '').trim().toUpperCase();
+  const txEmail = String(serverTx.customerEmail || '').trim().toLowerCase();
+  const sessEmail = String(session.buyerEmail || '').trim().toLowerCase();
+  if (
+    (txInvoice && sessInvoice && txInvoice !== sessInvoice) ||
+    (txDevice && sessDevice && txDevice !== sessDevice) ||
+    (txEmail && sessEmail && txEmail !== sessEmail)
+  ) {
+    return {
+      ok: false,
+      activated: false,
+      reason: 'TRANSACTION_OWNERSHIP_MISMATCH',
+      session: { ...session, status: 'pending_payment' },
+      message: 'Transaksi ini terdaftar untuk pengguna atau perangkat lain.',
+      quota: getUserQuota(),
+    };
+  }
+
+  if (!cleanCode) {
+    return {
+      ok: false,
+      activated: false,
+      reason: 'AWAITING_LICENSE_CODE',
+      session: { ...session, status: 'paid', transactionId: txId },
+      message: 'Pembayaran lunas terverifikasi server, menunggu kode lisensi resmi.',
+      quota: getUserQuota(),
+    };
+  }
+
+  const verify = verifyGatewayReceiptCode(cleanCode, {
+    transactionId: txId,
+    paidAmount: Number(serverTx.amount),
+    expectedMinAmount: canonicalMinAmount,
+    teacherPin: callback.teacherPin,
+  });
+
+  if (!verify.success) {
+    return {
+      ok: false,
+      activated: false,
+      session: { ...session, status: 'pending_payment' },
+      message: verify.message,
+      quota: verify.quota,
+    };
+  }
+
+  return {
+    ok: true,
+    activated: true,
+    idempotentReplay: verify.idempotentReplay,
+    session: {
+      ...session,
+      status: 'paid',
+      transactionId: txId,
+    },
+    message: verify.message,
+    quota: verify.quota,
+  };
+}
+
+export async function verifyPaymentOrderStatusOnline(
+  session: PaymentInvoiceSession,
+  options?: {
+    transactionId?: string;
+    licenseCode?: string;
+    teacherPin?: string;
+  }
+): Promise<{
+  ok: boolean;
+  session: PaymentInvoiceSession;
+  activated: boolean;
+  idempotentReplay?: boolean;
+  reason?: string;
+  message: string;
+  quota: UserQuota;
+}> {
+  try {
+    const res = await fetch('/api/activate-license', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'verify_payment_order',
+        invoiceId: session.invoiceId,
+        transactionId: options?.transactionId || session.transactionId || '',
+        deviceId: session.deviceId,
+        buyerEmail: session.buyerEmail,
+        planId: session.planId,
+        licenseCode: options?.licenseCode || '',
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.verified || data?.status !== 'paid') {
+      const staleTxId = String(options?.transactionId || session.transactionId || '')
+        .trim()
+        .toUpperCase();
+      if (staleTxId) {
+        serverVerifiedTxCache.delete(staleTxId);
+      }
+      return {
+        ok: false,
+        activated: false,
+        reason: data?.reason || 'UNVERIFIED_PAYMENT_TRANSACTION',
+        session: {
+          ...session,
+          status:
+            data?.status === 'payment_failed' || data?.status === 'expired'
+              ? data.status
+              : 'pending_payment',
+        },
+        message: data?.message || 'Pembayaran masih menunggu konfirmasi server Mayar.id.',
+        quota: getUserQuota(),
+      };
+    }
+
+    const txId = String(data.transactionId || options?.transactionId || '').trim().toUpperCase();
+    const resolvedPlanId = (data.planId as OneTimePlanId) || session.planId;
+    const canonicalPlan = ONE_TIME_PLANS[resolvedPlanId] || ONE_TIME_PLANS[session.planId];
+    const resolvedOrderId = String(data.invoiceId || session.invoiceId || '').trim().toUpperCase();
+
+    if (txId) {
+      serverVerifiedTxCache.set(txId, {
+        transactionId: txId,
+        licenseCode: data.licenseCode || options?.licenseCode,
+        planType: data.planType,
+        amount: Number(data.amount),
+        invoiceId: data.invoiceId || session.invoiceId,
+        orderId: data.orderId || data.invoiceId || session.invoiceId,
+        deviceId: session.deviceId,
+        customerEmail: session.buyerEmail,
+        status: 'paid',
+        verifiedBy: data.authoritySource || 'server_verify_payment_order',
+      });
+    }
+
+    if (resolvedOrderId && canonicalPlan) {
+      createdInvoiceRegistry.set(resolvedOrderId, {
+        ...session,
+        planId: canonicalPlan.id,
+        baseAmount: canonicalPlan.price,
+        deviceId: session.deviceId,
+        buyerEmail: session.buyerEmail,
+      });
+    }
+
+    return applyPaymentGatewayCallback(session, {
+      status: 'paid',
+      transactionId: txId,
+      paidAmount: Number(data.amount),
+      licenseCode: data.licenseCode || options?.licenseCode,
+      teacherPin: options?.teacherPin,
+    });
+  } catch {
+    return {
+      ok: false,
+      activated: false,
+      reason: 'NETWORK_UNREACHABLE',
+      session: { ...session, status: 'pending_payment' },
+      message: 'Gagal menghubungi server verifikasi pembayaran. Status tetap menunggu.',
+      quota: getUserQuota(),
+    };
+  }
 }
 
 /**
  * Memverifikasi Kode Lisensi / Voucher yang diterima setelah pelunasan Invoice Payment Gateway.
- * Menolak aktivasi jika pengguna belum memasukkan kode bukti pembayaran yang sah.
+ * Menolak aktivasi jika kode palsu, dicabut, nominal kurang, atau 1 transaksi dipakai ulang ke lisensi berbeda.
  */
-export function verifyGatewayReceiptCode(receiptCode: string): {
+export function verifyGatewayReceiptCode(
+  receiptCode: string,
+  options?: {
+    transactionId?: string;
+    paidAmount?: number;
+    expectedMinAmount?: number;
+    teacherPin?: string;
+  }
+): {
   success: boolean;
+  idempotentReplay?: boolean;
   message: string;
   quota: UserQuota;
 } {
-  const clean = receiptCode.trim().toUpperCase();
-  if (!clean) {
+  const clean = normalizeLicenseCodeInput(receiptCode);
+  if (!clean || isLegacyRevokedCode(clean) || isLocallyRevokedLicense(clean)) {
     return activateLicense('INVALID-EMPTY-RECEIPT');
   }
-  return activateLicense(clean);
+
+  if (
+    typeof options?.paidAmount === 'number' &&
+    typeof options?.expectedMinAmount === 'number' &&
+    options.paidAmount < options.expectedMinAmount
+  ) {
+    return {
+      success: false,
+      message: `Nominal pembayaran (${options.paidAmount}) tidak mencukupi harga paket (${options.expectedMinAmount}).`,
+      quota: getUserQuota(),
+    };
+  }
+
+  const txId = String(options?.transactionId || '').trim().toUpperCase();
+  if (txId) {
+    const existingBindings = getTxBindings();
+    const prior = existingBindings[txId];
+    if (prior) {
+      if (prior.licenseCode !== clean) {
+        return {
+          success: false,
+          message: `ID Transaksi ${txId} sudah terikat pada lisensi lain dan tidak dapat diklaim untuk lisensi berbeda.`,
+          quota: getUserQuota(),
+        };
+      }
+      const replayRes = activateLicense(clean, { teacherPin: options?.teacherPin });
+      return {
+        ...replayRes,
+        idempotentReplay: true,
+      };
+    }
+  }
+
+  const act = activateLicense(clean, { teacherPin: options?.teacherPin });
+  if (act.success && txId) {
+    saveTxBinding(txId, clean, options?.paidAmount ?? 0);
+  }
+  return act;
 }

@@ -16,6 +16,7 @@ import type { P5ProjectDocument } from '../types/p5Project';
 import type { SchoolProfile } from './schoolProfileStorage';
 import { getSchoolProfile } from './schoolProfileStorage';
 import { requireActiveLicenseForAction } from './licenseManager';
+import { SIMULATION_NOTICE_TEXT } from './kelasHarianStorage';
 
 export async function exportP5ToDocx(
   p5Doc: P5ProjectDocument,
@@ -119,6 +120,23 @@ export async function exportP5ToDocx(
         }),
       ],
     }),
+    ...(p5Doc.isSimulated
+      ? [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 120 },
+            children: [
+              new TextRun({
+                text: `[${SIMULATION_NOTICE_TEXT}]`,
+                bold: true,
+                size: 18,
+                font: 'Calibri',
+                color: 'B45309',
+              }),
+            ],
+          }),
+        ]
+      : []),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 80 },

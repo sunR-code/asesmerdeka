@@ -1,19 +1,44 @@
 import type { SchoolProfile, CustomTPItem } from './schoolProfileStorage';
-import type { 
-  NaskahUjianDokumen, 
-  TipeUjianSemester, 
-  KunciJawabanUjian, 
-  RubrikUraianUjian 
+import type {
+  NaskahUjianDokumen,
+  TipeUjianSemester,
+  KunciJawabanUjian,
+  RubrikUraianUjian,
 } from '../types/examSemester';
-import type { SoalPilihanGanda, SoalPilihanGandaKompleks, SoalUraian, GenerationRequest } from '../types/assessment';
+import type {
+  AsesmenDokumen,
+  GenerationRequest,
+  GenerationSource,
+  SoalPilihanGanda,
+  SoalPilihanGandaKompleks,
+  SoalUraian,
+} from '../types/assessment';
 import { getQuestionBankForRequest } from './asesmenKnowledgeEngine';
+import { getBankSoal } from './bankSoalStorage';
+import {
+  normalizeQuestionText,
+  selectSafeOptionIndexFromBank,
+} from './assessmentQualityEngine';
+import {
+  buildUjianSemesterStorageKey,
+  resolveSchoolId,
+} from './storageIdentity';
 
 export interface ExamGenerationOptions {
   tipe: TipeUjianSemester;
-  jumlahPG: number;
-  jumlahPGK: number;
-  jumlahUraian: number;
+  presetId?: string;
+  jumlahPG?: number;
+  jumlahPGK?: number;
+  jumlahUraian?: number;
   alokasiWaktu?: string;
+  preferBankSoal?: boolean;
+  selectedBankDocIds?: string[];
+}
+
+export interface ExamValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
 }
 
 // Preset konfigurasi soal yang lazim digunakan di sekolah
@@ -80,7 +105,17 @@ export function generateSmartNaskahUjian(
   tpList: CustomTPItem[],
   options: ExamGenerationOptions
 ): NaskahUjianDokumen {
-  const { tipe, jumlahPG, jumlahPGK, jumlahUraian, alokasiWaktu = '90 Menit' } = options;
+  const fallbackPreset =
+    EXAM_PRESETS.find((p) => p.id === options.presetId) || EXAM_PRESETS[0];
+  const {
+    tipe,
+    jumlahPG = fallbackPreset.pg,
+    jumlahPGK = fallbackPreset.pgk,
+    jumlahUraian = fallbackPreset.uraian,
+    alokasiWaktu = fallbackPreset.waktu || '90 Menit',
+    preferBankSoal = true,
+    selectedBankDocIds,
+  } = options;
   
   // Deteksi jenjang pendidikan secara akurat
   const kelasStr = (profile.kelasUtama || '').trim();
@@ -232,8 +267,41 @@ export function generateSmartNaskahUjian(
     ],
   ];
 
-  // Stimulus naratif sesuai jenjang
-  const getStimulus = (materi: string, index: number): string => {
+  const isPPKnSubject = /pancasila|ppkn|pkn|kewarganegaraan/i.test(profile.mataPelajaranUtama || '');
+  const mapelName = (profile.mataPelajaranUtama || 'Mata Pelajaran').trim();
+
+  // Stimulus naratif sesuai jenjang & konteks mapel (tidak memaksakan tema PPKn ke mapel lain)
+  const getStimulus = (materi: string, index: number, tpItem?: CustomTPItem): string => {
+    const tpContext = tpItem?.tujuanPembelajaran
+      ? ` Fokus capaian: ${tpItem.tujuanPembelajaran.replace(/\.$/, '')}.`
+      : '';
+    if (!isPPKnSubject) {
+      if (isSD) {
+        const neutralSD = [
+          `Perhatikan contoh penerapan materi "${materi}" dalam kegiatan belajar ${mapelName} kelas ${profile.kelasUtama || 'SD'} berikut ini.${tpContext}`,
+          `Bacalah uraian singkat tentang konsep inti "${materi}" pada pelajaran ${mapelName} sebelum menjawab pertanyaan.${tpContext}`,
+          `Cermatilah ilustrasi pengamatan sederhana mengenai "${materi}" dalam pembelajaran ${mapelName} berikut.${tpContext}`,
+          `Siswa kelas ${profile.kelasUtama || 'SD'} sedang berlatih memecahkan soal kontekstual tentang "${materi}".${tpContext}`,
+        ];
+        return neutralSD[index % neutralSD.length];
+      }
+      if (isSMP) {
+        const neutralSMP = [
+          `Cermatilah kajian konsep dan aplikasi materi "${materi}" pada mata pelajaran ${mapelName} kelas ${profile.kelasUtama || 'SMP'} berikut.${tpContext}`,
+          `Dalam sebuah kegiatan eksplorasi ${mapelName}, peserta didik mengidentifikasi pola dan prinsip utama dari topik "${materi}".${tpContext}`,
+          `Perhatikan ringkasan studi kasus pembelajaran mengenai "${materi}" yang berkaitan dengan kompetensi ${mapelName} berikut ini.${tpContext}`,
+          `Berdasarkan informasi dan konsep dasar "${materi}" pada mata pelajaran ${mapelName}:${tpContext}`,
+        ];
+        return neutralSMP[index % neutralSMP.length];
+      }
+      const neutralSMA = [
+        `Analisislah kerangka konseptual dan penerapan "${materi}" dalam kajian ${mapelName} jenjang ${profile.kelasUtama || 'SMA/SMK'} berikut.${tpContext}`,
+        `Perhatikan sajian studi kasus analitis mengenai topik "${materi}" pada mata pelajaran ${mapelName} berikut ini.${tpContext}`,
+        `Dalam pemecahan masalah berbasis penalaran ${mapelName}, hubungan antar-prinsip pada topik "${materi}" perlu diuji secara sistematis.${tpContext}`,
+      ];
+      return neutralSMA[index % neutralSMA.length];
+    }
+
     if (isSD) {
       const narasiSD = [
         `Saat kegiatan piket bersama di kelas, Made melihat seorang teman kesulitan mengangkat ember air untuk mengepel lantai.`,
@@ -259,7 +327,7 @@ export function generateSmartNaskahUjian(
       return narasiSMP[index % narasiSMP.length];
     }
 
-    // SMA
+    // SMA PPKn
     const narasiSMA = [
       `Berdasarkan studi komparatif mengenai dinamika penerapan prinsip ${materi} dalam merespons tantangan sosial di era modern:`,
       `Sebuah penelitian sosiologis di lingkungan perkotaan mengungkap bahwa efektivitas pelaksanaan ${materi} dipengaruhi oleh kesadaran partisipatif masyarakat.`,
@@ -269,8 +337,35 @@ export function generateSmartNaskahUjian(
     return narasiSMA[index % narasiSMA.length];
   };
 
-  // Pertanyaan sesuai jenjang
+  // Pertanyaan sesuai jenjang & konteks mapel
   const getPertanyaan = (materi: string, index: number): string => {
+    if (!isPPKnSubject) {
+      if (isSD) {
+        const neutralQSD = [
+          `Berdasarkan uraian tentang "${materi}" di atas, langkah atau pernyataan yang paling tepat adalah...`,
+          `Pernyataan berikut yang sesuai dengan konsep dasar materi "${materi}" pada pelajaran ${mapelName} adalah...`,
+          `Manakah cara yang benar saat menerapkan konsep "${materi}" dalam kegiatan belajar ${mapelName}?`,
+          `Hasil pemahaman yang paling sesuai dengan tujuan pembelajaran "${materi}" adalah...`,
+        ];
+        return neutralQSD[index % neutralQSD.length];
+      }
+      if (isSMP) {
+        const neutralQSMP = [
+          `Berdasarkan informasi pada materi "${materi}", kesimpulan atau penerapan konsep yang paling tepat adalah...`,
+          `Pernyataan berikut yang menunjukkan analisis benar terhadap keterkaitan prinsip "${materi}" dalam ${mapelName} adalah...`,
+          `Langkah penyelesaian yang sistematis dan akurat untuk permasalahan terkait "${materi}" adalah...`,
+          `Faktor utama yang menjelaskan fenomena pada topik "${materi}" dalam pelajaran ${mapelName} adalah...`,
+        ];
+        return neutralQSMP[index % neutralQSMP.length];
+      }
+      const neutralQSMA = [
+        `Berdasarkan analisis konseptual terhadap topik "${materi}", simpulan atau argumen ilmiah yang paling valid adalah...`,
+        `Strategi pemecahan masalah berbasis prinsip "${materi}" dalam kajian ${mapelName} yang paling tepat adalah...`,
+        `Pernyataan yang paling akurat mengevaluasi hubungan sebab-akibat pada konsep "${materi}" adalah...`,
+      ];
+      return neutralQSMA[index % neutralQSMA.length];
+    }
+
     if (isSD) {
       const pertanyaanSD = [
         `Berdasarkan cerita di atas, contoh tindakan terpuji yang mencerminkan materi "${materi}" adalah...`,
@@ -292,7 +387,7 @@ export function generateSmartNaskahUjian(
       return pertanyaanSMP[index % pertanyaanSMP.length];
     }
 
-    // SMA
+    // SMA PPKn
     const pertanyaanSMA = [
       `Berdasarkan analisis terhadap fenomena tersebut, simpulan paling rasional dan berkeadilan mengenai prinsip ${materi} adalah...`,
       `Implikasi yuridis dan sosiologis utama dari inkonsistensi pelaksanaan ${materi} sebagaimana diuraikan dalam wacana adalah...`,
@@ -302,7 +397,7 @@ export function generateSmartNaskahUjian(
     return pertanyaanSMA[index % pertanyaanSMA.length];
   };
 
-  // Dapatkan Bank Soal Otentik Sesuai Mata Pelajaran & Jenjang (Pendidikan Pancasila, IPAS, Matematika, B. Indo, B. Inggris, dll)
+  // Dapatkan Bank Soal tersimpan guru (scoped) & Domain Bank bawaan
   const domainReq: GenerationRequest = {
     mataPelajaran: profile.mataPelajaranUtama || 'Pendidikan Pancasila',
     jenjangFase: isSD ? 'Fase B (Kelas 3-4 SD)' : isSMA ? 'Fase E (Kelas 10 SMA/SMK)' : 'Fase D (Kelas 7-9 SMP)',
@@ -320,99 +415,304 @@ export function generateSmartNaskahUjian(
 
   const domainBank = getQuestionBankForRequest(domainReq, isSMA);
 
+  // Kumpulkan butir soal dari Bank Soal tersimpan guru pada ruang lingkup mapel/kelas/semester aktif
+  const scopedBankDocs: AsesmenDokumen[] = preferBankSoal ? getBankSoal(profile) : [];
+  const selectedIdSet =
+    selectedBankDocIds && selectedBankDocIds.length > 0 ? new Set(selectedBankDocIds) : null;
+  const filteredBankDocs = scopedBankDocs.filter((doc) => {
+    if (selectedIdSet && !selectedIdSet.has(doc.id)) return false;
+    const docMapel = (doc.mataPelajaran || '').trim().toLowerCase();
+    return !docMapel || docMapel === mapelName.toLowerCase();
+  });
+
+  const activeTpIdSet = new Set(activeTPs.map((t) => t.id).filter(Boolean));
+  const activeTpMateriKeywords = activeTPs.map((t) =>
+    normalizeQuestionText(`${t.materiPokok} ${t.tujuanPembelajaran}`)
+  );
+
+  const scoreDocRelevance = (doc: AsesmenDokumen): number => {
+    let score = 0;
+    if (doc.tpIds && doc.tpIds.some((id) => activeTpIdSet.has(id))) score += 10;
+    const normDocMateri = normalizeQuestionText(doc.materiPokok || '');
+    if (normDocMateri && activeTpMateriKeywords.some((kw) => kw.includes(normDocMateri) || normDocMateri.includes(kw))) {
+      score += 5;
+    }
+    return score;
+  };
+
+  const sortedBankDocs = [...filteredBankDocs].sort((a, b) => scoreDocRelevance(b) - scoreDocRelevance(a));
+
+  const bankPGPool: { item: SoalPilihanGanda; doc: AsesmenDokumen }[] = [];
+  const bankPGKPool: { item: SoalPilihanGandaKompleks; doc: AsesmenDokumen }[] = [];
+  const bankUraianPool: { item: SoalUraian; doc: AsesmenDokumen }[] = [];
+
+  for (const doc of sortedBankDocs) {
+    for (const q of doc.soalList || []) {
+      if (q.tipe === 'pilihan_ganda') bankPGPool.push({ item: q, doc });
+      else if (q.tipe === 'pilihan_ganda_kompleks') bankPGKPool.push({ item: q, doc });
+      else if (q.tipe === 'uraian') bankUraianPool.push({ item: q, doc });
+    }
+  }
+
+  let fromBankSoal = 0;
+  let fromDomainBank = 0;
+  let fromFallback = 0;
+  const usedQuestionTexts = new Set<string>();
+  let domainPGCursor = 0;
+  let domainPGKCursor = 0;
+  let domainUraianCursor = 0;
+
+  const PEDAGOGICAL_ANGLES = [
+    'ditinjau dari identifikasi konsep inti',
+    'melalui perbandingan contoh dan non-contoh penerapan',
+    'dalam skenario pemecahan masalah bertahap',
+    'dengan menekankan ketelitian prosedur dan verifikasi hasil',
+    'berdasarkan hubungan sebab-akibat antarkomponen',
+    'untuk mengevaluasi ketepatan strategi penyelesaian',
+    'melalui interpretasi data dan situasi kontekstual sekolah',
+    'dalam menarik simpulan berbasis bukti',
+    'ditinjau dari deteksi kekeliruan langkah penyelesaian',
+    'melalui generalisasi pola dan prinsip dasar',
+    'dalam menghubungkan konsep dengan aktivitas sehari-hari',
+    'berdasarkan uji kesesuaian syarat dan aturan materi',
+  ];
+
+  const ensureUniqueExamStem = (rawStem: string, tp: CustomTPItem, slotNo: number): string => {
+    const trimmed = rawStem.trim();
+    const baseNorm = normalizeQuestionText(trimmed);
+    if (baseNorm && !usedQuestionTexts.has(baseNorm)) {
+      usedQuestionTexts.add(baseNorm);
+      return trimmed;
+    }
+    const subPool = (tp.subTP || [])
+      .map((s) => s.fokusMateri || s.kompetensi)
+      .filter(Boolean);
+    for (let attempt = 0; attempt < PEDAGOGICAL_ANGLES.length; attempt++) {
+      const angle = PEDAGOGICAL_ANGLES[(slotNo + attempt) % PEDAGOGICAL_ANGLES.length];
+      const subFocus =
+        subPool.length > 0 ? subPool[(slotNo + attempt) % subPool.length] : tp.materiPokok;
+      const candidate = trimmed.endsWith('...')
+        ? `${trimmed.slice(0, -3)} (${angle} pada fokus "${subFocus}")...`
+        : trimmed.endsWith('?') || trimmed.endsWith('!')
+        ? `${trimmed.slice(0, -1)} (${angle} terkait "${subFocus}")${trimmed.slice(-1)}`
+        : `${trimmed} (${angle} terkait "${subFocus}").`;
+      const norm = normalizeQuestionText(candidate);
+      if (norm && !usedQuestionTexts.has(norm)) {
+        usedQuestionTexts.add(norm);
+        return candidate;
+      }
+    }
+    const finalCandidate = `${trimmed} (fokus indikator ${tp.kode || 'TP'} butir ${slotNo})`;
+    usedQuestionTexts.add(normalizeQuestionText(finalCandidate));
+    return finalCandidate;
+  };
+
+  const tpAllocationMap = new Map<
+    string,
+    { id?: string; kode: string; materiPokok: string; alokasiSoal: number; subTpSet: Set<string> }
+  >();
+  activeTPs.forEach((tp, idx) => {
+    const key = tp.id || tp.kode || `tp_${idx}`;
+    tpAllocationMap.set(key, {
+      id: tp.id,
+      kode: tp.kode || `TP-${String(idx + 1).padStart(2, '0')}`,
+      materiPokok: tp.materiPokok || tp.tujuanPembelajaran,
+      alokasiSoal: 0,
+      subTpSet: new Set<string>(),
+    });
+  });
+
+  const recordTpAllocation = (tp: CustomTPItem, idxFallback: number, subTpText?: string) => {
+    const key = tp.id || tp.kode || `tp_${idxFallback}`;
+    const entry = tpAllocationMap.get(key);
+    if (entry) {
+      entry.alokasiSoal += 1;
+      if (subTpText) entry.subTpSet.add(subTpText);
+    }
+  };
+
+  const pickTPForQuestion = (questionTpId?: string, questionTpKode?: string, fallbackIdx = 0): { tp: CustomTPItem; tpIdx: number } => {
+    if (questionTpId) {
+      const idx = activeTPs.findIndex((t) => t.id === questionTpId);
+      if (idx >= 0) return { tp: activeTPs[idx], tpIdx: idx };
+    }
+    if (questionTpKode) {
+      const idx = activeTPs.findIndex((t) => t.kode === questionTpKode);
+      if (idx >= 0) return { tp: activeTPs[idx], tpIdx: idx };
+    }
+    const idx = fallbackIdx % activeTPs.length;
+    return { tp: activeTPs[idx], tpIdx: idx };
+  };
+
   // 1. Generate Soal Pilihan Ganda (PG)
   const soalPG: SoalPilihanGanda[] = [];
   const kunciPG: KunciJawabanUjian[] = [];
+  let bankPGCursor = 0;
 
   for (let i = 0; i < jumlahPG; i++) {
     const no = i + 1;
-    const tp = activeTPs[i % activeTPs.length];
 
-    // Jalur Utama: Gunakan butir soal otentik dari Domain Question Bank jika tersedia
+    // Prioritas 1: Butir PG dari Bank Soal tersimpan guru (terisolasi scope)
+    let pickedFromBank: { item: SoalPilihanGanda; doc: AsesmenDokumen } | null = null;
+    while (bankPGCursor < bankPGPool.length) {
+      const candidate = bankPGPool[bankPGCursor++];
+      const norm = normalizeQuestionText(candidate.item.pertanyaan);
+      if (norm && !usedQuestionTexts.has(norm)) {
+        usedQuestionTexts.add(norm);
+        pickedFromBank = candidate;
+        break;
+      }
+    }
+
+    if (pickedFromBank) {
+      const { item, doc } = pickedFromBank;
+      const { tp, tpIdx } = pickTPForQuestion(item.tpId || doc.tpIds?.[0], item.tpKode, i);
+      const rawOptions = (item.pilihan || []).map((p) => p.teks).filter(Boolean);
+      const safe = selectSafeOptionIndexFromBank(
+        rawOptions.length >= 2 ? rawOptions : ['Benar sesuai konsep', 'Kurang tepat', 'Tidak relevan', 'Bertentangan'],
+        item.kunci || 'A',
+        labelOptions.length,
+        i % labelOptions.length
+      );
+      const pembahasanClean = (item.pembahasan || `Kunci jawaban yang tepat adalah ${safe.kunci}.`)
+        .replace(/\[Kunci:\s*[A-E]\]/gi, '')
+        .trim();
+
+      soalPG.push({
+        id: `soal_pg_${no}`,
+        nomor: no,
+        tipe: 'pilihan_ganda',
+        stimulus: item.stimulus,
+        pertanyaan: item.pertanyaan,
+        pilihan: safe.pilihan,
+        kunci: safe.kunci,
+        pembahasan: `${pembahasanClean} [Kunci: ${safe.kunci}]`,
+        levelKognitif: item.levelKognitif || 'C2 (Memahami)',
+        indikatorSoal: item.indikatorSoal || `Mengukur ketercapaian ${tp.kode}: ${tp.materiPokok}`,
+        skor: item.skor || 1,
+        tpId: item.tpId || tp.id,
+        tpKode: item.tpKode || tp.kode,
+        subTpId: item.subTpId,
+        subTpDeskripsi: item.subTpDeskripsi || tp.subTP?.[0]?.kompetensi,
+        bloomLevel: item.bloomLevel,
+        cognitiveTier: item.cognitiveTier,
+        sourceType: 'curated_bank',
+      });
+
+      kunciPG.push({
+        nomor: no,
+        tipe: 'pilihan_ganda',
+        kunci: safe.kunci,
+        pembahasan: `${pembahasanClean} [Kunci: ${safe.kunci}]`,
+        levelKognitif: item.levelKognitif || 'C2 (Memahami)',
+        skor: item.skor || 1,
+      });
+
+      fromBankSoal++;
+      recordTpAllocation(tp, tpIdx, item.subTpDeskripsi || tp.subTP?.[0]?.kompetensi);
+      continue;
+    }
+
+    const tpIdx = i % activeTPs.length;
+    const tp = activeTPs[tpIdx];
+
+    // Prioritas 2: Domain bank bawaan (tanpa menduplikasi butir ketika kuota PG melebihi bank)
+    let pickedDomainPG: NonNullable<typeof domainBank>['pgPool'][number] | null = null;
     if (domainBank && domainBank.pgPool && domainBank.pgPool.length > 0) {
-      const tpl = domainBank.pgPool[i % domainBank.pgPool.length];
-      const cycle = Math.floor(i / domainBank.pgPool.length);
-
-      const rawOptions = [...tpl.opsi5];
-      while (rawOptions.length < labelOptions.length) {
-        rawOptions.push(`Pilihan jawaban ${rawOptions.length + 1}`);
+      while (domainPGCursor < domainBank.pgPool.length) {
+        const candidate = domainBank.pgPool[domainPGCursor++];
+        const norm = normalizeQuestionText(candidate.pertanyaan);
+        if (norm && !usedQuestionTexts.has(norm)) {
+          usedQuestionTexts.add(norm);
+          pickedDomainPG = candidate;
+          break;
+        }
       }
-      const trimmed = rawOptions.slice(0, labelOptions.length);
+    }
 
-      const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3, E: 4 };
-      const origKeyIdx = letterToIndex[tpl.kunci] ?? 0;
-      const targetIdx = i % labelOptions.length;
-      const targetLetter = labelOptions[targetIdx];
-      const correctText = trimmed[origKeyIdx] ?? trimmed[0];
+    if (pickedDomainPG) {
+      const tpl = pickedDomainPG;
 
-      if (origKeyIdx !== targetIdx && origKeyIdx < trimmed.length) {
-        const temp = trimmed[targetIdx];
-        trimmed[targetIdx] = trimmed[origKeyIdx];
-        trimmed[origKeyIdx] = temp;
-      }
+      const safe = selectSafeOptionIndexFromBank(
+        tpl.opsi5 || [],
+        tpl.kunci || 'A',
+        labelOptions.length,
+        i % labelOptions.length
+      );
 
-      const pilihan = labelOptions.map((label, idx) => ({
-        label,
-        teks: trimmed[idx] || correctText,
-      }));
+      let updatedPembahasan = (tpl.pembahasan || '')
+        .replace(/\(Pilihan\s+[A-E]\)/gi, `(Pilihan ${safe.kunci})`)
+        .replace(/\badalah\s+(?:pilihan|opsi)\s+[A-E]\b/gi, `adalah pilihan ${safe.kunci}`)
+        .replace(/\bjawaban\s+(?:yang\s+)?(?:benar|tepat)\s+adalah\s+(?:pilihan|opsi)?\s*[A-E]\b/gi, `jawaban yang tepat adalah ${safe.kunci}`)
+        .replace(/\[Kunci:\s*[A-E]\]/gi, '')
+        .trim();
 
-      const updatedPembahasan = tpl.pembahasan
-        .replace(/\(Pilihan\s+[A-E]\)/g, `(Pilihan ${targetLetter})`)
-        .replace(/adalah\s+pilihan\s+[A-E]\b/gi, `adalah pilihan ${targetLetter}`)
-        .replace(/jawaban\s+yang\s+tepat\s+adalah\s+[A-E]\b/gi, `jawaban yang tepat adalah ${targetLetter}`);
-
-      const prefix = cycle > 0 ? `[Pengayaan Butir #${cycle + 1}] ` : '';
+      const qText = tpl.pertanyaan;
 
       soalPG.push({
         id: `soal_pg_${no}`,
         nomor: no,
         tipe: 'pilihan_ganda',
         stimulus: tpl.stimulus,
-        pertanyaan: `${prefix}${tpl.pertanyaan}`,
-        pilihan,
-        kunci: targetLetter,
-        pembahasan: `${updatedPembahasan} [Kunci: ${targetLetter}]`,
+        pertanyaan: qText,
+        pilihan: safe.pilihan,
+        kunci: safe.kunci,
+        pembahasan: `${updatedPembahasan} [Kunci: ${safe.kunci}]`,
         levelKognitif: tpl.levelKognitif,
         indikatorSoal: tpl.indikatorSoal || `Disajikan stimulus kontekstual tentang ${tp.materiPokok}, peserta didik mampu menentukan jawaban yang paling tepat.`,
         skor: 1,
+        tpId: tp.id,
+        tpKode: tp.kode,
+        subTpDeskripsi: tp.subTP?.[0]?.kompetensi,
+        sourceType: 'curated_bank',
       });
 
       kunciPG.push({
         nomor: no,
         tipe: 'pilihan_ganda',
-        kunci: targetLetter,
-        pembahasan: `${updatedPembahasan} [Kunci: ${targetLetter}]`,
+        kunci: safe.kunci,
+        pembahasan: `${updatedPembahasan} [Kunci: ${safe.kunci}]`,
+        levelKognitif: tpl.levelKognitif,
         skor: 1,
       });
+
+      fromDomainBank++;
+      recordTpAllocation(tp, tpIdx, tp.subTP?.[0]?.kompetensi);
       continue;
     }
 
-    // Jalur Cadangan Kontekstual
+    // Prioritas 3: Jalur Cadangan Kontekstual
     const correctLetter = labelOptions[i % labelOptions.length];
-    const stimulus = getStimulus(tp.materiPokok, i);
-    const pertanyaan = getPertanyaan(tp.materiPokok, i);
+    const stimulus = getStimulus(tp.materiPokok, i, tp);
+    const pertanyaan = ensureUniqueExamStem(getPertanyaan(tp.materiPokok, i), tp, no);
 
-    // Dapatkan teks jawaban benar
     let teksBenar = '';
-    if (isSD) {
-      teksBenar = bankBenarSD[i % bankBenarSD.length];
-    } else if (isSMP) {
-      teksBenar = bankBenarSMP[i % bankBenarSMP.length];
-    } else {
-      teksBenar = bankBenarSMA[i % bankBenarSMA.length];
-    }
-
-    // Dapatkan kumpulan distraktor
     let distractorPool: string[] = [];
-    if (isSD) {
+
+    if (!isPPKnSubject) {
+      const tpGoalShort = (tp.tujuanPembelajaran || tp.materiPokok).replace(/\.$/, '');
+      teksBenar = isSD
+        ? `Memahami dan menerapkan konsep "${tp.materiPokok}" secara tepat sesuai ${tpGoalShort}.`
+        : isSMP
+        ? `Menganalisis prinsip kerja dan hubungan antar-konsep pada materi "${tp.materiPokok}" (${tpGoalShort}) secara runtut.`
+        : `Mengevaluasi keterkaitan konseptual dan pemecahan masalah berbasis data pada topik "${tp.materiPokok}" (${tpGoalShort}).`;
+      distractorPool = [
+        `Mengabaikan prinsip dasar ${tp.materiPokok} tanpa memeriksa kesesuaian data dan konsep ${mapelName}.`,
+        `Menyimpulkan hasil pengamatan secara tergesa-gesa sebelum menguji keterkaitan konsep ${tp.materiPokok}.`,
+        `Menggunakan langkah yang tidak relevan dengan tujuan pembelajaran ${tp.materiPokok}.`,
+        `Menyamaratakan seluruh kasus tanpa mempertimbangkan syarat berlakunya konsep ${tp.materiPokok}.`,
+      ];
+    } else if (isSD) {
+      teksBenar = bankBenarSD[i % bankBenarSD.length];
       distractorPool = bankDistraktorSD[i % bankDistraktorSD.length];
     } else if (isSMP) {
+      teksBenar = bankBenarSMP[i % bankBenarSMP.length];
       distractorPool = bankDistraktorSMP[i % bankDistraktorSMP.length];
     } else {
+      teksBenar = bankBenarSMA[i % bankBenarSMA.length];
       distractorPool = bankDistraktorSMA[i % bankDistraktorSMA.length];
     }
 
-    // Susun pilihan A, B, C, D (atau E)
     let distractorIndex = 0;
     const pilihan = labelOptions.map((opt) => {
       if (opt === correctLetter) {
@@ -423,7 +723,9 @@ export function generateSmartNaskahUjian(
       return { label: opt, teks: distText };
     });
 
-    const pembahasan = isSD
+    const pembahasan = !isPPKnSubject
+      ? `Kunci jawaban ${correctLetter}: Pilihan ini paling sesuai dengan esensi materi "${tp.materiPokok}" pada mata pelajaran ${mapelName}.`
+      : isSD
       ? `Kunci jawaban ${correctLetter}: Opsi ini merupakan cerminan sikap terpuji, adil, dan bertanggung jawab yang sesuai dengan materi "${tp.materiPokok}".`
       : isSMP
       ? `Kunci jawaban ${correctLetter}: Pilihan ini mengedepankan nalar kritis, musyawarah, dan pemenuhan tanggung jawab sosial sesuai capaian ${tp.kode}.`
@@ -432,6 +734,8 @@ export function generateSmartNaskahUjian(
     const levelKognitif = isSD
       ? (i % 2 === 0 ? 'C2 (Memahami)' : 'C3 (Menerapkan)')
       : (i % 3 === 0 ? 'C4 (Menganalisis)' : i % 2 === 0 ? 'C3 (Menerapkan)' : 'C2 (Memahami)');
+
+    usedQuestionTexts.add(normalizeQuestionText(pertanyaan));
 
     soalPG.push({
       id: `soal_pg_${no}`,
@@ -443,8 +747,12 @@ export function generateSmartNaskahUjian(
       kunci: correctLetter,
       pembahasan,
       levelKognitif,
-      indikatorSoal: `Disajikan stimulus kontekstual tentang ${tp.materiPokok}, peserta didik mampu menentukan pilihan sikap/solusi yang paling tepat.`,
+      indikatorSoal: `Disajikan stimulus kontekstual tentang ${tp.materiPokok}, peserta didik mampu menentukan jawaban yang paling tepat.`,
       skor: 1,
+      tpId: tp.id,
+      tpKode: tp.kode,
+      subTpDeskripsi: tp.subTP?.[0]?.kompetensi,
+      sourceType: 'adaptive_fallback',
     });
 
     kunciPG.push({
@@ -452,23 +760,98 @@ export function generateSmartNaskahUjian(
       tipe: 'pilihan_ganda',
       kunci: correctLetter,
       pembahasan,
+      levelKognitif,
       skor: 1,
     });
+
+    fromFallback++;
+    recordTpAllocation(tp, tpIdx, tp.subTP?.[0]?.kompetensi);
   }
 
   // 2. Generate Soal Pilihan Ganda Kompleks (PGK)
   const soalPGK: SoalPilihanGandaKompleks[] = [];
   const kunciPGK: KunciJawabanUjian[] = [];
+  let bankPGKCursor = 0;
 
   for (let j = 0; j < jumlahPGK; j++) {
     const no = jumlahPG + j + 1;
-    const tp = activeTPs[(jumlahPG + j) % activeTPs.length];
 
-    // Jalur Utama: Ambil butir soal PGK dari domain bank jika tersedia
+    // Prioritas 1: Bank Soal tersimpan guru
+    let pickedPGK: { item: SoalPilihanGandaKompleks; doc: AsesmenDokumen } | null = null;
+    while (bankPGKCursor < bankPGKPool.length) {
+      const candidate = bankPGKPool[bankPGKCursor++];
+      const norm = normalizeQuestionText(candidate.item.pertanyaan);
+      if (norm && !usedQuestionTexts.has(norm)) {
+        usedQuestionTexts.add(norm);
+        pickedPGK = candidate;
+        break;
+      }
+    }
+
+    if (pickedPGK) {
+      const { item, doc } = pickedPGK;
+      const { tp, tpIdx } = pickTPForQuestion(item.tpId || doc.tpIds?.[0], item.tpKode, jumlahPG + j);
+      const pernyataan = (item.pernyataan || []).map((p, idx) => ({
+        id: `p_${no}_${idx + 1}`,
+        teks: p.teks,
+        isBenar: Boolean(p.isBenar),
+      }));
+      const formatKunciPGK = pernyataan.map((p, idx) => `(${idx + 1}) ${p.isBenar ? 'B' : 'S'}`).join(', ');
+      const lvl = item.levelKognitif || (isSD ? 'C3 (Menerapkan)' : 'C4 (Menganalisis)');
+
+      soalPGK.push({
+        id: `soal_pgk_${no}`,
+        nomor: no,
+        tipe: 'pilihan_ganda_kompleks',
+        stimulus: item.stimulus,
+        pertanyaan: item.pertanyaan,
+        pernyataan,
+        pembahasan: item.pembahasan || `Kunci: ${formatKunciPGK}`,
+        levelKognitif: lvl,
+        indikatorSoal: item.indikatorSoal || `Peserta didik mampu memvalidasi kebenaran pernyataan terkait ${tp.materiPokok}.`,
+        skor: item.skor || 2,
+        tpId: item.tpId || tp.id,
+        tpKode: item.tpKode || tp.kode,
+        subTpId: item.subTpId,
+        subTpDeskripsi: item.subTpDeskripsi || tp.subTP?.[0]?.kompetensi,
+        bloomLevel: item.bloomLevel,
+        cognitiveTier: item.cognitiveTier,
+        sourceType: 'curated_bank',
+      });
+
+      kunciPGK.push({
+        nomor: no,
+        tipe: 'pilihan_ganda_kompleks',
+        kunci: formatKunciPGK,
+        pembahasan: item.pembahasan || `Kunci: ${formatKunciPGK}`,
+        levelKognitif: lvl,
+        skor: item.skor || 2,
+      });
+
+      fromBankSoal++;
+      recordTpAllocation(tp, tpIdx, item.subTpDeskripsi || tp.subTP?.[0]?.kompetensi);
+      continue;
+    }
+
+    const tpIdx = (jumlahPG + j) % activeTPs.length;
+    const tp = activeTPs[tpIdx];
+
+    // Prioritas 2: Jalur Utama dari domain bank bawaan (tanpa menduplikasi butir)
+    let pickedDomainPGK: NonNullable<typeof domainBank>['pgkPool'][number] | null = null;
     if (domainBank && domainBank.pgkPool && domainBank.pgkPool.length > 0) {
-      const tpl = domainBank.pgkPool[j % domainBank.pgkPool.length];
-      const cycle = Math.floor(j / domainBank.pgkPool.length);
-      const prefix = cycle > 0 ? `[Analisis Lanjutan #${cycle + 1}] ` : '';
+      while (domainPGKCursor < domainBank.pgkPool.length) {
+        const candidate = domainBank.pgkPool[domainPGKCursor++];
+        const norm = normalizeQuestionText(candidate.pertanyaan);
+        if (norm && !usedQuestionTexts.has(norm)) {
+          usedQuestionTexts.add(norm);
+          pickedDomainPGK = candidate;
+          break;
+        }
+      }
+    }
+
+    if (pickedDomainPGK) {
+      const tpl = pickedDomainPGK;
 
       const pernyataan = tpl.pernyataan.map((p, idx) => ({
         id: `p_${no}_${idx + 1}`,
@@ -477,33 +860,68 @@ export function generateSmartNaskahUjian(
       }));
 
       const formatKunciPGK = pernyataan.map((p, idx) => `(${idx + 1}) ${p.isBenar ? 'B' : 'S'}`).join(', ');
+      const lvl = isSD ? 'C3 (Menerapkan)' : 'C4 (Menganalisis)';
+      const qText = tpl.pertanyaan;
 
       soalPGK.push({
         id: `soal_pgk_${no}`,
         nomor: no,
         tipe: 'pilihan_ganda_kompleks',
         stimulus: tpl.stimulus,
-        pertanyaan: `${prefix}${tpl.pertanyaan}`,
+        pertanyaan: qText,
         pernyataan,
         pembahasan: tpl.pembahasan,
-        levelKognitif: isSD ? 'C3 (Menerapkan)' : 'C4 (Menganalisis)',
+        levelKognitif: lvl,
         indikatorSoal: tpl.indikatorSoal || `Peserta didik mampu memvalidasi kebenaran butir pernyataan terkait ${tp.materiPokok}.`,
         skor: 2,
+        tpId: tp.id,
+        tpKode: tp.kode,
+        subTpDeskripsi: tp.subTP?.[0]?.kompetensi,
+        sourceType: 'curated_bank',
       });
 
       kunciPGK.push({
         nomor: no,
         tipe: 'pilihan_ganda_kompleks',
         kunci: formatKunciPGK,
-        pembahasan: `Kunci: ${formatKunciPGK}`,
+        pembahasan: tpl.pembahasan || `Kunci: ${formatKunciPGK}`,
+        levelKognitif: lvl,
         skor: 2,
       });
+
+      fromDomainBank++;
+      recordTpAllocation(tp, tpIdx, tp.subTP?.[0]?.kompetensi);
       continue;
     }
 
+    // Prioritas 3: Cadangan kontekstual sesuai mapel (bukan PPKn kecuali mapelnya PPKn)
     let pernyataan: { id: string; teks: string; isBenar: boolean }[] = [];
 
-    if (isSD) {
+    if (!isPPKnSubject) {
+      const tpGoalShort = (tp.tujuanPembelajaran || tp.materiPokok).replace(/\.$/, '');
+      pernyataan = [
+        {
+          id: `p_${no}_1`,
+          teks: `Konsep utama "${tp.materiPokok}" digunakan dalam pelajaran ${mapelName} untuk mencapai ${tpGoalShort}.`,
+          isBenar: true,
+        },
+        {
+          id: `p_${no}_2`,
+          teks: `Dalam mempelajari "${tp.materiPokok}", langkah pembuktian dan ketepatan konsep dapat diabaikan.`,
+          isBenar: false,
+        },
+        {
+          id: `p_${no}_3`,
+          teks: `Pemahaman yang utuh terhadap materi "${tp.materiPokok}" membantu memecahkan soal kontekstual pada ${mapelName}.`,
+          isBenar: true,
+        },
+        {
+          id: `p_${no}_4`,
+          teks: `Materi "${tp.materiPokok}" tidak memiliki keterkaitan konsep maupun penerapan dengan topik ${mapelName} kelas ${profile.kelasUtama || 'aktif'}.`,
+          isBenar: false,
+        },
+      ];
+    } else if (isSD) {
       pernyataan = [
         {
           id: `p_${no}_1`,
@@ -574,13 +992,22 @@ export function generateSmartNaskahUjian(
       ];
     }
 
-    const stimulusPGK = isSD
+    const stimulusPGK = !isPPKnSubject
+      ? `Cermatilah beberapa pernyataan konseptual mengenai materi "${tp.materiPokok}" dalam mata pelajaran ${mapelName} berikut ini:`
+      : isSD
       ? `Bacalah dengan saksama beberapa pernyataan tentang kebiasaan hidup rukun dan bertanggung jawab di lingkungan sekolah berikut ini:`
       : `Cermatilah infografis naratif mengenai dinamika penerapan ${tp.materiPokok} dalam kehidupan nyata peserta didik berikut:`;
 
-    const pertanyaanPGK = `Tentukan kebenaran dari setiap butir pernyataan di bawah ini dengan memberi tanda centang (✓) pada kolom Benar atau Salah!`;
-
-    const pembahasanPGK = `Pernyataan 1 dan 3 bernilai BENAR karena merefleksikan nilai-nilai positif materi. Pernyataan 2 dan 4 bernilai SALAH karena bertentangan dengan norma dan aturan bersama.`;
+    const pertanyaanPGK = ensureUniqueExamStem(
+      `Tentukan kebenaran dari setiap butir pernyataan mengenai "${tp.materiPokok}" di bawah ini dengan memberi tanda centang (✓) pada kolom Benar atau Salah!`,
+      tp,
+      no
+    );
+    const formatKunciPGK = pernyataan.map((p, idx) => `(${idx + 1}) ${p.isBenar ? 'B' : 'S'}`).join(', ');
+    const pembahasanPGK = !isPPKnSubject
+      ? `Kunci ${formatKunciPGK}. Pernyataan 1 dan 3 sesuai dengan konsep "${tp.materiPokok}" pada ${mapelName}, sedangkan pernyataan 2 dan 4 bertentangan dengan prinsip keilmuan materi.`
+      : `Pernyataan 1 dan 3 bernilai BENAR karena merefleksikan nilai-nilai positif materi. Pernyataan 2 dan 4 bernilai SALAH karena bertentangan dengan norma dan aturan bersama.`;
+    const lvl = isSD ? 'C3 (Menerapkan)' : 'C4 (Menganalisis)';
 
     soalPGK.push({
       id: `soal_pgk_${no}`,
@@ -590,24 +1017,32 @@ export function generateSmartNaskahUjian(
       pertanyaan: pertanyaanPGK,
       pernyataan,
       pembahasan: pembahasanPGK,
-      levelKognitif: isSD ? 'C3 (Menerapkan)' : 'C4 (Menganalisis)',
-      indikatorSoal: `Peserta didik mampu memvalidasi kebenaran butir pernyataan etis/analitis terkait materi ${tp.materiPokok}.`,
+      levelKognitif: lvl,
+      indikatorSoal: `Peserta didik mampu memvalidasi kebenaran butir pernyataan terkait materi ${tp.materiPokok}.`,
       skor: 2,
+      tpId: tp.id,
+      tpKode: tp.kode,
+      subTpDeskripsi: tp.subTP?.[0]?.kompetensi,
+      sourceType: 'adaptive_fallback',
     });
 
-    const formatKunciPGK = pernyataan.map((p, idx) => `(${idx + 1}) ${p.isBenar ? 'B' : 'S'}`).join(', ');
     kunciPGK.push({
       nomor: no,
       tipe: 'pilihan_ganda_kompleks',
       kunci: formatKunciPGK,
-      pembahasan: `Kunci: ${formatKunciPGK}`,
+      pembahasan: pembahasanPGK,
+      levelKognitif: lvl,
       skor: 2,
     });
+
+    fromFallback++;
+    recordTpAllocation(tp, tpIdx, tp.subTP?.[0]?.kompetensi);
   }
 
   // 3. Generate Soal Uraian HOTS
   const soalUraian: SoalUraian[] = [];
   const rubrikUraian: RubrikUraianUjian[] = [];
+  let bankUraianCursor = 0;
 
   const daftarUraianSD = [
     {
@@ -669,22 +1104,98 @@ export function generateSmartNaskahUjian(
 
   for (let k = 0; k < jumlahUraian; k++) {
     const no = jumlahPG + jumlahPGK + k + 1;
-    const tp = activeTPs[(jumlahPG + jumlahPGK + k) % activeTPs.length];
 
-    // Jalur Utama: Ambil butir soal Uraian dari domain bank jika tersedia
+    // Prioritas 1: Butir Uraian dari Bank Soal tersimpan guru
+    let pickedUraian: { item: SoalUraian; doc: AsesmenDokumen } | null = null;
+    while (bankUraianCursor < bankUraianPool.length) {
+      const candidate = bankUraianPool[bankUraianCursor++];
+      const norm = normalizeQuestionText(candidate.item.pertanyaan);
+      if (norm && !usedQuestionTexts.has(norm)) {
+        usedQuestionTexts.add(norm);
+        pickedUraian = candidate;
+        break;
+      }
+    }
+
+    if (pickedUraian) {
+      const { item, doc } = pickedUraian;
+      const { tp, tpIdx } = pickTPForQuestion(item.tpId || doc.tpIds?.[0], item.tpKode, jumlahPG + jumlahPGK + k);
+      const skorMaks = item.skorMaksimal || 4;
+      const pedoman = item.pedomanPenskoran || `Skor ${skorMaks} jika jawaban lengkap, runtut, dan tepat; skor proporsional sesuai ketepatan langkah/alasan.`;
+      const kriteriaSkor = [
+        { skor: skorMaks, deskripsi: `Menjawab seluruh aspek soal secara tepat, runtut, dan sesuai pedoman: ${pedoman}` },
+        { skor: Math.max(1, skorMaks - 1), deskripsi: 'Penjelasan baik dan sebagian besar konsep tepat, dengan detail minor kurang lengkap.' },
+        { skor: Math.max(1, Math.floor(skorMaks / 2)), deskripsi: 'Menjawab sebagian inti pertanyaan namun argumentasi/langkah masih terbatas.' },
+        { skor: 1, deskripsi: 'Jawaban sangat singkat dan kurang tepat secara konseptual.' },
+        { skor: 0, deskripsi: 'Tidak ada jawaban atau jawaban tidak relevan.' },
+      ];
+
+      soalUraian.push({
+        id: `soal_uraian_${no}`,
+        nomor: no,
+        tipe: 'uraian',
+        stimulus: item.stimulus,
+        pertanyaan: item.pertanyaan,
+        pedomanPenskoran: pedoman,
+        contohJawaban: item.contohJawaban,
+        levelKognitif: item.levelKognitif || (isSD ? 'C3-C4 (Aplikasi)' : 'C4-C5 (Analisis & Evaluasi)'),
+        indikatorSoal: item.indikatorSoal || `Peserta didik mampu menguraikan konsep ${tp.materiPokok} secara terstruktur.`,
+        skorMaksimal: skorMaks,
+        tpId: item.tpId || tp.id,
+        tpKode: item.tpKode || tp.kode,
+        subTpId: item.subTpId,
+        subTpDeskripsi: item.subTpDeskripsi || tp.subTP?.[0]?.kompetensi,
+        bloomLevel: item.bloomLevel,
+        cognitiveTier: item.cognitiveTier,
+        sourceType: 'curated_bank',
+      });
+
+      rubrikUraian.push({
+        nomor: no,
+        soalRingkas: item.pertanyaan.slice(0, 120),
+        contohJawaban: item.contohJawaban,
+        pedomanPenskoran: pedoman,
+        kriteriaSkor,
+        skorMaksimal: skorMaks,
+      });
+
+      fromBankSoal++;
+      recordTpAllocation(tp, tpIdx, item.subTpDeskripsi || tp.subTP?.[0]?.kompetensi);
+      continue;
+    }
+
+    const tpIdx = (jumlahPG + jumlahPGK + k) % activeTPs.length;
+    const tp = activeTPs[tpIdx];
+
+    // Prioritas 2: Ambil butir soal Uraian dari domain bank bawaan (tanpa duplikasi butir)
+    let pickedDomainUraian: NonNullable<typeof domainBank>['uraianPool'][number] | null = null;
     if (domainBank && domainBank.uraianPool && domainBank.uraianPool.length > 0) {
-      const tpl = domainBank.uraianPool[k % domainBank.uraianPool.length];
-      const cycle = Math.floor(k / domainBank.uraianPool.length);
-      const prefix = cycle > 0 ? `[Studi Kasus Mandiri #${cycle + 1}] ` : '';
+      while (domainUraianCursor < domainBank.uraianPool.length) {
+        const candidate = domainBank.uraianPool[domainUraianCursor++];
+        const norm = normalizeQuestionText(candidate.pertanyaan);
+        if (norm && !usedQuestionTexts.has(norm)) {
+          usedQuestionTexts.add(norm);
+          pickedDomainUraian = candidate;
+          break;
+        }
+      }
+    }
 
-      const uraianPertanyaan = `${prefix}${tpl.pertanyaan}`;
+    if (pickedDomainUraian) {
+      const tpl = pickedDomainUraian;
+      const uraianPertanyaan = tpl.pertanyaan;
       const contohJawaban = tpl.contohJawaban;
       const pedomanPenskoran = tpl.pedomanPenskoran;
 
       const kriteriaSkor = [
-        { skor: 4, deskripsi: 'Penjelasan lengkap, analisis sangat logis, dan memuat contoh solusi konkret yang akurat sesuai konsep materi.' },
-        { skor: 3, deskripsi: 'Penjelasan baik dan alasan cukup tepat, meskipun beberapa detail masih bersifat umum.' },
-        { skor: 2, deskripsi: 'Penjelasan cukup, namun pemahaman konsep masih terbatas atau contoh kurang spesifik.' },
+        {
+          skor: 4,
+          deskripsi: pedomanPenskoran
+            ? `Memenuhi penuh pedoman penskoran: ${pedomanPenskoran}`
+            : 'Penjelasan lengkap, analisis sangat logis, dan memuat contoh solusi konkret yang akurat sesuai konsep materi.',
+        },
+        { skor: 3, deskripsi: 'Penjelasan baik dan alasan/langkah cukup tepat, meskipun beberapa detail masih bersifat umum.' },
+        { skor: 2, deskripsi: 'Penjelasan cukup, namun pemahaman konsep atau ketepatan langkah masih terbatas.' },
         { skor: 1, deskripsi: 'Jawaban sangat singkat dan pemahaman konsep masih minim atau parsial.' },
         { skor: 0, deskripsi: 'Tidak ada jawaban atau jawaban menyimpang dari topik soal.' },
       ];
@@ -700,28 +1211,50 @@ export function generateSmartNaskahUjian(
         levelKognitif: isSD ? 'C3-C4 (Aplikasi & Pemecahan Masalah)' : 'C4-C5 (Evaluasi & Analisis Kritis)',
         indikatorSoal: tpl.indikatorSoal || `Disajikan studi kasus tentang ${tp.materiPokok}, peserta didik mampu menyusun uraian jawaban secara terstruktur.`,
         skorMaksimal: 4,
+        tpId: tp.id,
+        tpKode: tp.kode,
+        subTpDeskripsi: tp.subTP?.[0]?.kompetensi,
+        sourceType: 'curated_bank',
       });
 
       rubrikUraian.push({
         nomor: no,
-        soalRingkas: uraianPertanyaan.slice(0, 100),
+        soalRingkas: uraianPertanyaan.slice(0, 120),
+        contohJawaban,
+        pedomanPenskoran,
         kriteriaSkor,
         skorMaksimal: 4,
       });
+
+      fromDomainBank++;
+      recordTpAllocation(tp, tpIdx, tp.subTP?.[0]?.kompetensi);
       continue;
     }
 
+    // Prioritas 3: Cadangan kontekstual sesuai mapel
     let uraianPertanyaan = '';
     let contohJawaban = '';
     let kriteriaSkor = [
-      { skor: 4, deskripsi: 'Penjelasan lengkap, alasan esensial sangat logis, dan memuat 2 contoh solusi konkret yang relevan.' },
-      { skor: 3, deskripsi: 'Penjelasan baik, alasan cukup tepat, dan memuat 1-2 contoh solusi yang relevan.' },
-      { skor: 2, deskripsi: 'Penjelasan cukup, namun contoh penerapan kurang spesifik atau kurang kontekstual.' },
-      { skor: 1, deskripsi: 'Jawaban sangat singkat, pemahaman konsep masih sangat minim atau parsial.' },
+      { skor: 4, deskripsi: 'Penjelasan lengkap, alasan/langkah sangat logis, dan memuat contoh penerapan konkret sesuai konsep.' },
+      { skor: 3, deskripsi: 'Penjelasan baik, alasan cukup tepat, dan memuat 1-2 contoh/langkah yang relevan.' },
+      { skor: 2, deskripsi: 'Penjelasan cukup, namun penerapan konsep kurang spesifik atau kurang runtut.' },
+      { skor: 1, deskripsi: 'Jawaban sangat singkat, pemahaman konsep masih minim atau parsial.' },
       { skor: 0, deskripsi: 'Tidak ada jawaban atau jawaban menyimpang dari topik soal.' },
     ];
 
-    if (isSD) {
+    if (!isPPKnSubject) {
+      const tpGoalShort = (tp.tujuanPembelajaran || tp.materiPokok).replace(/\.$/, '');
+      if (isSD) {
+        uraianPertanyaan = `Jelaskan pengertian atau cara kerja sederhana dari materi "${tp.materiPokok}" dalam pelajaran ${mapelName}, lalu berikan 1 (satu) contoh penerapannya di kehidupan sehari-hari!`;
+        contohJawaban = `Konsep "${tp.materiPokok}" dipelajari untuk mencapai ${tpGoalShort}. Contoh penerapannya dapat diamati langsung melalui kegiatan belajar dan praktik sederhana di lingkungan sekitar.`;
+      } else if (isSMP) {
+        uraianPertanyaan = `Uraikan prinsip utama dari materi "${tp.materiPokok}" pada mata pelajaran ${mapelName} (${tpGoalShort}) dan berikan langkah sistematis penerapannya untuk menyelesaikan sebuah masalah nyata!`;
+        contohJawaban = `Prinsip utama "${tp.materiPokok}" mencakup identifikasi unsur inti, keterkaitan antar-konsep, serta penerapan prosedural yang tepat. Penerapannya dimulai dengan menganalisis informasi yang diketahui, menerapkan konsep inti, dan memeriksa ketepatan kesimpulan.`;
+      } else {
+        uraianPertanyaan = `Analisislah keterkaitan konseptual dan pemecahan masalah berbasis penalaran ilmiah pada topik "${tp.materiPokok}" (${mapelName}), disertai argumen yang mendukung simpulan Anda!`;
+        contohJawaban = `Analisis topik "${tp.materiPokok}" menuntut identifikasi variabel/prinsip kunci sesuai tujuan "${tpGoalShort}", pengujian konsistensi antar-data, serta perumusan simpulan yang terverifikasi secara metodologis.`;
+      }
+    } else if (isSD) {
       const itemUraian = daftarUraianSD[k % daftarUraianSD.length];
       uraianPertanyaan = `${itemUraian.tanya} "${tp.materiPokok}"!`;
       contohJawaban = itemUraian.jawab;
@@ -735,6 +1268,7 @@ export function generateSmartNaskahUjian(
     }
 
     const pedomanPenskoran = kriteriaSkor.map((kr) => `Skor ${kr.skor}: ${kr.deskripsi}`).join('\n');
+    uraianPertanyaan = ensureUniqueExamStem(uraianPertanyaan, tp, no);
 
     soalUraian.push({
       id: `soal_uraian_${no}`,
@@ -742,38 +1276,62 @@ export function generateSmartNaskahUjian(
       tipe: 'uraian',
       stimulus: isSD
         ? `Perhatikan pertanyaan uraian berikut dengan saksama dan tulislah jawabanmu secara rapi!`
-        : `Studi Kasus Pembelajaran Mendalam terkait materi ${tp.materiPokok}:`,
+        : `Studi Kasus Pembelajaran Mendalam terkait materi ${tp.materiPokok} (${mapelName}):`,
       pertanyaan: uraianPertanyaan,
       pedomanPenskoran,
       contohJawaban,
       levelKognitif: isSD ? 'C3 (Menerapkan) / C4 (Menjelaskan)' : 'C5 (Mengevaluasi) / C6 (Mencipta)',
       indikatorSoal: `Peserta didik mampu menguraikan alasan dan memberikan contoh nyata penerapan materi ${tp.materiPokok}.`,
       skorMaksimal: 4,
+      tpId: tp.id,
+      tpKode: tp.kode,
+      subTpDeskripsi: tp.subTP?.[0]?.kompetensi,
+      sourceType: 'adaptive_fallback',
     });
 
     rubrikUraian.push({
       nomor: no,
-      soalRingkas: `Uraian penerapan dan contoh nyata materi ${tp.materiPokok}`,
+      soalRingkas: `Uraian: ${tp.materiPokok} (${uraianPertanyaan.slice(0, 75)})`,
+      contohJawaban,
+      pedomanPenskoran,
       kriteriaSkor,
       skorMaksimal: 4,
     });
+
+    fromFallback++;
+    recordTpAllocation(tp, tpIdx, tp.subTP?.[0]?.kompetensi);
   }
 
-  // Hitung distribusi TP
-  const tpTerliput = activeTPs.map((tp, idx) => {
-    const alokasi = Math.max(1, Math.round((jumlahPG + jumlahPGK + jumlahUraian) / activeTPs.length));
-    return {
-      kode: tp.kode || `TP-${String(idx + 1).padStart(2, '0')}`,
-      materiPokok: tp.materiPokok || tp.tujuanPembelajaran,
-      alokasiSoal: alokasi,
-    };
-  });
+  // Hitung distribusi TP aktual berdasarkan soal yang terbentuk
+  const tpTerliput = Array.from(tpAllocationMap.values()).map((entry) => ({
+    id: entry.id,
+    kode: entry.kode,
+    materiPokok: entry.materiPokok,
+    alokasiSoal: entry.alokasiSoal,
+    subTpCovered: entry.subTpSet.size > 0 ? Array.from(entry.subTpSet) : undefined,
+  }));
 
-  const totalSoal = jumlahPG + jumlahPGK + jumlahUraian;
-  const skorMaksimalTotal = (jumlahPG * 1) + (jumlahPGK * 2) + (jumlahUraian * 4);
+  const totalSoal = soalPG.length + soalPGK.length + soalUraian.length;
+  const skorMaksimalTotal =
+    soalPG.reduce((sum, q) => sum + (q.skor || 1), 0) +
+    soalPGK.reduce((sum, q) => sum + (q.skor || 2), 0) +
+    soalUraian.reduce((sum, q) => sum + (q.skorMaksimal || 4), 0);
 
-  return {
+  const generationSource: GenerationSource =
+    fromFallback > 0 && fromBankSoal === 0 && fromDomainBank === 0
+      ? 'adaptive_fallback'
+      : 'curated_bank';
+
+  const validationWarnings: string[] = [];
+  if (fromFallback > 0) {
+    validationWarnings.push(
+      `${fromFallback} butir soal menggunakan templat cadangan kontekstual karena bank soal/kurikulum mapel ini belum penuh — tinjau atau lengkapi lewat Bank Soal.`
+    );
+  }
+
+  const draft: NaskahUjianDokumen = {
     id: `exam_${tipe.toLowerCase()}_${Date.now()}`,
+    schoolId: resolveSchoolId(profile),
     tipe,
     namaUjian: namaUjianLengkap,
     mataPelajaran: profile.mataPelajaranUtama || 'Mata Pelajaran',
@@ -787,6 +1345,7 @@ export function generateSmartNaskahUjian(
     namaGuru: profile.namaGuru,
     nipGuru: profile.nipGuru,
     petunjukUmum,
+    tpIds: activeTPs.map((t) => t.id).filter(Boolean) as string[],
     tpTerliput,
     soalPG,
     soalPGK,
@@ -801,5 +1360,147 @@ export function generateSmartNaskahUjian(
       month: 'long',
       year: 'numeric',
     }),
+    generationSource,
+    usedFallback: fromFallback > 0,
+    sourceSummary: {
+      fromBankSoal,
+      fromDomainBank,
+      fromFallback,
+    },
+    validationWarnings: validationWarnings.length > 0 ? validationWarnings : undefined,
+    isFinalized: false,
   };
+
+  return draft;
+}
+
+/**
+ * Validasi kelayakan Naskah Ujian sebelum ekspor/finalisasi.
+ */
+export function validateNaskahUjian(naskah: NaskahUjianDokumen): ExamValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (!naskah.namaSekolah?.trim()) errors.push('Nama sekolah pada identitas naskah belum diisi.');
+  if (!naskah.mataPelajaran?.trim()) errors.push('Mata pelajaran pada naskah ujian belum diisi.');
+  if (!naskah.kelas?.trim()) errors.push('Kelas pada naskah ujian belum diisi.');
+
+  const allCount =
+    (naskah.soalPG?.length || 0) +
+    (naskah.soalPGK?.length || 0) +
+    (naskah.soalUraian?.length || 0);
+  if (allCount === 0) {
+    errors.push('Naskah ujian harus memiliki minimal 1 butir soal sebelum difinalisasi atau diekspor.');
+  }
+
+  const seenQuestions = new Map<string, number>();
+  const registerQuestion = (nomor: number, pertanyaan: string) => {
+    const norm = normalizeQuestionText(pertanyaan || '');
+    if (!norm) {
+      errors.push(`Soal No. ${nomor} memiliki teks pertanyaan kosong.`);
+      return;
+    }
+    const prevNo = seenQuestions.get(norm);
+    if (prevNo !== undefined) {
+      errors.push(`Ditemukan pertanyaan duplikat antara Soal No. ${prevNo} dan No. ${nomor}.`);
+    } else {
+      seenQuestions.set(norm, nomor);
+    }
+  };
+
+  for (const pg of naskah.soalPG || []) {
+    registerQuestion(pg.nomor, pg.pertanyaan);
+    const labels = new Set((pg.pilihan || []).map((p) => p.label.toUpperCase()));
+    if (!pg.kunci || !labels.has(pg.kunci.toUpperCase())) {
+      errors.push(`Soal PG No. ${pg.nomor} memiliki kunci "${pg.kunci}" yang tidak cocok dengan daftar opsi.`);
+    }
+    if ((pg.pilihan || []).some((p) => !p.teks?.trim())) {
+      errors.push(`Soal PG No. ${pg.nomor} memiliki opsi jawaban kosong.`);
+    }
+  }
+
+  for (const pgk of naskah.soalPGK || []) {
+    registerQuestion(pgk.nomor, pgk.pertanyaan);
+    if (!pgk.pernyataan || pgk.pernyataan.length < 2) {
+      errors.push(`Soal PGK No. ${pgk.nomor} harus memiliki minimal 2 pernyataan.`);
+    } else if (pgk.pernyataan.some((p) => !p.teks?.trim())) {
+      errors.push(`Soal PGK No. ${pgk.nomor} memiliki butir pernyataan yang kosong.`);
+    }
+  }
+
+  for (const ur of naskah.soalUraian || []) {
+    registerQuestion(ur.nomor, ur.pertanyaan);
+    if (!ur.skorMaksimal || ur.skorMaksimal <= 0) {
+      errors.push(`Soal Uraian No. ${ur.nomor} harus memiliki skor maksimal lebih dari 0.`);
+    }
+    if (!ur.contohJawaban?.trim() && !ur.pedomanPenskoran?.trim()) {
+      errors.push(`Soal Uraian No. ${ur.nomor} belum memiliki contoh jawaban maupun pedoman penskoran.`);
+    }
+  }
+
+  if (naskah.usedFallback || (naskah.sourceSummary?.fromFallback || 0) > 0) {
+    warnings.push(
+      `Masih ada ${naskah.sourceSummary?.fromFallback || 'sejumlah'} butir soal dari cadangan templat. Disarankan meninjau atau mengisi Bank Soal.`
+    );
+  }
+  if ((naskah.tpTerliput || []).some((t) => t.alokasiSoal === 0)) {
+    warnings.push('Ada Tujuan Pembelajaran (TP) terpilih yang alokasi soalnya masih 0 butir.');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+export function saveNaskahUjianDraft(
+  naskah: NaskahUjianDokumen,
+  profile?: SchoolProfile | null
+): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    const key = buildUjianSemesterStorageKey(profile || {
+      schoolId: naskah.schoolId,
+      tahunAjaran: naskah.tahunAjaran,
+      jenjang: naskah.jenjang,
+      kelasUtama: naskah.kelas,
+      rombelAktif: naskah.rombel,
+      mataPelajaranUtama: naskah.mataPelajaran,
+      semester: naskah.semester,
+    }, naskah.tipe);
+    localStorage.setItem(key, JSON.stringify(naskah));
+    return true;
+  } catch (err) {
+    console.warn('Gagal menyimpan draf naskah ujian:', err);
+    return false;
+  }
+}
+
+export function loadNaskahUjianDraft(
+  profile: SchoolProfile | null | undefined,
+  tipe: TipeUjianSemester
+): NaskahUjianDokumen | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const key = buildUjianSemesterStorageKey(profile, tipe);
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as NaskahUjianDokumen) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function deleteNaskahUjianDraft(
+  profile: SchoolProfile | null | undefined,
+  tipe: TipeUjianSemester
+): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(buildUjianSemesterStorageKey(profile, tipe));
+  } catch {
+    // ignore
+  }
 }

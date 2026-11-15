@@ -26,6 +26,8 @@ import { exportElementToImage } from '../utils/imageExporter';
 import { generateRangkumanMateri } from '../services/aiGenerator';
 import type { SchoolProfile } from '../utils/schoolProfileStorage';
 import { getSchoolProfile } from '../utils/schoolProfileStorage';
+import { getBankRangkuman } from '../utils/bankRangkumanStorage';
+import { requireActiveLicenseForAction } from '../utils/licenseManager';
 
 interface RangkumanViewerProps {
   rangkuman: RangkumanDokumen;
@@ -50,8 +52,10 @@ export const RangkumanViewer: React.FC<RangkumanViewerProps> = ({
   const [copied, setCopied] = useState(false);
   const [isExportingImage, setIsExportingImage] = useState(false);
   const [revealedQuiz, setRevealedQuiz] = useState<Record<number, boolean>>({});
+  const [includeKuisJawabanInDocx, setIncludeKuisJawabanInDocx] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const summarySheetRef = useRef<HTMLDivElement>(null);
+  const scopedHistory = getBankRangkuman(activeProfile);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -59,6 +63,7 @@ export const RangkumanViewer: React.FC<RangkumanViewerProps> = ({
   };
 
   const handleCopyText = () => {
+    if (!requireActiveLicenseForAction('menyalin teks Rangkuman Materi')) return;
     let text = `LEMBAR RANGKUMAN CERDAS: ${rangkuman.judul}\n`;
     text += `Mata Pelajaran: ${rangkuman.mataPelajaran} | Kelas: ${rangkuman.kelas} (${rangkuman.jenjangFase})\n\n`;
     text += `💡 INTISARI:\n"${rangkuman.ringkasanSatuKalimat}"\n\n`;
@@ -119,6 +124,7 @@ export const RangkumanViewer: React.FC<RangkumanViewerProps> = ({
   };
 
   const handleExportImage = async () => {
+    if (!requireActiveLicenseForAction('mengunduh Gambar PNG Rangkuman Materi')) return;
     if (!summarySheetRef.current) return;
     setIsExportingImage(true);
     try {
@@ -237,10 +243,40 @@ export const RangkumanViewer: React.FC<RangkumanViewerProps> = ({
             <Image size={14} /> {isExportingImage ? 'Memproses...' : 'Unduh Gambar (.png)'}
           </button>
 
+          {scopedHistory.length > 1 && onUpdateRangkuman && (
+            <select
+              className="form-select"
+              style={{ fontSize: 12, padding: '6px 10px', maxWidth: 220 }}
+              aria-label="Pilih riwayat rangkuman pada kelas aktif"
+              value={rangkuman.id}
+              onChange={(e) => {
+                const chosen = scopedHistory.find((item) => item.id === e.target.value);
+                if (chosen) onUpdateRangkuman(chosen);
+              }}
+            >
+              {scopedHistory.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.judul.slice(0, 42)}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#334155', fontWeight: 600, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={includeKuisJawabanInDocx}
+              onChange={(e) => setIncludeKuisJawabanInDocx(e.target.checked)}
+              style={{ accentColor: '#2563eb' }}
+            />
+            Sertakan Kunci Kuis
+          </label>
+
           <button
             onClick={async () => {
+              if (!requireActiveLicenseForAction('mengunduh Word (.docx) Rangkuman Materi')) return;
               try {
-                await exportRangkumanToDocx(rangkuman);
+                await exportRangkumanToDocx(rangkuman, includeKuisJawabanInDocx);
               } catch (e: any) {
                 alert('Gagal mengekspor Word: ' + e.message);
               }
@@ -252,11 +288,44 @@ export const RangkumanViewer: React.FC<RangkumanViewerProps> = ({
             <FileDown size={14} /> Unduh Word (.docx)
           </button>
 
-          <button onClick={onPrint} className="btn btn-sm btn-success">
+          <button
+            onClick={() => {
+              if (!requireActiveLicenseForAction('mencetak / menyimpan PDF Rangkuman Materi')) return;
+              onPrint();
+            }}
+            className="btn btn-sm btn-success"
+          >
             <Printer size={14} /> Cetak / PDF
           </button>
         </div>
       </div>
+
+      {(rangkuman.usedFallback || rangkuman.sourceTruncated || Boolean(rangkuman.fallbackReason)) && (
+        <div
+          className="no-print"
+          style={{
+            marginBottom: 16,
+            padding: '12px 16px',
+            borderRadius: 'var(--radius-md)',
+            background: '#fffbeb',
+            border: '1px solid #fcd34d',
+            color: '#92400e',
+            fontSize: 13,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+          }}
+        >
+          <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <strong>Catatan Sumber & Kualitas Rangkuman:</strong>{' '}
+            {rangkuman.fallbackReason ||
+              (rangkuman.sourceTruncated
+                ? 'Sebagian teks sumber unggahan sangat panjang sehingga diproses dalam potongan utama — periksa kembali sebelum dibagikan.'
+                : 'Sebagian konten menggunakan template kurikulum adaptif — silakan tinjau sebelum dibagikan ke siswa.')}
+          </div>
+        </div>
+      )}
 
       {/* VISUAL INFOGRAPHIC / STUDY SHEET CANVAS */}
       <div ref={summarySheetRef} className="print-sheet" style={{
@@ -707,13 +776,13 @@ export const RangkumanViewer: React.FC<RangkumanViewerProps> = ({
 
         {/* Blok Pengesahan Kepala Sekolah & Guru (Jika diaktifkan) */}
         {activeProfile.tampilkanTandaTangan && (
-          <div style={{
+          <div className="doc-signature-grid" style={{
             marginTop: 28,
             marginBottom: 20,
             paddingTop: 16,
             borderTop: '1px dashed #cbd5e1',
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
             gap: 24,
             textAlign: 'center',
             fontSize: 12,
@@ -723,8 +792,8 @@ export const RangkumanViewer: React.FC<RangkumanViewerProps> = ({
             <div>
               <div>Mengetahui,</div>
               <div style={{ marginBottom: 52 }}>Kepala Sekolah / Madrasah</div>
-              <div style={{ fontWeight: 700, textDecoration: 'underline' }}>
-                {activeProfile.namaKepalaSekolah || '......................................................'}
+              <div style={{ fontWeight: 700, textDecoration: 'underline', overflowWrap: 'anywhere' }}>
+                {activeProfile.namaKepalaSekolah || '..............................'}
               </div>
               <div style={{ fontSize: 11, color: '#475569' }}>
                 {activeProfile.nipKepalaSekolah ? `NIP. ${activeProfile.nipKepalaSekolah}` : 'NIP. -'}
@@ -735,8 +804,8 @@ export const RangkumanViewer: React.FC<RangkumanViewerProps> = ({
                 {activeProfile.kotaSekolah || 'Indonesia'}, {rangkuman.createdAt}
               </div>
               <div style={{ marginBottom: 52 }}>Guru Mata Pelajaran</div>
-              <div style={{ fontWeight: 700, textDecoration: 'underline' }}>
-                {activeProfile.namaGuru || '......................................................'}
+              <div style={{ fontWeight: 700, textDecoration: 'underline', overflowWrap: 'anywhere' }}>
+                {activeProfile.namaGuru || '..............................'}
               </div>
               <div style={{ fontSize: 11, color: '#475569' }}>
                 {activeProfile.nipGuru ? `NIP. ${activeProfile.nipGuru}` : 'NIP. -'}

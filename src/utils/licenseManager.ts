@@ -1,4 +1,7 @@
-import type { UserQuota, LicenseTier } from '../types/assessment';
+import type { UserQuota, LicenseTier, QuotaLifecycleState } from '../types/assessment';
+import type { LicenseLifecycleState, TeacherSeatInfo } from '../types/admin';
+
+export type { LicenseLifecycleState, TeacherSeatInfo };
 
 export function isLicensed(tier?: LicenseTier | string): boolean {
   return tier === 'guru' || tier === 'biasa' || tier === 'sekolah' || tier === 'pro' || tier === 'sekolah_pro';
@@ -53,10 +56,12 @@ const STORAGE_KEY_SEAT_TRACKER_URL = 'asesmerdeka_seat_tracker_url';
 const STORAGE_KEY_MAYAR_PRODUCT_ID = 'asesmerdeka_mayar_product_id';
 const STORAGE_KEY_MAYAR_SCHOOL_PRODUCT_ID = 'asesmerdeka_mayar_school_product_id';
 const STORAGE_KEY_VERIFIED_MAYAR_CODES = 'asesmerdeka_verified_mayar_codes_v1';
+const STORAGE_KEY_LAST_LICENSE_STATUS = 'asesmerdeka_last_license_status_v1';
 
 export const FREE_TRIAL_CREDITS = 0;
 export const DEFAULT_INDIVIDU_MAX_DEVICES = 2; // 1 Laptop + 1 HP Guru (tidak bisa dijual ulang ke banyak orang)
 export const DEFAULT_SEKOLAH_MAX_DEVICES = 25; // Kuota 1 Sekolah (maksimal 25 Guru)
+export const DEFAULT_SEKOLAH_MAX_DEVICES_PER_TEACHER = 2; // Maksimal 2 perangkat (1 Laptop + 1 HP) per guru di lisensi sekolah
 export const DEFAULT_MAYAR_PRODUCT_ID = 'c1db962a-7cc5-46cc-969e-2c7c930f5bdc';
 export const DEFAULT_MAYAR_SCHOOL_PRODUCT_ID = '17cece7f-e711-4fdc-af44-e6ceb4b4bff7';
 
@@ -116,11 +121,201 @@ export function getHardwareFingerprint(): string {
   }
 }
 
-// Integrity signature mencakup deviceId, hardwareFingerprint, tier, remainingCredits, maxCredits, dan licenseKey
+// Integrity signature mencakup deviceId, hardwareFingerprint, tier, remainingCredits, maxCredits, licenseKey, serta metadata lifecycle bila tersedia
 export function generateSignature(quota: UserQuota): string {
   const hwFp = getHardwareFingerprint();
-  const payload = `${quota.deviceId}:${hwFp}:${quota.tier}:${quota.remainingCredits}:${quota.maxCredits}:${quota.licenseKey || ''}:merdeka_salt_2026_v3`;
+  const extraLifecycle =
+    quota.lifecycleState || quota.expiresAt || quota.teacherSeatKey
+      ? `:${quota.lifecycleState || ''}:${quota.expiresAt || ''}:${quota.teacherSeatKey || ''}`
+      : '';
+  const payload = `${quota.deviceId}:${hwFp}:${quota.tier}:${quota.remainingCredits}:${quota.maxCredits}:${quota.licenseKey || ''}${extraLifecycle}:merdeka_salt_2026_v3`;
   return 'SIG-' + computeHash36(payload);
+}
+
+// =============================================================================
+// EXPLICIT LICENSE LIFECYCLE STATE MACHINE
+// =============================================================================
+
+export const VALID_LICENSE_STATE_TRANSITIONS: Record<
+  LicenseLifecycleState,
+  LicenseLifecycleState[]
+> = {
+  pending_payment: ['paid', 'payment_failed', 'revoked'],
+  payment_failed: ['pending_payment', 'paid', 'revoked'],
+  paid: ['active', 'expired', 'suspended', 'revoked'],
+  active: ['active', 'paid', 'expired', 'suspended', 'revoked'],
+  suspended: ['active', 'paid', 'expired', 'revoked'],
+  expired: ['active', 'paid', 'revoked'],
+  revoked: [],
+};
+
+export function canTransitionLicenseState(
+  fromState: LicenseLifecycleState,
+  toState: LicenseLifecycleState
+): boolean {
+  const allowedTargets = VALID_LICENSE_STATE_TRANSITIONS[fromState];
+  if (!allowedTargets) return false;
+  return allowedTargets.includes(toState);
+}
+
+export function transitionLicenseState(
+  currentState: LicenseLifecycleState,
+  nextState: LicenseLifecycleState,
+  context?: {
+    hasVerifiedPayment?: boolean;
+    hasValidRenewal?: boolean;
+    adminAuthorized?: boolean;
+    adminReauthorized?: boolean;
+  }
+): { allowed: boolean; state: LicenseLifecycleState; reason?: string } {
+  if (currentState === 'revoked') {
+    if (nextState === 'paid' && context?.adminReauthorized) {
+      return { allowed: true, state: 'paid' };
+    }
+    return {
+      allowed: false,
+      state: 'revoked',
+      reason: 'Lisensi yang telah dicabut permanen tidak dapat diaktifkan kembali secara mandiri.',
+    };
+  }
+
+  if (currentState === 'pending_payment' && nextState === 'active') {
+    return {
+      allowed: false,
+      state: 'pending_payment',
+      reason: 'Lisensi berstatus menunggu pembayaran tidak dapat langsung diaktifkan sebelum pembayaran terverifikasi.',
+    };
+  }
+
+  if (!canTransitionLicenseState(currentState, nextState)) {
+    return {
+      allowed: false,
+      state: currentState,
+      reason: `Transisi status lisensi dari '${currentState}' ke '${nextState}' tidak diizinkan.`,
+    };
+  }
+
+  if (
+    (currentState === 'pending_payment' || currentState === 'payment_failed') &&
+    nextState === 'paid' &&
+    !context?.hasVerifiedPayment &&
+    !context?.adminAuthorized
+  ) {
+    return {
+      allowed: false,
+      state: currentState,
+      reason: 'Pembayaran terverifikasi wajib ada sebelum mengubah status menjadi paid.',
+    };
+  }
+
+  if (
+    currentState === 'expired' &&
+    (nextState === 'active' || nextState === 'paid') &&
+    !context?.hasValidRenewal &&
+    !context?.adminAuthorized
+  ) {
+    return {
+      allowed: false,
+      state: 'expired',
+      reason: 'Lisensi kedaluwarsa memerlukan perpanjangan (renewal) atau otorisasi Admin.',
+    };
+  }
+
+  if (
+    currentState === 'suspended' &&
+    (nextState === 'active' || nextState === 'paid') &&
+    !context?.adminAuthorized
+  ) {
+    return {
+      allowed: false,
+      state: 'suspended',
+      reason: 'Pembukaan penangguhan lisensi memerlukan otorisasi Admin.',
+    };
+  }
+
+  return { allowed: true, state: nextState };
+}
+
+export function isLicenseExpired(expiresAt?: string | null, nowMs: number = Date.now()): boolean {
+  if (!expiresAt || typeof expiresAt !== 'string') return false;
+  const trimmed = expiresAt.trim();
+  if (!trimmed) return false;
+  const parsed = Date.parse(trimmed);
+  if (Number.isNaN(parsed)) return false;
+  return parsed <= nowMs;
+}
+
+export function evaluateLicenseLifecycleState(
+  record: {
+    status?: string;
+    lifecycleState?: LicenseLifecycleState;
+    deleted?: boolean;
+    revoked?: boolean;
+    suspended?: boolean;
+    paymentFailed?: boolean;
+    expiresAt?: string | null;
+    usedSeats?: number;
+    devices?: string[];
+    teacherSeats?: Record<string, TeacherSeatInfo>;
+  },
+  nowMs: number = Date.now()
+): LicenseLifecycleState {
+  if (record.deleted || record.revoked || record.lifecycleState === 'revoked') {
+    return 'revoked';
+  }
+  if (record.paymentFailed || record.lifecycleState === 'payment_failed') {
+    return 'payment_failed';
+  }
+  if (record.suspended || record.lifecycleState === 'suspended') {
+    return 'suspended';
+  }
+  if (isLicenseExpired(record.expiresAt, nowMs) || record.lifecycleState === 'expired') {
+    return 'expired';
+  }
+  if (record.lifecycleState === 'pending_payment') {
+    return 'pending_payment';
+  }
+
+  const activeTeacherCount = record.teacherSeats
+    ? Object.values(record.teacherSeats).filter((t) => t && t.status === 'active').length
+    : 0;
+  const deviceCount = Array.isArray(record.devices) ? record.devices.length : 0;
+  const effectiveUsed = Math.max(Number(record.usedSeats) || 0, activeTeacherCount, deviceCount);
+
+  if (record.status === 'aktif' || record.lifecycleState === 'active' || effectiveUsed > 0) {
+    return 'active';
+  }
+  return 'paid';
+}
+
+export interface LastLicenseStatusMetadata {
+  state: QuotaLifecycleState;
+  licenseKey?: string;
+  expiresAt?: string | null;
+  message?: string;
+  updatedAt: string;
+}
+
+export function saveLastLicenseStatusMetadata(meta: LastLicenseStatusMetadata | null): void {
+  try {
+    if (!meta) {
+      localStorage.removeItem(STORAGE_KEY_LAST_LICENSE_STATUS);
+      return;
+    }
+    safeSetItem(STORAGE_KEY_LAST_LICENSE_STATUS, JSON.stringify(meta));
+  } catch {
+    // ignore
+  }
+}
+
+export function getLastLicenseStatusMetadata(): LastLicenseStatusMetadata | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_LAST_LICENSE_STATUS);
+    if (!raw) return null;
+    return JSON.parse(raw) as LastLicenseStatusMetadata;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -264,13 +459,45 @@ export function getMaxDevicesForLicenseCode(rawCode: string): number {
   return 1;
 }
 
+export function isCollectiveSchoolLicenseCode(rawCode: string): boolean {
+  const cleanCode = normalizeLicenseCodeInput(rawCode);
+  const mayarInfo = getMayarVerifiedCodeInfo(cleanCode);
+  if (mayarInfo?.planType === 'sekolah') return true;
+  const parts = cleanCode.split('-');
+  if (parts.length === 5 && parts[0] === 'ASM') {
+    return parts[1] === 'SK26' || parts[1] === 'SP26';
+  }
+  return cleanCode.includes('SEKOLAH') || cleanCode.includes('SMAN') || cleanCode.includes('SMPN') || cleanCode.includes('SDN');
+}
+
+export function normalizeTeacherSeatKey(teacherPinOrId?: string, deviceId?: string): string {
+  const raw = String(teacherPinOrId || '').trim();
+  if (raw) {
+    // Jika format "NAMA_GURU:PIN", gunakan identitas guru sebelum ":" sebagai kunci kursi guru
+    const segment = raw.includes(':') ? raw.split(':')[0] : raw;
+    const cleaned = segment
+      .replace(/[^A-Za-z0-9_-]/g, '')
+      .toUpperCase()
+      .slice(0, 48);
+    if (cleaned.length >= 2) {
+      return cleaned;
+    }
+  }
+  const cleanDev = String(deviceId || '').trim().toUpperCase().replace(/[^A-Za-z0-9_-]/g, '');
+  return cleanDev ? `LEGACY_DEV_${cleanDev}` : 'DEFAULT_TEACHER';
+}
+
+interface SeatRegistryEntry {
+  devices: string[];
+  maxDevices: number;
+  updatedAt: string;
+  sig: string;
+  teacherSeats?: Record<string, TeacherSeatInfo>;
+  maxDevicesPerTeacher?: number;
+}
+
 interface SeatRegistryMap {
-  [licenseCode: string]: {
-    devices: string[];
-    maxDevices: number;
-    updatedAt: string;
-    sig: string;
-  };
+  [licenseCode: string]: SeatRegistryEntry;
 }
 
 function getSeatRegistry(): SeatRegistryMap {
@@ -288,31 +515,82 @@ function saveSeatRegistry(registry: SeatRegistryMap): void {
   safeSetItem(STORAGE_KEY_SEAT_REGISTRY, JSON.stringify(registry));
 }
 
-function computeSeatEntrySig(code: string, devices: string[], maxDevices: number): string {
-  return computeHash36(`SEAT_LOCK:${code}:${devices.join(',')}:${maxDevices}:ASESMERDEKA_2026`);
+function computeTeacherSeatsDigest(teacherSeats?: Record<string, TeacherSeatInfo>): string {
+  if (!teacherSeats) return '';
+  const keys = Object.keys(teacherSeats).sort();
+  return keys
+    .map((k) => {
+      const t = teacherSeats[k];
+      return `${k}:${t.status}:${(t.devices || []).join('+')}`;
+    })
+    .join('|');
+}
+
+function computeSeatEntrySig(
+  code: string,
+  devices: string[],
+  maxDevices: number,
+  teacherSeats?: Record<string, TeacherSeatInfo>
+): string {
+  const teacherPart = teacherSeats ? `:${computeTeacherSeatsDigest(teacherSeats)}` : '';
+  return computeHash36(`SEAT_LOCK:${code}:${devices.join(',')}:${maxDevices}${teacherPart}:ASESMERDEKA_2026`);
+}
+
+function getActiveTeacherDevicesUnion(teacherSeats: Record<string, TeacherSeatInfo>): string[] {
+  const seen = new Set<string>();
+  for (const key of Object.keys(teacherSeats)) {
+    const entry = teacherSeats[key];
+    if (entry && entry.status === 'active' && Array.isArray(entry.devices)) {
+      for (const dev of entry.devices) {
+        seen.add(dev);
+      }
+    }
+  }
+  return Array.from(seen);
 }
 
 /**
- * Mengecek dan mengklaim slot perangkat (Seat Lock) untuk kode lisensi agar tidak bisa dijual ulang.
+ * Mengecek dan mengklaim slot perangkat / kursi guru (Seat Lock) untuk kode lisensi agar tidak bisa dijual ulang.
+ * Untuk lisensi Kolektif Sekolah (25 Guru), 1 guru dapat mengikat hingga 2 perangkat (Laptop + HP)
+ * tanpa dihitung sebagai 2 guru berbeda.
  */
 export function checkAndClaimLicenseSeat(
   rawCode: string,
-  deviceId: string
-): { allowed: boolean; usedSeats: number; maxSeats: number; message?: string } {
+  deviceId: string,
+  teacherPinOrId?: string
+): {
+  allowed: boolean;
+  usedSeats: number;
+  maxSeats: number;
+  teacherKey?: string;
+  teacherUsedDevices?: number;
+  teacherMaxDevices?: number;
+  teacherDeviceLimitExceeded?: boolean;
+  teacherSeatDisabled?: boolean;
+  seatLimitExceeded?: boolean;
+  message?: string;
+} {
   const cleanCode = normalizeLicenseCodeInput(rawCode);
   const cleanDevice = deviceId.trim().toUpperCase();
   const maxSeats = getMaxDevicesForLicenseCode(cleanCode);
+  const isSchool = isCollectiveSchoolLicenseCode(cleanCode) || maxSeats >= DEFAULT_SEKOLAH_MAX_DEVICES;
 
   const registry = getSeatRegistry();
   const existing = registry[cleanCode];
 
-  let registeredDevices: string[] = [];
   if (existing && Array.isArray(existing.devices)) {
-    const expectedSig = computeSeatEntrySig(cleanCode, existing.devices, existing.maxDevices);
-    if (existing.sig === expectedSig) {
-      registeredDevices = [...existing.devices];
-    } else {
-      // Jika catatan kursi perangkat dimanipulasi di DevTools, kunci penuh kursi kode tersebut
+    const expectedSigWithTeachers = computeSeatEntrySig(
+      cleanCode,
+      existing.devices,
+      existing.maxDevices,
+      existing.teacherSeats
+    );
+    const expectedLegacySig = computeSeatEntrySig(cleanCode, existing.devices, existing.maxDevices);
+    const sigMatches =
+      existing.sig === expectedSigWithTeachers ||
+      (!existing.teacherSeats && existing.sig === expectedLegacySig);
+
+    if (!sigMatches) {
       return {
         allowed: false,
         usedSeats: maxSeats,
@@ -323,7 +601,140 @@ export function checkAndClaimLicenseSeat(
     }
   }
 
-  // Jika perangkat ini sudah terdaftar pada kode ini, izinkan aktivasi ulang
+  // Jalur Khusus Lisensi Kolektif Sekolah: 25 Kursi Guru x Maks. 2 Perangkat/Guru
+  if (isSchool) {
+    const teacherSeats: Record<string, TeacherSeatInfo> = existing?.teacherSeats
+      ? JSON.parse(JSON.stringify(existing.teacherSeats))
+      : {};
+    const maxDevicesPerTeacher = DEFAULT_SEKOLAH_MAX_DEVICES_PER_TEACHER;
+
+    // Jika tidak ada teacherPinOrId, cek apakah perangkat ini sudah terikat ke salah satu kursi guru
+    let resolvedKey = teacherPinOrId?.trim() ? normalizeTeacherSeatKey(teacherPinOrId, cleanDevice) : '';
+    if (!resolvedKey) {
+      for (const k of Object.keys(teacherSeats)) {
+        if (teacherSeats[k]?.devices?.includes(cleanDevice)) {
+          resolvedKey = k;
+          break;
+        }
+      }
+      if (!resolvedKey) {
+        resolvedKey = normalizeTeacherSeatKey('', cleanDevice);
+      }
+    }
+
+    const activeTeachers = Object.values(teacherSeats).filter((t) => t && t.status === 'active');
+    const existingTeacher = teacherSeats[resolvedKey];
+    const nowIso = new Date().toISOString();
+
+    if (existingTeacher) {
+      if (existingTeacher.status === 'disabled') {
+        return {
+          allowed: false,
+          usedSeats: activeTeachers.length,
+          maxSeats,
+          teacherKey: resolvedKey,
+          teacherUsedDevices: existingTeacher.devices.length,
+          teacherMaxDevices: maxDevicesPerTeacher,
+          teacherSeatDisabled: true,
+          message: `Kursi guru "${resolvedKey}" telah dinonaktifkan oleh Admin Sekolah. Hubungi Admin Sekolah untuk aktivasi kembali atau gunakan akun guru aktif.`,
+        };
+      }
+
+      if (existingTeacher.devices.includes(cleanDevice)) {
+        return {
+          allowed: true,
+          usedSeats: activeTeachers.length,
+          maxSeats,
+          teacherKey: resolvedKey,
+          teacherUsedDevices: existingTeacher.devices.length,
+          teacherMaxDevices: maxDevicesPerTeacher,
+        };
+      }
+
+      if (existingTeacher.devices.length >= maxDevicesPerTeacher) {
+        return {
+          allowed: false,
+          usedSeats: activeTeachers.length,
+          maxSeats,
+          teacherKey: resolvedKey,
+          teacherUsedDevices: existingTeacher.devices.length,
+          teacherMaxDevices: maxDevicesPerTeacher,
+          teacherDeviceLimitExceeded: true,
+          seatLimitExceeded: true,
+          message: `Batas maksimal ${maxDevicesPerTeacher} perangkat (1 Laptop + 1 HP) untuk guru "${resolvedKey}" telah penuh (${existingTeacher.devices.length}/${maxDevicesPerTeacher}). Hubungi Admin untuk reset perangkat guru ini.`,
+        };
+      }
+
+      existingTeacher.devices.push(cleanDevice);
+      existingTeacher.updatedAt = nowIso;
+      const unionDevices = getActiveTeacherDevicesUnion(teacherSeats);
+      registry[cleanCode] = {
+        devices: unionDevices,
+        maxDevices: maxSeats,
+        updatedAt: getTodayDateStr(),
+        teacherSeats,
+        maxDevicesPerTeacher,
+        sig: computeSeatEntrySig(cleanCode, unionDevices, maxSeats, teacherSeats),
+      };
+      saveSeatRegistry(registry);
+
+      return {
+        allowed: true,
+        usedSeats: activeTeachers.length,
+        maxSeats,
+        teacherKey: resolvedKey,
+        teacherUsedDevices: existingTeacher.devices.length,
+        teacherMaxDevices: maxDevicesPerTeacher,
+      };
+    }
+
+    // Guru baru pada lisensi sekolah: cek kuota 25 kursi guru
+    if (activeTeachers.length >= maxSeats) {
+      return {
+        allowed: false,
+        usedSeats: activeTeachers.length,
+        maxSeats,
+        seatLimitExceeded: true,
+        message: `Aktivasi Ditolak! Kuota ${maxSeats} kursi guru pada Lisensi Kolektif Sekolah ini sudah terisi penuh (${activeTeachers.length}/${maxSeats} guru). Nonaktifkan guru yang tidak lagi aktif atau tambah kuota sekolah.`,
+      };
+    }
+
+    teacherSeats[resolvedKey] = {
+      teacherKey: resolvedKey,
+      teacherLabel: teacherPinOrId?.trim() || resolvedKey,
+      status: 'active',
+      devices: [cleanDevice],
+      maxDevices: maxDevicesPerTeacher,
+      claimedAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    const nextActiveCount = activeTeachers.length + 1;
+    const unionDevices = getActiveTeacherDevicesUnion(teacherSeats);
+    registry[cleanCode] = {
+      devices: unionDevices,
+      maxDevices: maxSeats,
+      updatedAt: getTodayDateStr(),
+      teacherSeats,
+      maxDevicesPerTeacher,
+      sig: computeSeatEntrySig(cleanCode, unionDevices, maxSeats, teacherSeats),
+    };
+    saveSeatRegistry(registry);
+
+    return {
+      allowed: true,
+      usedSeats: nextActiveCount,
+      maxSeats,
+      teacherKey: resolvedKey,
+      teacherUsedDevices: 1,
+      teacherMaxDevices: maxDevicesPerTeacher,
+    };
+  }
+
+  // Jalur Lisensi Individu (SL26 = 1 perangkat, GM26/GP26 = 2 perangkat)
+  const registeredDevices: string[] =
+    existing && Array.isArray(existing.devices) ? [...existing.devices] : [];
+
   if (registeredDevices.includes(cleanDevice)) {
     return {
       allowed: true,
@@ -332,17 +743,16 @@ export function checkAndClaimLicenseSeat(
     };
   }
 
-  // Jika jumlah perangkat yang memakai kode ini sudah mencapai batas maksimal, tolak!
   if (registeredDevices.length >= maxSeats) {
     return {
       allowed: false,
       usedSeats: registeredDevices.length,
       maxSeats,
+      seatLimitExceeded: true,
       message: `Aktivasi Ditolak! Kode lisensi ini telah mencapai batas maksimal perangkat (${registeredDevices.length}/${maxSeats} perangkat) dan telah terkunci pada perangkat pemilik pertama. Kode tidak dapat digunakan ulang atau diperjualbelikan ke perangkat lain.`,
     };
   }
 
-  // Klaim slot perangkat baru
   registeredDevices.push(cleanDevice);
   registry[cleanCode] = {
     devices: registeredDevices,
@@ -359,13 +769,102 @@ export function checkAndClaimLicenseSeat(
   };
 }
 
+export function manageLocalSchoolTeacherSeat(
+  rawCode: string,
+  teacherPinOrId: string,
+  action: 'disable' | 'enable' | 'reset_devices'
+): {
+  ok: boolean;
+  usedSeats: number;
+  maxSeats: number;
+  teacherKey: string;
+  message: string;
+} {
+  const cleanCode = normalizeLicenseCodeInput(rawCode);
+  const teacherKey = normalizeTeacherSeatKey(teacherPinOrId);
+  const maxSeats = getMaxDevicesForLicenseCode(cleanCode);
+  const registry = getSeatRegistry();
+  const entry = registry[cleanCode];
+
+  if (!entry || !entry.teacherSeats || !entry.teacherSeats[teacherKey]) {
+    return {
+      ok: false,
+      usedSeats: 0,
+      maxSeats,
+      teacherKey,
+      message: `Kursi guru "${teacherKey}" belum terdaftar pada lisensi ${cleanCode}.`,
+    };
+  }
+
+  const target = entry.teacherSeats[teacherKey];
+  const nowIso = new Date().toISOString();
+
+  if (action === 'disable') {
+    target.status = 'disabled';
+    target.disabledAt = nowIso;
+    target.updatedAt = nowIso;
+  } else if (action === 'enable') {
+    const activeCount = Object.values(entry.teacherSeats).filter((t) => t.status === 'active').length;
+    if (target.status !== 'active' && activeCount >= maxSeats) {
+      return {
+        ok: false,
+        usedSeats: activeCount,
+        maxSeats,
+        teacherKey,
+        message: `Tidak dapat mengaktifkan kembali "${teacherKey}" karena ${maxSeats}/${maxSeats} kursi guru sudah terisi.`,
+      };
+    }
+    target.status = 'active';
+    target.disabledAt = undefined;
+    target.updatedAt = nowIso;
+  } else if (action === 'reset_devices') {
+    target.devices = [];
+    target.updatedAt = nowIso;
+  }
+
+  const unionDevices = getActiveTeacherDevicesUnion(entry.teacherSeats);
+  const nextActiveCount = Object.values(entry.teacherSeats).filter((t) => t.status === 'active').length;
+  entry.devices = unionDevices;
+  entry.updatedAt = getTodayDateStr();
+  entry.sig = computeSeatEntrySig(cleanCode, unionDevices, entry.maxDevices, entry.teacherSeats);
+  saveSeatRegistry(registry);
+
+  return {
+    ok: true,
+    usedSeats: nextActiveCount,
+    maxSeats,
+    teacherKey,
+    message:
+      action === 'disable'
+        ? `Kursi guru "${teacherKey}" dinonaktifkan. Kuota aktif kini ${nextActiveCount}/${maxSeats}.`
+        : action === 'enable'
+        ? `Kursi guru "${teacherKey}" diaktifkan kembali (${nextActiveCount}/${maxSeats}).`
+        : `Daftar perangkat untuk guru "${teacherKey}" berhasil di-reset.`,
+  };
+}
+
 /**
- * Mengambil informasi pemakaian kursi perangkat untuk suatu kode lisensi
+ * Menghapus kunci kursi perangkat lokal (Seat Lock) untuk satu kode lisensi agar perangkat baru dapat mengklaim ulang slot.
+ */
+export function resetLocalLicenseSeat(rawCode: string): boolean {
+  const cleanCode = normalizeLicenseCodeInput(rawCode);
+  if (!cleanCode) return false;
+  const registry = getSeatRegistry();
+  if (!registry[cleanCode]) return false;
+  delete registry[cleanCode];
+  saveSeatRegistry(registry);
+  return true;
+}
+
+/**
+ * Mengambil informasi pemakaian kursi perangkat / kursi guru untuk suatu kode lisensi
  */
 export function getLicenseSeatStatus(rawCode: string): {
   devices: string[];
   usedSeats: number;
   maxSeats: number;
+  teacherSeats?: Record<string, TeacherSeatInfo>;
+  activeTeacherCount?: number;
 } {
   const cleanCode = rawCode.trim().toUpperCase();
   const maxSeats = getMaxDevicesForLicenseCode(cleanCode);
@@ -373,6 +872,18 @@ export function getLicenseSeatStatus(rawCode: string): {
   const existing = registry[cleanCode];
   if (!existing || !Array.isArray(existing.devices)) {
     return { devices: [], usedSeats: 0, maxSeats };
+  }
+  if (existing.teacherSeats) {
+    const activeTeacherCount = Object.values(existing.teacherSeats).filter(
+      (t) => t && t.status === 'active'
+    ).length;
+    return {
+      devices: existing.devices,
+      usedSeats: activeTeacherCount,
+      maxSeats,
+      teacherSeats: existing.teacherSeats,
+      activeTeacherCount,
+    };
   }
   return {
     devices: existing.devices,
@@ -509,18 +1020,28 @@ function isMayarVerifiedCodeForDevice(cleanCode: string, deviceId: string): bool
  */
 export async function verifyMayarLicenseOnline(
   rawCode: string,
-  deviceId?: string
+  deviceId?: string,
+  teacherPin?: string
 ): Promise<{
   valid: boolean;
   planType?: 'individu' | 'sekolah';
   usedSeats?: number;
   maxSeats?: number;
+  teacherKey?: string;
+  teacherUsedDevices?: number;
+  teacherMaxDevices?: number;
+  teacherDeviceLimitExceeded?: boolean;
+  teacherSeatDisabled?: boolean;
   seatLimitExceeded?: boolean;
   revoked?: boolean;
+  expired?: boolean;
+  expiresAt?: string | null;
+  lifecycleState?: LicenseLifecycleState;
   message?: string;
 }> {
   const cleanCode = normalizeLicenseCodeInput(rawCode);
   const activeDevice = (deviceId || getOrCreateDeviceId()).trim().toUpperCase();
+  const cleanTeacherPin = String(teacherPin || '').trim();
 
   // 1. Hubungi endpoint serverless aman /api/activate-license terlebih dahulu
   // agar Upstash Redis mengunci batas maksimal perangkat lintas HP & Laptop (Anti-Share ke perangkat ke-3)
@@ -533,22 +1054,38 @@ export async function verifyMayarLicenseOnline(
       body: JSON.stringify({
         licenseCode: cleanCode,
         deviceId: activeDevice,
+        ...(cleanTeacherPin ? { teacherPin: cleanTeacherPin } : {}),
       }),
     });
 
     const data = await response.json().catch(() => null);
 
-    // Jika server menolak (dicabut/dihapus oleh Admin, atau kursi perangkat sudah penuh)
-    if (response.status === 403 || data?.revoked || data?.seatLimitExceeded) {
+    // Jika server menolak (dicabut/dihapus oleh Admin, kedaluwarsa, atau kursi perangkat/guru sudah penuh)
+    if (
+      response.status === 403 ||
+      data?.revoked ||
+      data?.expired ||
+      data?.seatLimitExceeded ||
+      data?.teacherSeatDisabled ||
+      data?.teacherDeviceLimitExceeded
+    ) {
       return {
         valid: false,
         revoked: Boolean(data?.revoked),
+        expired: Boolean(data?.expired),
+        expiresAt: data?.expiresAt ?? null,
+        lifecycleState: data?.lifecycleState,
         seatLimitExceeded: Boolean(data?.seatLimitExceeded),
+        teacherDeviceLimitExceeded: Boolean(data?.teacherDeviceLimitExceeded),
+        teacherSeatDisabled: Boolean(data?.teacherSeatDisabled),
+        teacherKey: data?.teacherKey,
+        teacherUsedDevices: data?.teacherUsedDevices,
+        teacherMaxDevices: data?.teacherMaxDevices,
         usedSeats: data?.usedSeats,
         maxSeats: data?.maxSeats,
         message:
           data?.message ||
-          'Kode lisensi ini tidak valid atau telah dinonaktifkan oleh Administrator.',
+          'Kode lisensi ini tidak valid, masa berlaku berakhir, atau telah dinonaktifkan oleh Administrator.',
       };
     }
 
@@ -563,6 +1100,11 @@ export async function verifyMayarLicenseOnline(
         planType,
         usedSeats: data.usedSeats,
         maxSeats,
+        teacherKey: data.teacherKey,
+        teacherUsedDevices: data.teacherUsedDevices,
+        teacherMaxDevices: data.teacherMaxDevices,
+        expiresAt: data.expiresAt ?? null,
+        lifecycleState: data.lifecycleState || 'active',
         message: data.message,
       };
     }
@@ -674,16 +1216,33 @@ export function isLocallyRevokedLicense(rawCode?: string): boolean {
   return false;
 }
 
+/**
+ * Membersihkan entri kode lisensi usang (PRO-MERDEKA-* / ASES-*).
+ * PENTING: Data akademik, profil sekolah (schoolId), presensi, jurnal, nilai, dan e-Rapor
+ * TIDAK BOLEH PERNAH dihapus ketika lisensi dibersihkan atau dicabut!
+ */
 export function purgeDeviceFromLegacyLicense(): void {
   try {
     localStorage.removeItem(STORAGE_KEY_QUOTA);
     localStorage.removeItem(STORAGE_KEY_SIG);
     localStorage.removeItem(STORAGE_KEY_SEAT_REGISTRY);
     localStorage.removeItem(STORAGE_KEY_VERIFIED_MAYAR_CODES);
-    localStorage.removeItem('asesmerdeka_school_profile_v1');
     localStorage.removeItem('asesmerdeka_class_setup_confirmed_v1');
     localStorage.removeItem('asesmerdeka_cloud_last_sync_at_v1');
-    localStorage.removeItem('asesmerdeka_cloud_teacher_pin_v1');
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Membersihkan status aktivasi lisensi secara non-destruktif tanpa menyentuh
+ * profil sekolah, setup kelas, atau data akademik guru.
+ */
+function clearActiveLicenseEntitlementKeysOnly(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY_QUOTA);
+    localStorage.removeItem(STORAGE_KEY_SIG);
+    localStorage.removeItem(STORAGE_KEY_VERIFIED_MAYAR_CODES);
   } catch {
     // ignore
   }
@@ -778,12 +1337,8 @@ export function getUserQuota(): UserQuota {
     try {
       const parsed = JSON.parse(raw) as UserQuota;
 
-      // Jika perangkat ini sebelumnya mengaktifkan kode lama atau lisensi yang telah dihapus/dicabut oleh Admin,
-      // bersihkan seluruh status lisensi & profil agar perangkat kembali ke Mode Pratinjau (Free)!
-      if (
-        parsed.licenseKey &&
-        (isLegacyRevokedCode(parsed.licenseKey) || isLocallyRevokedLicense(parsed.licenseKey))
-      ) {
+      // Jika perangkat ini sebelumnya mengaktifkan kode usang atau lisensi yang telah dihapus/dicabut/kedaluwarsa:
+      if (parsed.licenseKey && isLegacyRevokedCode(parsed.licenseKey)) {
         purgeDeviceFromLegacyLicense();
         const resetQuota: UserQuota = {
           tier: 'free',
@@ -791,6 +1346,28 @@ export function getUserQuota(): UserQuota {
           maxCredits: 0,
           deviceId,
           lastResetDate: today,
+          lifecycleState: 'revoked',
+        };
+        saveQuotaWithSignature(resetQuota);
+        return resetQuota;
+      }
+
+      if (parsed.licenseKey && isLocallyRevokedLicense(parsed.licenseKey)) {
+        saveLastLicenseStatusMetadata({
+          state: 'revoked',
+          licenseKey: parsed.licenseKey,
+          expiresAt: parsed.expiresAt ?? null,
+          message: 'Kode lisensi telah dicabut oleh Administrator. Data akademik Anda tetap aman.',
+          updatedAt: new Date().toISOString(),
+        });
+        clearActiveLicenseEntitlementKeysOnly();
+        const resetQuota: UserQuota = {
+          tier: 'free',
+          remainingCredits: 0,
+          maxCredits: 0,
+          deviceId,
+          lastResetDate: today,
+          lifecycleState: 'revoked',
         };
         saveQuotaWithSignature(resetQuota);
         return resetQuota;
@@ -800,13 +1377,49 @@ export function getUserQuota(): UserQuota {
 
       // Wajib verifikasi integritas signature + hardware fingerprint terlebih dahulu
       if (storedSig === expectedSig) {
+        // Cek masa berlaku atau penangguhan pada lisensi tersimpan
+        if (
+          parsed.lifecycleState === 'revoked' ||
+          parsed.lifecycleState === 'suspended' ||
+          parsed.lifecycleState === 'expired' ||
+          isLicenseExpired(parsed.expiresAt)
+        ) {
+          const derivedState: QuotaLifecycleState =
+            parsed.lifecycleState === 'revoked'
+              ? 'revoked'
+              : parsed.lifecycleState === 'suspended'
+              ? 'suspended'
+              : 'expired';
+          saveLastLicenseStatusMetadata({
+            state: derivedState,
+            licenseKey: parsed.licenseKey,
+            expiresAt: parsed.expiresAt ?? null,
+            message:
+              derivedState === 'expired'
+                ? 'Masa berlaku lisensi telah habis. Data akademik tetap tersimpan; silakan perpanjang lisensi.'
+                : derivedState === 'suspended'
+                ? 'Lisensi sedang ditangguhkan oleh Administrator.'
+                : 'Lisensi telah dicabut.',
+            updatedAt: new Date().toISOString(),
+          });
+          return {
+            tier: 'free',
+            remainingCredits: 0,
+            maxCredits: 0,
+            deviceId: parsed.deviceId || deviceId,
+            lastResetDate: today,
+            lifecycleState: derivedState,
+            expiresAt: parsed.expiresAt ?? null,
+          };
+        }
+
         if (isLicensed(parsed.tier)) {
           const activeDev = parsed.deviceId || deviceId;
           if (parsed.licenseKey && isValidLicenseCode(parsed.licenseKey, activeDev)) {
             return parsed;
           }
-          // Jika kode lisensi sudah tidak valid, bersihkan perangkat kembali ke kosong
-          purgeDeviceFromLegacyLicense();
+          // Jika kode lisensi sudah tidak valid, kembalikan ke pratinjau secara non-destruktif
+          clearActiveLicenseEntitlementKeysOnly();
         } else {
           // Akun Free Uji Coba: tidak di-reset harian, mengacu pada kuota uji coba permanen
           const usedTrial = getTrialUsedCount(deviceId);
@@ -861,9 +1474,113 @@ function saveQuotaWithSignature(quota: UserQuota): void {
   safeSetItem(STORAGE_KEY_SIG, sig);
 }
 
+export type EntitledFeature =
+  | 'preview_ui'
+  | 'local_academic_crud'
+  | 'export_document'
+  | 'print_pdf'
+  | 'ai_generate_standard'
+  | 'ai_generate_pro'
+  | 'cloud_sync';
+
+export interface FeatureEntitlementMatrix {
+  tier: LicenseTier;
+  lifecycleState: LicenseLifecycleState | 'preview';
+  isActivePaidLicense: boolean;
+  features: Record<EntitledFeature, boolean>;
+  reason?: string;
+}
+
+export function getFeatureEntitlements(quotaInput?: UserQuota): FeatureEntitlementMatrix {
+  const quota = quotaInput || getUserQuota();
+  const expired = isLicenseExpired(quota.expiresAt);
+  const blockedState =
+    expired ||
+    quota.lifecycleState === 'expired' ||
+    quota.lifecycleState === 'revoked' ||
+    quota.lifecycleState === 'suspended' ||
+    quota.lifecycleState === 'pending_payment' ||
+    quota.lifecycleState === 'payment_failed';
+
+  const activePaid = isLicensed(quota.tier) && !blockedState;
+  const activeProAi = activePaid && isProAiTier(quota.tier);
+
+  const lifecycleState: LicenseLifecycleState | 'preview' = expired
+    ? 'expired'
+    : quota.lifecycleState || (activePaid ? 'active' : 'preview');
+
+  let reason: string | undefined;
+  if (!activePaid) {
+    if (lifecycleState === 'expired') {
+      reason = 'Masa berlaku lisensi telah berakhir. Data akademik tetap aman; silakan perpanjang lisensi.';
+    } else if (lifecycleState === 'revoked') {
+      reason = 'Lisensi telah dicabut atau dinonaktifkan oleh Administrator.';
+    } else if (lifecycleState === 'suspended') {
+      reason = 'Lisensi sedang ditangguhkan sementara oleh Administrator.';
+    } else if (lifecycleState === 'pending_payment') {
+      reason = 'Pembayaran masih berstatus pending.';
+    } else if (lifecycleState === 'payment_failed') {
+      reason = 'Pembayaran sebelumnya gagal atau kedaluwarsa.';
+    } else {
+      reason = 'Mode Pratinjau: Aktifkan lisensi untuk menggunakan ekspor, AI, dan Cloud Sync.';
+    }
+  }
+
+  return {
+    tier: activePaid ? quota.tier : 'free',
+    lifecycleState,
+    isActivePaidLicense: activePaid,
+    features: {
+      preview_ui: true,
+      local_academic_crud: true,
+      export_document: activePaid,
+      print_pdf: activePaid,
+      ai_generate_standard: activePaid && quota.remainingCredits > 0,
+      ai_generate_pro: activeProAi && quota.remainingCredits > 0,
+      cloud_sync: activePaid,
+    },
+    ...(reason ? { reason } : {}),
+  };
+}
+
+export function hasFeatureEntitlement(
+  feature: EntitledFeature,
+  quotaInput?: UserQuota
+): { allowed: boolean; matrix: FeatureEntitlementMatrix; message?: string } {
+  const matrix = getFeatureEntitlements(quotaInput);
+  const allowed = Boolean(matrix.features[feature]);
+  let message = matrix.reason;
+  if (!allowed && feature === 'ai_generate_pro' && matrix.isActivePaidLicense) {
+    message = 'Fitur AI PRO hanya tersedia untuk paket Guru PRO (GP26) atau Sekolah PRO (SP26).';
+  }
+  return { allowed, matrix, message };
+}
+
 export function deductQuota(): { success: boolean; quota: UserQuota; message?: string } {
   const current = getUserQuota();
   if (isLicensed(current.tier)) {
+    if (isLicenseExpired(current.expiresAt) || current.lifecycleState === 'expired') {
+      return {
+        success: false,
+        quota: current,
+        message: 'Masa berlaku lisensi telah berakhir. Silakan lakukan perpanjangan (renewal) lisensi.',
+      };
+    }
+    if (current.maxCredits > 0 && current.maxCredits < 999999) {
+      if (current.remainingCredits <= 0) {
+        return {
+          success: false,
+          quota: current,
+          message: 'Kuota kredit AI untuk periode ini telah habis.',
+        };
+      }
+      const next: UserQuota = {
+        ...current,
+        remainingCredits: current.remainingCredits - 1,
+      };
+      saveQuotaWithSignature(next);
+      return { success: true, quota: next };
+    }
     return { success: true, quota: current };
   }
 
@@ -883,7 +1600,7 @@ export function requireActiveLicenseForAction(
   actionLabel = 'membuat atau mengunduh dokumen'
 ): boolean {
   const current = getUserQuota();
-  if (isLicensed(current.tier)) {
+  if (isLicensed(current.tier) && !isLicenseExpired(current.expiresAt)) {
     return true;
   }
 
@@ -906,21 +1623,58 @@ export function requireActiveLicenseForAction(
 /**
  * Refund Quota jika terjadi kegagalan jaringan atau error pada API Gemini
  */
-export function refundQuota(): UserQuota {
+export function refundQuota(amount = 1): UserQuota {
   const current = getUserQuota();
-  if (isLicensed(current.tier)) return current;
+  const safeAmount = Math.max(1, Math.round(amount));
+  if (isLicensed(current.tier) && current.maxCredits >= 999999) {
+    return current;
+  }
+  if (current.maxCredits > 0 && current.remainingCredits < current.maxCredits) {
+    const refunded: UserQuota = {
+      ...current,
+      remainingCredits: Math.min(current.maxCredits, current.remainingCredits + safeAmount),
+    };
+    saveQuotaWithSignature(refunded);
+    return refunded;
+  }
   return current;
 }
 
-export function activateLicense(licenseCode: string): {
+export interface ActivateLicenseOptions {
+  teacherPin?: string;
+  expiresAt?: string | null;
+  maxCredits?: number;
+  initialCredits?: number;
+}
+
+export function activateLicense(
+  licenseCode: string,
+  optionsOrTeacherPin?: ActivateLicenseOptions | string
+): {
   success: boolean;
   message: string;
   quota: UserQuota;
   usedSeats?: number;
   maxSeats?: number;
+  teacherKey?: string;
+  teacherUsedDevices?: number;
+  teacherMaxDevices?: number;
 } {
+  const opts: ActivateLicenseOptions =
+    typeof optionsOrTeacherPin === 'string'
+      ? { teacherPin: optionsOrTeacherPin }
+      : optionsOrTeacherPin || {};
+
   const cleanCode = normalizeLicenseCodeInput(licenseCode);
   const deviceId = getOrCreateDeviceId();
+
+  if (opts.expiresAt && isLicenseExpired(opts.expiresAt)) {
+    return {
+      success: false,
+      message: 'Masa berlaku kode lisensi ini sudah kedaluwarsa. Silakan lakukan perpanjangan (renewal).',
+      quota: getUserQuota(),
+    };
+  }
 
   if (!isValidLicenseCode(cleanCode, deviceId)) {
     return {
@@ -931,8 +1685,8 @@ export function activateLicense(licenseCode: string): {
     };
   }
 
-  // Periksa batas maksimal kursi perangkat (Seat Lock) agar kode tidak bisa dijual ulang
-  const seatCheck = checkAndClaimLicenseSeat(cleanCode, deviceId);
+  // Periksa batas maksimal kursi perangkat / kursi guru (Seat Lock) agar kode tidak bisa dijual ulang
+  const seatCheck = checkAndClaimLicenseSeat(cleanCode, deviceId, opts.teacherPin);
   if (!seatCheck.allowed) {
     return {
       success: false,
@@ -942,6 +1696,9 @@ export function activateLicense(licenseCode: string): {
       quota: getUserQuota(),
       usedSeats: seatCheck.usedSeats,
       maxSeats: seatCheck.maxSeats,
+      teacherKey: seatCheck.teacherKey,
+      teacherUsedDevices: seatCheck.teacherUsedDevices,
+      teacherMaxDevices: seatCheck.teacherMaxDevices,
     };
   }
 
@@ -973,43 +1730,104 @@ export function activateLicense(licenseCode: string): {
     targetTier = 'guru';
   }
 
+  const maxCredits =
+    typeof opts.maxCredits === 'number' && opts.maxCredits > 0 ? opts.maxCredits : 999999;
+  const remainingCredits =
+    typeof opts.initialCredits === 'number' && opts.initialCredits >= 0
+      ? Math.min(maxCredits, opts.initialCredits)
+      : maxCredits;
+
   const activeQuota: UserQuota = {
     tier: targetTier,
-    remainingCredits: 999999,
-    maxCredits: 999999,
+    remainingCredits,
+    maxCredits,
     deviceId,
     licenseKey: cleanCode,
     lastResetDate: getTodayDateStr(),
+    lifecycleState: 'active',
+    ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}),
+    ...(seatCheck.teacherKey ? { teacherSeatKey: seatCheck.teacherKey } : {}),
   };
+  saveLastLicenseStatusMetadata(null);
   saveQuotaWithSignature(activeQuota);
 
   const tierDisplayName = getTierDisplayName(targetTier);
+  const seatSummary = seatCheck.teacherKey
+    ? `Kursi Guru: ${seatCheck.usedSeats}/${seatCheck.maxSeats} • Perangkat Guru Ini: ${seatCheck.teacherUsedDevices}/${seatCheck.teacherMaxDevices}`
+    : `Slot Perangkat: ${seatCheck.usedSeats}/${seatCheck.maxSeats}`;
+
   return {
     success: true,
-    message: `Selamat! Lisensi ${tierDisplayName} Lifetime berhasil diaktifkan dan dikunci pada perangkat ini (Slot Perangkat: ${seatCheck.usedSeats}/${seatCheck.maxSeats}).`,
+    message: `Selamat! Lisensi ${tierDisplayName} berhasil diaktifkan dan dikunci pada perangkat ini (${seatSummary}).`,
     quota: activeQuota,
     usedSeats: seatCheck.usedSeats,
     maxSeats: seatCheck.maxSeats,
+    teacherKey: seatCheck.teacherKey,
+    teacherUsedDevices: seatCheck.teacherUsedDevices,
+    teacherMaxDevices: seatCheck.teacherMaxDevices,
   };
 }
 
 /**
- * Menonaktifkan lisensi pada perangkat saat ini jika server mendeteksi perangkat ini melebihi batas kursi (misal perangkat ke-3)
+ * Menonaktifkan lisensi pada perangkat saat ini secara non-destruktif
+ * (jika dicabut Admin, kedaluwarsa, atau melebihi batas kursi).
+ * Data sekolah, siswa, presensi, jurnal, nilai, dan e-Rapor TETAP UTUH.
  */
-export function revokeLicenseToPreviewMode(): UserQuota {
+export function revokeLicenseToPreviewMode(options?: {
+  reason?: 'revoked' | 'expired' | 'suspended' | 'unbound';
+  licenseKey?: string;
+  expiresAt?: string | null;
+  message?: string;
+}): UserQuota {
   const deviceId = getOrCreateDeviceId();
-  purgeDeviceFromLegacyLicense();
+  let previousKey = options?.licenseKey;
+  if (!previousKey) {
+    try {
+      const prevRaw = localStorage.getItem(STORAGE_KEY_QUOTA);
+      if (prevRaw) {
+        previousKey = (JSON.parse(prevRaw) as UserQuota).licenseKey;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  clearActiveLicenseEntitlementKeysOnly();
+
+  if (options?.reason) {
+    saveLastLicenseStatusMetadata({
+      state: options.reason === 'unbound' ? 'paid' : options.reason,
+      licenseKey: previousKey,
+      expiresAt: options.expiresAt ?? null,
+      message:
+        options.message ||
+        (options.reason === 'expired'
+          ? 'Masa berlaku lisensi telah berakhir. Data akademik lokal Anda tetap utuh.'
+          : options.reason === 'suspended'
+          ? 'Lisensi sedang ditangguhkan oleh Administrator.'
+          : 'Lisensi pada perangkat ini telah dinonaktifkan atau dilepas. Data akademik lokal Anda tetap utuh.'),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
   const revoked: UserQuota = {
     tier: 'free',
     remainingCredits: 0,
     maxCredits: 0,
     deviceId,
     lastResetDate: getTodayDateStr(),
+    ...(options?.reason && options.reason !== 'unbound'
+      ? { lifecycleState: options.reason }
+      : {}),
   };
   saveQuotaWithSignature(revoked);
   try {
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('asesmerdeka:license-revoked'));
+      window.dispatchEvent(
+        new CustomEvent('asesmerdeka:license-revoked', {
+          detail: { reason: options?.reason || 'revoked' },
+        })
+      );
     }
   } catch {
     // ignore
@@ -1019,16 +1837,26 @@ export function revokeLicenseToPreviewMode(): UserQuota {
 
 /**
  * Memvalidasi apakah lisensi aktif pada perangkat ini masih sah di server
- * (Mendeteksi jika lisensi telah dihapus atau dicabut oleh Administrator).
+ * (Mendeteksi jika lisensi dicabut, ditangguhkan, atau melewati masa berlaku).
  */
-export async function verifyActiveLicenseWithServer(): Promise<{
+export async function verifyActiveLicenseWithServer(teacherPin?: string): Promise<{
   valid: boolean;
   revoked?: boolean;
+  expired?: boolean;
+  suspended?: boolean;
+  teacherSeatDisabled?: boolean;
   unbound?: boolean;
   message?: string;
 }> {
   const currentQuota = getUserQuota();
   if (!isLicensed(currentQuota.tier) || !currentQuota.licenseKey) {
+    if (currentQuota.lifecycleState === 'expired') {
+      return {
+        valid: false,
+        expired: true,
+        message: 'Masa berlaku lisensi telah berakhir. Silakan perpanjang lisensi Anda.',
+      };
+    }
     return { valid: true };
   }
 
@@ -1036,13 +1864,28 @@ export async function verifyActiveLicenseWithServer(): Promise<{
   const activeDevice = currentQuota.deviceId || getOrCreateDeviceId();
 
   if (isLocallyRevokedLicense(cleanCode)) {
-    revokeLicenseToPreviewMode();
+    revokeLicenseToPreviewMode({ reason: 'revoked', licenseKey: cleanCode });
     return {
       valid: false,
       revoked: true,
       message: 'Kode lisensi ini telah dicabut atau dinonaktifkan oleh Administrator.',
     };
   }
+
+  if (isLicenseExpired(currentQuota.expiresAt)) {
+    revokeLicenseToPreviewMode({
+      reason: 'expired',
+      licenseKey: cleanCode,
+      expiresAt: currentQuota.expiresAt,
+    });
+    return {
+      valid: false,
+      expired: true,
+      message: 'Masa berlaku lisensi telah berakhir. Data akademik Anda tetap aman tersimpan.',
+    };
+  }
+
+  const resolvedPin = teacherPin || currentQuota.teacherSeatKey || '';
 
   try {
     const res = await fetch('/api/activate-license', {
@@ -1052,21 +1895,45 @@ export async function verifyActiveLicenseWithServer(): Promise<{
         action: 'check_status',
         licenseCode: cleanCode,
         deviceId: activeDevice,
+        ...(resolvedPin ? { teacherPin: resolvedPin } : {}),
       }),
     });
 
     const data = await res.json().catch(() => null);
 
-    // Jika lisensi dihapus/dicabut atau kursi dilepas oleh Administrator:
-    if (res.status === 403 || data?.revoked || data?.unbound || (res.ok && data?.valid === false)) {
-      revokeLicenseToPreviewMode();
+    // Jika lisensi dicabut, kedaluwarsa, ditangguhkan, guru dinonaktifkan, atau kursi dilepas:
+    if (
+      res.status === 403 ||
+      data?.revoked ||
+      data?.expired ||
+      data?.suspended ||
+      data?.teacherSeatDisabled ||
+      data?.unbound ||
+      (res.ok && data?.valid === false)
+    ) {
+      const reason = data?.expired
+        ? 'expired'
+        : data?.suspended
+        ? 'suspended'
+        : data?.unbound
+        ? 'unbound'
+        : 'revoked';
+      revokeLicenseToPreviewMode({
+        reason,
+        licenseKey: cleanCode,
+        expiresAt: data?.expiresAt ?? currentQuota.expiresAt,
+        message: data?.message,
+      });
       return {
         valid: false,
         revoked: Boolean(data?.revoked),
+        expired: Boolean(data?.expired),
+        suspended: Boolean(data?.suspended),
+        teacherSeatDisabled: Boolean(data?.teacherSeatDisabled),
         unbound: Boolean(data?.unbound),
         message:
           data?.message ||
-          'Lisensi pada perangkat ini telah dinonaktifkan atau dihapus oleh Administrator.',
+          'Lisensi pada perangkat ini telah dinonaktifkan, kedaluwarsa, atau dihapus oleh Administrator.',
       };
     }
 

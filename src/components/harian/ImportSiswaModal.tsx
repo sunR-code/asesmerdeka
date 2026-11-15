@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Check,
@@ -6,8 +6,10 @@ import {
   Upload,
   ClipboardPaste,
   Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import type { SiswaItem } from '../../types/kelasHarian';
+import { parseAndValidateStudentImport } from '../../utils/kelasHarianStorage';
 
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB
 const ALLOWED_UPLOAD_EXTENSIONS = ['.txt', '.csv', '.tsv'];
@@ -15,9 +17,14 @@ const ALLOWED_UPLOAD_EXTENSIONS = ['.txt', '.csv', '.tsv'];
 interface ImportSiswaModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImport: (newStudents: SiswaItem[], resetExistingScores: boolean) => void;
+  onImport: (
+    newStudents: SiswaItem[],
+    resetExistingScores: boolean,
+    mode?: 'replace' | 'merge'
+  ) => void;
   currentCount: number;
   rombelName: string;
+  existingStudents?: SiswaItem[];
 }
 
 export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
@@ -26,9 +33,11 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
   onImport,
   currentCount,
   rombelName,
+  existingStudents = [],
 }) => {
   const [rawText, setRawText] = useState('');
   const [resetScores, setResetScores] = useState(false);
+  const [importMode, setImportMode] = useState<'replace' | 'merge'>('replace');
   const [activeTab, setActiveTab] = useState<'paste' | 'upload'>('paste');
 
   useEffect(() => {
@@ -40,109 +49,19 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Dalam mode replace seluruh rombel, duplikat dicek antar-baris file; dalam mode merge, dicek juga terhadap roster eksisting
+  const validationSummary = useMemo(
+    () =>
+      parseAndValidateStudentImport(
+        rawText,
+        importMode === 'merge' ? existingStudents : []
+      ),
+    [rawText, importMode, existingStudents]
+  );
+
   if (!isOpen) return null;
 
-  // Parser cerdas untuk data Excel (Tab-delimited, Comma, atau baris nama)
-  const parseRawText = (text: string): SiswaItem[] => {
-    if (!text.trim()) return [];
-
-    const lines = text
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-
-    const parsed: SiswaItem[] = [];
-    let count = 0;
-
-    for (const line of lines) {
-      // Lewati header jika ada
-      const lower = line.toLowerCase();
-      if (
-        (lower.includes('nama') && lower.includes('nis')) ||
-        lower.startsWith('no\t') ||
-        lower.startsWith('no;') ||
-        lower.startsWith('no,')
-      ) {
-        continue;
-      }
-
-      // Deteksi separator: TAB (dari Excel), semicolon, atau comma
-      let tokens: string[] = [];
-      if (line.includes('\t')) {
-        tokens = line.split('\t').map((t) => t.trim());
-      } else if (line.includes(';')) {
-        tokens = line.split(';').map((t) => t.trim());
-      } else if (line.includes(',')) {
-        tokens = line.split(',').map((t) => t.trim());
-      } else {
-        tokens = [line];
-      }
-
-      // Filter tokens kosong
-      tokens = tokens.filter((t) => t.length > 0);
-      if (tokens.length === 0) continue;
-
-      let nis = '';
-      let nama = '';
-      let jk: 'L' | 'P' = 'L';
-
-      // Logika pemisahan token cerdas
-      if (tokens.length >= 4) {
-        // Misal: [No, NIS, Nama, JK]
-        nis = tokens[1];
-        nama = tokens[2];
-        const rawJK = tokens[3].toUpperCase();
-        jk = rawJK.startsWith('P') || rawJK === 'PEREMPUAN' ? 'P' : 'L';
-      } else if (tokens.length === 3) {
-        // Kemungkinan 1: [NIS, Nama, JK]
-        // Kemungkinan 2: [No, NIS, Nama]
-        if (tokens[2].toUpperCase() === 'L' || tokens[2].toUpperCase() === 'P') {
-          nis = tokens[0];
-          nama = tokens[1];
-          jk = tokens[2].toUpperCase() === 'P' ? 'P' : 'L';
-        } else {
-          nis = tokens[1];
-          nama = tokens[2];
-        }
-      } else if (tokens.length === 2) {
-        // [NIS, Nama] atau [Nama, JK]
-        if (tokens[1].toUpperCase() === 'L' || tokens[1].toUpperCase() === 'P') {
-          nama = tokens[0];
-          jk = tokens[1].toUpperCase() === 'P' ? 'P' : 'L';
-        } else {
-          nis = tokens[0];
-          nama = tokens[1];
-        }
-      } else {
-        // Hanya nama
-        nama = tokens[0];
-      }
-
-      // Bersihkan nama dari tanda kutip atau nomor depan jika ada
-      nama = nama.replace(/^"|"$/g, '').trim();
-      nama = nama.replace(/^\d+[.)-]\s*/, '').trim();
-
-      if (!nama || nama.length < 2) continue;
-
-      count++;
-      // Jika NIS kosong atau berupa nomor urut pendek, buat NIS standar
-      if (!nis || nis.length < 3 || /^\d{1,2}$/.test(nis)) {
-        nis = `2425${String(count).padStart(3, '0')}`;
-      }
-
-      parsed.push({
-        id: `siswa_imp_${nis}_${count}`,
-        noUrut: count,
-        nis,
-        nama,
-        jenisKelamin: jk,
-      });
-    }
-
-    return parsed;
-  };
-
-  const parsedStudents = parseRawText(rawText);
+  const validStudents = validationSummary.validRows.map((r) => r.siswa);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -178,26 +97,27 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
 2425002\tAdelia Putri Kirana\tP
 2425003\tAldo Firmansyah\tL
 2425004\tAmanda Citra Lestari\tP
-2425005\tAnisa Rahmawati\tP
-2425006\tArif Budiman\tL
-2425007\tAulia Nur Safitri\tP
-2425008\tBagas Saputra\tL
-2425009\tBunga Cantika Dewi\tP
-2425010\tDaniel Christian\tL`;
+2425005\tAnisa Rahmawati\tP`;
     setRawText(sample);
   };
 
   const handleSubmit = () => {
-    if (parsedStudents.length === 0) {
-      alert('Tidak ada data siswa yang valid untuk diimpor. Silakan tempelkan (paste) teks dari Excel terlebih dahulu.');
+    if (validStudents.length === 0) {
+      alert('Tidak ada data siswa yang valid untuk diimpor. Periksa kembali format atau duplikasi NIS/NISN.');
       return;
     }
     const ts = Date.now();
-    const stampedStudents = parsedStudents.map((s, idx) => ({
+    const stampedStudents = validStudents.map((s, idx) => ({
       ...s,
       id: `siswa_imp_${ts}_${idx + 1}`,
+      noUrut: idx + 1,
+      statusAktif: 'aktif' as const,
     }));
-    onImport(stampedStudents, resetScores);
+    onImport(
+      stampedStudents,
+      importMode === 'merge' ? false : resetScores,
+      importMode
+    );
     onClose();
   };
 
@@ -219,7 +139,8 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 16,
+        padding: 12,
+        overflowX: 'hidden',
       }}
       onClick={onClose}
     >
@@ -229,9 +150,11 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
           background: '#ffffff',
           borderRadius: 20,
           width: '100%',
-          maxWidth: 780,
+          maxWidth: 'min(820px, calc(100vw - 24px))',
+          minWidth: 0,
           maxHeight: '92vh',
           overflowY: 'auto',
+          overflowX: 'hidden',
           boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
           border: '1px solid #e2e8f0',
         }}
@@ -240,15 +163,16 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
         {/* Header Modal */}
         <div
           style={{
-            padding: '18px 24px',
+            padding: '16px 18px',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 10,
             background: 'linear-gradient(135deg, #f0fdf4 0%, #eff6ff 100%)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
             <div
               style={{
                 width: 42,
@@ -259,23 +183,25 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(5, 150, 105, 0.3)',
+                flexShrink: 0,
               }}
             >
               <FileSpreadsheet size={22} />
             </div>
             <div>
-              <h2 style={{ fontSize: 17, fontWeight: 800, color: '#0f172a' }}>
-                Impor Data Siswa dari Excel / Dapodik
+              <h2 style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                Impor &amp; Validasi Data Siswa (Excel / CSV / Dapodik)
               </h2>
-              <p style={{ fontSize: 12.5, color: '#475569' }}>
-                Salin daftar nama siswa kelas <strong>{rombelName}</strong> dalam 1 klik tanpa ketik manual
+              <p style={{ fontSize: 12.5, color: '#475569', margin: '2px 0 0' }}>
+                Pratinjau baris, deteksi duplikat NIS/NISN, dan pilih mode impor untuk kelas{' '}
+                <strong>{rombelName}</strong>
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
+            aria-label="Tutup modal impor siswa"
             style={{
               background: '#ffffff',
               border: '1px solid #cbd5e1',
@@ -287,6 +213,7 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
               justifyContent: 'center',
               cursor: 'pointer',
               color: '#475569',
+              flexShrink: 0,
             }}
           >
             <X size={18} />
@@ -294,7 +221,7 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
         </div>
 
         {/* Tab Navigasi Mode */}
-        <div style={{ padding: '16px 24px 0', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: 8 }}>
+        <div style={{ padding: '14px 18px 0', borderBottom: '1px solid #f1f5f9', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <button
             type="button"
             onClick={() => setActiveTab('paste')}
@@ -333,31 +260,32 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
               gap: 6,
             }}
           >
-            <Upload size={15} /> 2. Unggah File CSV / TXT
+            <Upload size={15} /> 2. Unggah File CSV / TSV / TXT
           </button>
         </div>
 
         {/* Body Modal */}
-        <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           {/* Petunjuk Penggunaan Praktis */}
           <div
             style={{
               background: '#f0fdf4',
               border: '1px solid #bbf7d0',
               borderRadius: 12,
-              padding: '14px 18px',
-              fontSize: 13,
+              padding: '12px 16px',
+              fontSize: 12.5,
               color: '#1e293b',
-              lineHeight: 1.6,
+              lineHeight: 1.55,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
               flexWrap: 'wrap',
-              gap: 12,
+              gap: 10,
             }}
           >
-            <div style={{ flex: 1, minWidth: 260 }}>
-              💡 <strong>Langkah Mudah:</strong> Buka file Excel daftar siswa dari sekolah / TU Bapak/Ibu, <strong>blok kolom NIS, Nama Siswa, dan L/P</strong>, tekan <strong>Ctrl + C (Salin)</strong>, lalu klik di dalam kotak di bawah ini dan tekan <strong>Ctrl + V (Tempel)</strong>.
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <strong>Format didukung:</strong> <code>NIS | Nama | L/P</code> atau{' '}
+              <code>NIS | NISN | Nama | L/P</code> (pisahkan dengan Tab Excel, titik koma, atau koma). NIS/NISN bersifat opsional.
             </div>
             <button
               type="button"
@@ -367,14 +295,13 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
                 border: '1px solid #10b981',
                 borderRadius: 8,
                 padding: '6px 12px',
-                fontSize: 12.5,
+                fontSize: 12,
                 fontWeight: 700,
                 color: '#047857',
                 cursor: 'pointer',
-                boxShadow: '0 1px 3px rgba(16,185,129,0.12)',
               }}
             >
-              Lihat Contoh Data
+              Isi Contoh Format
             </button>
           </div>
 
@@ -382,7 +309,7 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                 <label style={{ fontSize: 13, fontWeight: 800, color: '#1e293b' }}>
-                  Tempelkan (Paste) Teks dari Spreadsheet Excel:
+                  Tempelkan (Paste) Teks dari Spreadsheet Excel / CSV:
                 </label>
                 {rawText && (
                   <button
@@ -405,7 +332,7 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
                 )}
               </div>
               <textarea
-                rows={6}
+                rows={5}
                 className="form-textarea"
                 style={{
                   fontFamily: 'monospace',
@@ -414,8 +341,9 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
                   padding: '10px 12px',
                   borderRadius: 10,
                   border: '1.5px solid #cbd5e1',
+                  width: '100%',
                 }}
-                placeholder="Contoh format paste dari Excel:&#10;2425001	Ahmad Fauzan	L&#10;2425002	Aisyah Nurul Aini	P&#10;2425003	Andika Bagus Pratama	L"
+                placeholder="Contoh format paste dari Excel:&#10;2425001	Ahmad Fauzan	L&#10;2425002	Aisyah Nurul Aini	P&#10;2425003	0091234567	Andika Bagus Pratama	L"
                 value={rawText}
                 onChange={(e) => setRawText(e.target.value)}
               />
@@ -425,17 +353,17 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
               style={{
                 border: '2px dashed #cbd5e1',
                 borderRadius: 14,
-                padding: '28px 20px',
+                padding: '24px 18px',
                 textAlign: 'center',
                 background: '#f8fafc',
               }}
             >
-              <Upload size={32} color="#059669" style={{ margin: '0 auto 10px' }} />
+              <Upload size={30} color="#059669" style={{ margin: '0 auto 8px' }} />
               <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>
-                Pilih Berkas CSV atau TXT dari Komputer
+                Pilih Berkas CSV, TSV, atau TXT
               </div>
-              <p style={{ fontSize: 12, color: '#64748b', marginBottom: 14 }}>
-                Mendukung berkas ekspor Dapodik (.csv atau .txt)
+              <p style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+                Mendukung berkas ekspor Dapodik / Excel (.csv, .tsv, .txt) hingga 2 MB
               </p>
               <input
                 type="file"
@@ -462,43 +390,137 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
             </div>
           )}
 
-          {/* Pratinjau Realtime Hasil Pembacaan */}
+          {/* Pilihan Mode Impor: Ganti vs Gabungkan */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: 8,
+            }}
+          >
+            <label
+              style={{
+                border: importMode === 'replace' ? '1.5px solid #2563eb' : '1px solid #e2e8f0',
+                background: importMode === 'replace' ? '#eff6ff' : '#ffffff',
+                borderRadius: 10,
+                padding: '9px 12px',
+                cursor: 'pointer',
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
+              }}
+            >
+              <input
+                type="radio"
+                name="import-mode"
+                checked={importMode === 'replace'}
+                onChange={() => setImportMode('replace')}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <strong>Ganti seluruh roster ({currentCount} siswa)</strong>
+                <br />
+                <span style={{ color: '#64748b' }}>Cocok untuk mengganti data contoh/awal dengan kelas baru.</span>
+              </span>
+            </label>
+
+            <label
+              style={{
+                border: importMode === 'merge' ? '1.5px solid #059669' : '1px solid #e2e8f0',
+                background: importMode === 'merge' ? '#ecfdf5' : '#ffffff',
+                borderRadius: 10,
+                padding: '9px 12px',
+                cursor: 'pointer',
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
+              }}
+            >
+              <input
+                type="radio"
+                name="import-mode"
+                checked={importMode === 'merge'}
+                onChange={() => setImportMode('merge')}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <strong>Gabungkan (tambah siswa baru saja)</strong>
+                <br />
+                <span style={{ color: '#64748b' }}>Menjaga siswa &amp; nilai lama, melewati NIS/NISN duplikat.</span>
+              </span>
+            </label>
+          </div>
+
+          {/* Pratinjau & Ringkasan Validasi Baris */}
           <div>
             <div
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 8,
                 marginBottom: 8,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: '#1e293b' }}>
-                  Pratinjau Hasil Impor:
+                  Pratinjau Validasi:
                 </span>
                 <span
                   style={{
-                    background: parsedStudents.length > 0 ? '#dcfce7' : '#f1f5f9',
-                    color: parsedStudents.length > 0 ? '#15803d' : '#64748b',
+                    background: validStudents.length > 0 ? '#dcfce7' : '#f1f5f9',
+                    color: validStudents.length > 0 ? '#15803d' : '#64748b',
                     fontSize: 11.5,
                     fontWeight: 800,
                     padding: '2px 9px',
                     borderRadius: 99,
                   }}
                 >
-                  {parsedStudents.length} Siswa Terdeteksi
+                  {validStudents.length} Valid Siap Diimpor
                 </span>
+                {validationSummary.duplicateRows.length > 0 && (
+                  <span
+                    style={{
+                      background: '#fef3c7',
+                      color: '#b45309',
+                      fontSize: 11.5,
+                      fontWeight: 800,
+                      padding: '2px 9px',
+                      borderRadius: 99,
+                    }}
+                  >
+                    {validationSummary.duplicateRows.length} Duplikat Dilewati
+                  </span>
+                )}
+                {validationSummary.invalidRows.length > 0 && (
+                  <span
+                    style={{
+                      background: '#fee2e2',
+                      color: '#b91c1c',
+                      fontSize: 11.5,
+                      fontWeight: 800,
+                      padding: '2px 9px',
+                      borderRadius: 99,
+                    }}
+                  >
+                    {validationSummary.invalidRows.length} Tidak Valid
+                  </span>
+                )}
               </div>
               <span style={{ fontSize: 11.5, color: '#64748b' }}>
-                Saat ini di kelas: {currentCount} Siswa
+                Aktif saat ini: {currentCount} siswa
               </span>
             </div>
 
-            {parsedStudents.length > 0 ? (
+            {validationSummary.allRows.length > 0 ? (
               <div
                 style={{
-                  maxHeight: 180,
+                  maxHeight: 190,
                   overflowY: 'auto',
+                  overflowX: 'auto',
                   border: '1px solid #e2e8f0',
                   borderRadius: 10,
                   background: '#ffffff',
@@ -507,32 +529,72 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', color: '#475569', borderBottom: '1px solid #e2e8f0' }}>
-                      <th style={{ padding: '6px 8px', width: 40, textAlign: 'center' }}>No</th>
-                      <th style={{ padding: '6px 10px', width: 100, textAlign: 'center' }}>NIS</th>
-                      <th style={{ padding: '6px 12px', textAlign: 'left' }}>Nama Lengkap Siswa</th>
-                      <th style={{ padding: '6px 10px', width: 50, textAlign: 'center' }}>L/P</th>
+                      <th style={{ padding: '6px 8px', width: 36, textAlign: 'center' }}>No</th>
+                      <th style={{ padding: '6px 8px', width: 88, textAlign: 'center' }}>NIS</th>
+                      <th style={{ padding: '6px 8px', width: 96, textAlign: 'center' }}>NISN</th>
+                      <th style={{ padding: '6px 10px', textAlign: 'left' }}>Nama Lengkap Siswa</th>
+                      <th style={{ padding: '6px 8px', width: 42, textAlign: 'center' }}>L/P</th>
+                      <th style={{ padding: '6px 10px', textAlign: 'left' }}>Status Validasi</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {parsedStudents.map((s, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '5px 8px', textAlign: 'center', color: '#64748b' }}>{idx + 1}</td>
-                        <td style={{ padding: '5px 10px', textAlign: 'center', fontWeight: 600, color: '#1d4ed8' }}>
-                          {s.nis}
-                        </td>
-                        <td style={{ padding: '5px 12px', fontWeight: 700, color: '#0f172a' }}>{s.nama}</td>
-                        <td style={{ padding: '5px 10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>
-                          {s.jenisKelamin}
-                        </td>
-                      </tr>
-                    ))}
+                    {validationSummary.allRows.map((row) => {
+                      const isOk = row.status === 'valid';
+                      const isDup =
+                        row.status === 'duplicate_nis' ||
+                        row.status === 'duplicate_nisn' ||
+                        row.status === 'duplicate_in_file';
+                      return (
+                        <tr
+                          key={row.rowIndex}
+                          style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            background: isOk ? '#ffffff' : isDup ? '#fffbeb' : '#fef2f2',
+                          }}
+                        >
+                          <td style={{ padding: '5px 8px', textAlign: 'center', color: '#64748b' }}>
+                            {row.rowIndex}
+                          </td>
+                          <td style={{ padding: '5px 8px', textAlign: 'center', fontWeight: 600, color: '#1d4ed8' }}>
+                            {row.siswa.nis || '—'}
+                          </td>
+                          <td style={{ padding: '5px 8px', textAlign: 'center', color: '#475569' }}>
+                            {row.siswa.nisn || '—'}
+                          </td>
+                          <td style={{ padding: '5px 10px', fontWeight: 700, color: '#0f172a' }}>
+                            {row.siswa.nama || '(Kosong)'}
+                          </td>
+                          <td style={{ padding: '5px 8px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>
+                            {row.siswa.jenisKelamin}
+                          </td>
+                          <td style={{ padding: '5px 10px', fontSize: 11.5 }}>
+                            {isOk ? (
+                              <span style={{ color: '#15803d', fontWeight: 700 }}>Siap diimpor</span>
+                            ) : (
+                              <span
+                                style={{
+                                  color: isDup ? '#b45309' : '#b91c1c',
+                                  fontWeight: 600,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <AlertTriangle size={12} aria-hidden="true" />
+                                {row.message}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             ) : (
               <div
                 style={{
-                  padding: '20px',
+                  padding: '18px',
                   background: '#f8fafc',
                   border: '1px dashed #cbd5e1',
                   borderRadius: 10,
@@ -541,51 +603,56 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
                   fontSize: 12.5,
                 }}
               >
-                Belum ada data siswa. Silakan tempelkan daftar nama siswa di atas.
+                Belum ada data siswa. Tempelkan daftar nama siswa dari Excel atau unggah file CSV/TSV.
               </div>
             )}
           </div>
 
           {/* Opsi Reset Nilai */}
-          <div
-            style={{
-              background: '#fffbeb',
-              border: '1px solid #fef3c7',
-              borderRadius: 10,
-              padding: '10px 14px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
-          >
-            <input
-              type="checkbox"
-              id="reset-scores-chk"
-              checked={resetScores}
-              onChange={(e) => setResetScores(e.target.checked)}
-              style={{ width: 16, height: 16, cursor: 'pointer' }}
-            />
-            <label htmlFor="reset-scores-chk" style={{ fontSize: 12.5, color: '#92400e', cursor: 'pointer' }}>
-              <strong>Bersihkan / Reset Nilai & Presensi:</strong> Buat nilai formatif dan presensi awal yang baru untuk semua siswa ini (direkomendasikan jika ini kelas baru).
-            </label>
-          </div>
+          {importMode === 'replace' && (
+            <div
+              style={{
+                background: '#fffbeb',
+                border: '1px solid #fef3c7',
+                borderRadius: 10,
+                padding: '10px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}
+            >
+              <input
+                type="checkbox"
+                id="reset-scores-chk"
+                checked={resetScores}
+                onChange={(e) => setResetScores(e.target.checked)}
+                style={{ width: 16, height: 16, cursor: 'pointer' }}
+              />
+              <label htmlFor="reset-scores-chk" style={{ fontSize: 12.5, color: '#92400e', cursor: 'pointer' }}>
+                <strong>Bersihkan Nilai &amp; Presensi Sebelumnya:</strong> Kosongkan seluruh nilai dan tandai presensi awal bersih (direkomendasikan jika mengganti rombel contoh menjadi kelas nyata).
+              </label>
+            </div>
+          )}
         </div>
 
         {/* Footer Modal */}
         <div
           style={{
-            padding: '16px 24px',
+            padding: '14px 18px',
             borderTop: '1px solid #e2e8f0',
             background: '#f8fafc',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 10,
           }}
         >
           <div style={{ fontSize: 12, color: '#64748b' }}>
-            {parsedStudents.length > 0 && (
+            {validStudents.length > 0 && (
               <span>
-                ✅ <strong>{parsedStudents.length} siswa baru</strong> akan menggantikan daftar siswa lama/dummy di rombel {rombelName}
+                <strong>{validStudents.length} siswa valid</strong> akan{' '}
+                {importMode === 'merge' ? 'ditambahkan ke' : 'menggantikan daftar di'} rombel {rombelName}.
               </span>
             )}
           </div>
@@ -594,26 +661,25 @@ export const ImportSiswaModal: React.FC<ImportSiswaModalProps> = ({
               type="button"
               onClick={onClose}
               className="btn btn-outline"
-              style={{ fontSize: 13, padding: '9px 18px' }}
+              style={{ fontSize: 13, padding: '8px 16px' }}
             >
               Batal
             </button>
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={parsedStudents.length === 0}
+              disabled={validStudents.length === 0}
               className="btn btn-primary"
               style={{
                 fontSize: 13,
                 fontWeight: 800,
-                padding: '9px 24px',
+                padding: '8px 20px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 7,
-                background: parsedStudents.length > 0 ? '#059669' : '#94a3b8',
-                borderColor: parsedStudents.length > 0 ? '#059669' : '#94a3b8',
-                cursor: parsedStudents.length > 0 ? 'pointer' : 'not-allowed',
-                boxShadow: parsedStudents.length > 0 ? '0 4px 12px rgba(5,150,105,0.3)' : 'none',
+                background: validStudents.length > 0 ? '#059669' : '#94a3b8',
+                borderColor: validStudents.length > 0 ? '#059669' : '#94a3b8',
+                cursor: validStudents.length > 0 ? 'pointer' : 'not-allowed',
               }}
             >
               <Check size={16} /> Terapkan ke Kelas {rombelName}

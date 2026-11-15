@@ -40,6 +40,8 @@ export interface CuratedLKPDContent {
   }[];
   pemeriksaanHasil: string[];
   pertanyaanAnalisis: LKPDPertanyaanItem[];
+  produkHasilBelajar?: string;
+  kriteriaPenilaianSiswa?: string[];
   dukunganTambahan: string;
   pengayaan: {
     instruksi: string;
@@ -48,6 +50,36 @@ export interface CuratedLKPDContent {
   kesimpulanRefleksi: string[];
   panduanGuru: LKPDTeacherGuide;
   validationStatus?: LKPDPipelineValidation;
+}
+
+export function buildDefaultStudentProductAndCriteria(
+  preset: LKPDPresetType,
+  materiPokok: string,
+  rubrik?: LKPDTeacherGuide['rubrikPenilaian']
+): { produkHasilBelajar: string; kriteriaPenilaianSiswa: string[] } {
+  const produkHasilBelajar =
+    preset === 'eksperimen'
+      ? `Tabel data hasil pengamatan lengkap dan kesimpulan berbasis bukti untuk topik "${materiPokok}".`
+      : preset === 'proyek'
+      ? `Produk/artefak karya kelompok beserta catatan pembagian peran dan presentasi hasil untuk topik "${materiPokok}".`
+      : preset === 'diferensiasi'
+      ? `Hasil penyelesaian tugas sesuai jalur kesiapan belajar dan verifikasi ketepatan konsep pada "${materiPokok}".`
+      : `Hasil analisis langkah demi langkah beserta jawaban terverifikasi atas kasus/masalah "${materiPokok}".`;
+
+  const kriteriaPenilaianSiswa = [
+    'Kelengkapan data, fakta, atau satuan yang diambil langsung dari stimulus/pengamatan.',
+    'Keruntutan langkah kerja dan kesesuaian jawaban dengan Tujuan Pembelajaran.',
+    ...(Array.isArray(rubrik)
+      ? rubrik
+          .map((r) => r.aspek?.trim())
+          .filter(Boolean)
+          .slice(0, 3)
+          .map((aspek) => `Ketercapaian aspek: ${aspek}.`)
+      : []),
+    'Pemeriksaan ulang kebenaran hasil dan refleksi diri sebelum mengumpulkan LKPD.',
+  ];
+
+  return { produkHasilBelajar, kriteriaPenilaianSiswa };
 }
 
 export function cleanTopicHeading(rawTitle: string): string {

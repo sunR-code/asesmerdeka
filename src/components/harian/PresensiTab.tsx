@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Download,
@@ -9,6 +9,9 @@ import {
   Search,
   X,
   Check,
+  Edit2,
+  ArrowRightLeft,
+  Calendar,
 } from 'lucide-react';
 import type { SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
 import type {
@@ -21,8 +24,19 @@ import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 import {
   applyNewStudentRoster,
   filterSiswaRoster,
+  createEmptyKelasHarianData,
+  loadDemoKelasHarianData,
+  confirmLegacyKelasHarianAsActual,
+  confirmSimulationExportIfNeeded,
+  isKelasHarianLegacyUnverified,
+  validateStudentInput,
+  updateStudentIdentity,
+  transferStudentRombel,
+  updatePertemuanDate,
+  computeAttendanceRecap,
 } from '../../utils/kelasHarianStorage';
 import { ImportSiswaModal } from './ImportSiswaModal';
+import { SimulatedDataNoticeBanner } from './SimulatedDataNoticeBanner';
 import { workspacePopoverVariants } from '../../utils/motionPresets';
 
 interface PresensiTabProps {
@@ -31,6 +45,9 @@ interface PresensiTabProps {
   tpList?: CustomTPItem[];
   onUpdateKelasHarian: (updated: KelasHarianData) => void;
   onToast: (msg: string) => void;
+  isSeparateDemoPreview?: boolean;
+  onOpenSeparateDemoPreview?: () => void;
+  onExitDemoPreview?: () => void;
 }
 
 const STATUS_META: Record<
@@ -82,17 +99,35 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
   tpList = [],
   onUpdateKelasHarian,
   onToast,
+  isSeparateDemoPreview = false,
+  onOpenSeparateDemoPreview,
+  onExitDemoPreview,
 }) => {
   const [viewMode, setViewMode] = useState<'matrix' | 'fokus'>(() =>
     typeof window !== 'undefined' && window.innerWidth < 768 ? 'fokus' : 'matrix'
   );
   const [selectedPertemuan, setSelectedPertemuan] = useState<number>(1);
+  const [monthFilter, setMonthFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddSiswa, setShowAddSiswa] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [newNama, setNewNama] = useState('');
   const [newNis, setNewNis] = useState('');
+  const [newNisn, setNewNisn] = useState('');
   const [newJK, setNewJK] = useState<'L' | 'P'>('L');
+  const [addError, setAddError] = useState<string | null>(null);
+  const [editingStudent, setEditingStudent] = useState<SiswaItem | null>(null);
+  const [editNama, setEditNama] = useState('');
+  const [editNis, setEditNis] = useState('');
+  const [editNisn, setEditNisn] = useState('');
+  const [editJK, setEditJK] = useState<'L' | 'P'>('L');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [transferringStudent, setTransferringStudent] = useState<SiswaItem | null>(null);
+  const [transferMode, setTransferMode] = useState<'transfer' | 'archive'>('transfer');
+  const [transferTargetRombel, setTransferTargetRombel] = useState('');
+  const [transferDate, setTransferDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [transferNote, setTransferNote] = useState('');
+  const [demoAcknowledged, setDemoAcknowledged] = useState(false);
   const [activeCellMenu, setActiveCellMenu] = useState<ActiveCellMenu | null>(null);
   const cellMenuRef = useRef<HTMLDivElement | null>(null);
   const lastTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -130,41 +165,76 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
 
   const handleImportStudents = (
     newStudents: SiswaItem[],
-    resetExistingScores: boolean
+    resetExistingScores: boolean,
+    mode: 'replace' | 'merge' = 'replace'
   ) => {
+    const finalRoster =
+      mode === 'merge' ? [...kelasHarian.daftarSiswa, ...newStudents] : newStudents;
     const updated = applyNewStudentRoster(
       kelasHarian,
-      newStudents,
+      finalRoster,
       tpList,
-      resetExistingScores
+      mode === 'merge' ? false : resetExistingScores,
+      { source: 'user_imported', initializeEmptyScores: true }
     );
     onUpdateKelasHarian(updated);
     onToast(
-      `Berhasil mengimpor ${newStudents.length} siswa ke kelas ${schoolProfile.rombelAktif}.`
+      mode === 'merge'
+        ? `Berhasil menambahkan ${newStudents.length} siswa baru ke kelas ${schoolProfile.rombelAktif}.`
+        : `Berhasil mengimpor ${newStudents.length} siswa ke kelas ${schoolProfile.rombelAktif}.`
     );
   };
 
-  const totalPertemuan = Math.min(16, kelasHarian.daftarPresensi.length);
-  const activePertemuan = kelasHarian.daftarPresensi.slice(0, totalPertemuan);
+  const handleStartEmptyClass = () => {
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.confirm === 'function' &&
+      !window.confirm('Kosongkan daftar siswa simulasi dan mulai dengan kelas kosong siap isi?')
+    ) {
+      return;
+    }
+    const empty = createEmptyKelasHarianData(schoolProfile, tpList);
+    onUpdateKelasHarian(empty);
+    setDemoAcknowledged(false);
+    onToast('Kelas dikosongkan. Silakan impor daftar siswa atau tambah siswa secara manual.');
+  };
 
-  let totalH = 0;
-  let totalS = 0;
-  let totalI = 0;
-  let totalA = 0;
-  let totalSlot = 0;
+  const handleLoadDemoData = () => {
+    if (isKelasHarianLegacyUnverified(kelasHarian) && onOpenSeparateDemoPreview) {
+      onOpenSeparateDemoPreview();
+      onToast('Membuka pratinjau data demo terpisah; data lama Anda tetap dipertahankan.');
+      return;
+    }
+    const demo = loadDemoKelasHarianData(schoolProfile, tpList);
+    onUpdateKelasHarian(demo);
+    setDemoAcknowledged(true);
+    onToast('Data contoh/simulasi (30 siswa) dimuat kembali untuk eksplorasi.');
+  };
 
-  kelasHarian.daftarSiswa.forEach((siswa) => {
-    activePertemuan.forEach((p) => {
-      const st = p.statusMap[siswa.id] || 'H';
-      totalSlot++;
-      if (st === 'H') totalH++;
-      else if (st === 'S') totalS++;
-      else if (st === 'I') totalI++;
-      else if (st === 'A') totalA++;
+  const handleConfirmLegacyActual = () => {
+    const confirmed = confirmLegacyKelasHarianAsActual(schoolProfile, kelasHarian);
+    onUpdateKelasHarian(confirmed);
+    onToast('Data kelas lama berhasil dikonfirmasi sebagai data aktual sekolah.');
+  };
+
+  const availableMonths = useMemo(() => {
+    const months = new Set<string>();
+    (kelasHarian.daftarPresensi || []).slice(0, 16).forEach((p) => {
+      if (p.tanggal && p.tanggal.length >= 7) {
+        months.add(p.tanggal.slice(0, 7));
+      }
     });
-  });
+    return Array.from(months).sort();
+  }, [kelasHarian.daftarPresensi]);
 
-  const classAvgPct = totalSlot > 0 ? Math.round((totalH / totalSlot) * 100) : 100;
+  const attendanceRecap = useMemo(
+    () => computeAttendanceRecap(kelasHarian, { monthFilter: monthFilter || undefined }),
+    [kelasHarian, monthFilter]
+  );
+
+  const totalPertemuan = attendanceRecap.meetings.length;
+  const activePertemuan = attendanceRecap.meetings;
+  const { totalH, totalS, totalI, totalA, classAvgPct } = attendanceRecap.summary;
   const filteredSiswa = filterSiswaRoster(kelasHarian.daftarSiswa, searchQuery);
 
   const handleSetStatus = (
@@ -189,6 +259,16 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
     });
   };
 
+  const handleUpdateMeetingDate = (pertemuanKe: number, newTanggal: string) => {
+    const res = updatePertemuanDate(kelasHarian, pertemuanKe, newTanggal);
+    if (!res.valid) {
+      onToast(res.error || 'Tanggal pertemuan tidak valid.');
+      return;
+    }
+    onUpdateKelasHarian(res.updated);
+    onToast(`Tanggal Pertemuan ${pertemuanKe} diperbarui ke ${newTanggal}.`);
+  };
+
   const handleSetAllHadir = (pertemuanKe: number) => {
     const updatedPresensi = kelasHarian.daftarPresensi.map((p) => {
       if (p.pertemuanKe !== pertemuanKe) return p;
@@ -211,31 +291,115 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
 
   const handleAddSiswa = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newNama.trim()) return;
+    setAddError(null);
+    const validation = validateStudentInput(
+      { nama: newNama, nis: newNis, nisn: newNisn, jenisKelamin: newJK },
+      kelasHarian.daftarSiswa
+    );
+    if (!validation.valid) {
+      setAddError(validation.errors[0]);
+      return;
+    }
 
     const newId = `siswa_${Date.now()}`;
     const nextNo = kelasHarian.daftarSiswa.length + 1;
     const newSiswa: SiswaItem = {
       id: newId,
       noUrut: nextNo,
-      nis: newNis.trim() || `2425${String(nextNo).padStart(3, '0')}`,
+      nis: newNis.trim(),
+      nisn: newNisn.trim() || undefined,
       nama: newNama.trim(),
       jenisKelamin: newJK,
+      statusAktif: 'aktif',
     };
 
     const updated = applyNewStudentRoster(
       kelasHarian,
       [...kelasHarian.daftarSiswa, newSiswa],
       tpList,
-      false
+      false,
+      { source: 'user_manual', initializeEmptyScores: true }
     );
 
     onUpdateKelasHarian(updated);
 
     setNewNama('');
     setNewNis('');
+    setNewNisn('');
+    setAddError(null);
     setShowAddSiswa(false);
-    onToast(`Siswa "${newSiswa.nama}" ditambahkan.`);
+    if (validation.warnings.length > 0) {
+      onToast(`Siswa "${newSiswa.nama}" ditambahkan. Catatan: ${validation.warnings[0]}`);
+    } else {
+      onToast(`Siswa "${newSiswa.nama}" ditambahkan.`);
+    }
+  };
+
+  const handleOpenEditStudent = (siswa: SiswaItem) => {
+    setEditingStudent(siswa);
+    setEditNama(siswa.nama);
+    setEditNis(siswa.nis || '');
+    setEditNisn(siswa.nisn || '');
+    setEditJK(siswa.jenisKelamin);
+    setEditError(null);
+  };
+
+  const handleSaveEditStudent = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+    const res = updateStudentIdentity(
+      kelasHarian,
+      editingStudent.id,
+      {
+        nama: editNama,
+        nis: editNis,
+        nisn: editNisn,
+        jenisKelamin: editJK,
+      },
+      tpList
+    );
+    if (!res.validation.valid) {
+      setEditError(res.validation.errors[0]);
+      return;
+    }
+    onUpdateKelasHarian(res.updated);
+    setEditingStudent(null);
+    onToast(`Identitas "${editNama.trim()}" diperbarui tanpa menghapus riwayat nilai & presensi.`);
+  };
+
+  const handleOpenTransferModal = (siswa: SiswaItem) => {
+    const otherRombels = (schoolProfile.daftarRombel || []).filter(
+      (r) => r.trim().toLowerCase() !== (schoolProfile.rombelAktif || '').trim().toLowerCase()
+    );
+    setTransferringStudent(siswa);
+    setTransferMode('transfer');
+    setTransferTargetRombel(otherRombels[0] || '');
+    setTransferDate(new Date().toISOString().split('T')[0]);
+    setTransferNote('');
+  };
+
+  const handleConfirmTransfer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transferringStudent) return;
+    const res = transferStudentRombel(
+      schoolProfile,
+      kelasHarian,
+      transferringStudent.id,
+      transferMode === 'archive' ? '__ARCHIVE__' : transferTargetRombel,
+      tpList,
+      { tanggalMutasi: transferDate, catatanMutasi: transferNote, mode: transferMode }
+    );
+    if (res.error) {
+      onToast(res.error);
+      return;
+    }
+    onUpdateKelasHarian(res.updated);
+    onToast(
+      transferMode === 'archive'
+        ? `${transferringStudent.nama} diarsipkan; riwayat nilai & presensi tetap tersimpan.`
+        : `${transferringStudent.nama} dipindahkan ke rombel ${transferTargetRombel}; riwayat akademik tetap terarsip.`
+    );
+    setTransferringStudent(null);
   };
 
   const handleDeleteSiswa = (siswaId: string, nama: string) => {
@@ -245,7 +409,9 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
       .filter((s) => s.id !== siswaId)
       .map((s, idx) => ({ ...s, noUrut: idx + 1 }));
 
-    const updated = applyNewStudentRoster(kelasHarian, filtered, tpList, false);
+    const updated = applyNewStudentRoster(kelasHarian, filtered, tpList, false, {
+      initializeEmptyScores: true,
+    });
     onUpdateKelasHarian(updated);
     onToast(`Siswa "${nama}" dihapus dari daftar.`);
   };
@@ -294,7 +460,7 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0, maxWidth: '100%' }}>
       {/* Page Header & Action Bar */}
       <div
         style={{
@@ -364,6 +530,7 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
           <button
             type="button"
             onClick={() => {
+              if (!confirmSimulationExportIfNeeded(kelasHarian, 'dokumen Presensi')) return;
               if (!requireActiveLicenseForAction('mencetak dokumen Presensi')) return;
               window.print();
             }}
@@ -376,6 +543,7 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
           <button
             type="button"
             onClick={async () => {
+              if (!confirmSimulationExportIfNeeded(kelasHarian, 'file Word Presensi')) return;
               try {
                 const ok = await exportPresensiToDocx(schoolProfile, kelasHarian);
                 if (ok) {
@@ -393,6 +561,19 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
           </button>
         </div>
       </div>
+
+      <SimulatedDataNoticeBanner
+        kelasHarian={kelasHarian}
+        contextLabel={`Presensi Kelas ${schoolProfile.rombelAktif}`}
+        isSeparateDemoPreview={isSeparateDemoPreview}
+        onExitDemoPreview={onExitDemoPreview}
+        onConfirmLegacyActual={handleConfirmLegacyActual}
+        onStartEmptyClass={handleStartEmptyClass}
+        onOpenImportModal={() => setIsImportModalOpen(true)}
+        onLoadDemoData={handleLoadDemoData}
+        onAcknowledgeDemo={() => setDemoAcknowledged(true)}
+        demoAcknowledged={demoAcknowledged}
+      />
 
       {/* Neutral Summary Strip */}
       <div
@@ -498,7 +679,7 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
               />
             </div>
 
-            <div style={{ flex: '1 1 120px' }}>
+            <div style={{ flex: '1 1 110px' }}>
               <label
                 htmlFor="presensi-add-nis"
                 style={{
@@ -517,7 +698,37 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
                 className="form-input"
                 placeholder="Contoh: 2425008"
                 value={newNis}
-                onChange={(e) => setNewNis(e.target.value)}
+                onChange={(e) => {
+                  setNewNis(e.target.value);
+                  setAddError(null);
+                }}
+                style={{ padding: '6px 10px', fontSize: 13 }}
+              />
+            </div>
+
+            <div style={{ flex: '1 1 115px' }}>
+              <label
+                htmlFor="presensi-add-nisn"
+                style={{
+                  display: 'block',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  color: '#334155',
+                  marginBottom: 4,
+                }}
+              >
+                NISN (opsional)
+              </label>
+              <input
+                id="presensi-add-nisn"
+                type="text"
+                className="form-input"
+                placeholder="10 digit NISN"
+                value={newNisn}
+                onChange={(e) => {
+                  setNewNisn(e.target.value);
+                  setAddError(null);
+                }}
                 style={{ padding: '6px 10px', fontSize: 13 }}
               />
             </div>
@@ -552,16 +763,36 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setShowAddSiswa(false)}
+              onClick={() => {
+                setShowAddSiswa(false);
+                setAddError(null);
+              }}
               className="btn btn-sm btn-outline"
             >
               Batal
             </button>
+            {addError && (
+              <div
+                role="alert"
+                style={{
+                  flexBasis: '100%',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#b91c1c',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: 7,
+                  padding: '6px 10px',
+                }}
+              >
+                {addError}
+              </div>
+            )}
           </motion.form>
         )}
       </AnimatePresence>
 
-      {/* View Mode Switcher + Student Search */}
+      {/* View Mode Switcher + Period Filter + Student Search */}
       <div
         className="no-print"
         style={{
@@ -631,14 +862,38 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
           </button>
         </div>
 
-        {/* Real Student Search Input */}
-        <div
-          style={{
-            position: 'relative',
-            flex: '1 1 220px',
-            maxWidth: 300,
-          }}
-        >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: '1 1 280px', justifyContent: 'flex-end' }}>
+          {availableMonths.length > 0 && (
+            <select
+              aria-label="Filter rekap presensi per bulan"
+              value={monthFilter}
+              onChange={(e) => setMonthFilter(e.target.value)}
+              className="form-select"
+              style={{
+                width: 'auto',
+                minWidth: 150,
+                padding: '6px 10px',
+                fontSize: 12.5,
+                minHeight: 34,
+              }}
+            >
+              <option value="">Semua bulan (Semester)</option>
+              {availableMonths.map((m) => (
+                <option key={m} value={m}>
+                  Bulan {m}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Real Student Search Input */}
+          <div
+            style={{
+              position: 'relative',
+              flex: '1 1 200px',
+              maxWidth: 280,
+            }}
+          >
           <Search
             size={14}
             aria-hidden="true"
@@ -688,12 +943,36 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
               <X size={13} aria-hidden="true" />
             </button>
           )}
+          </div>
         </div>
       </div>
 
+      {/* Arsip Siswa Mutasi (jika ada) */}
+      {(kelasHarian.archivedSiswa?.length || 0) > 0 && (
+        <div
+          style={{
+            background: '#f8fafc',
+            border: '1px solid #cbd5e1',
+            borderRadius: 9,
+            padding: '8px 12px',
+            fontSize: 12,
+            color: '#475569',
+          }}
+        >
+          <strong>Arsip Mutasi / Nonaktif ({kelasHarian.archivedSiswa?.length}):</strong>{' '}
+          {kelasHarian.archivedSiswa
+            ?.map((a) =>
+              a.statusAktif === 'keluar'
+                ? `${a.nama} -> Diarsipkan (${a.tanggalMutasi || '-'})`
+                : `${a.nama} -> Pindah ke ${a.rombelTujuan || 'Rombel lain'} (${a.tanggalMutasi || '-'})`
+            )
+            .join(' · ')}
+        </div>
+      )}
+
       {/* Mode 1: Semester Matrix Table */}
       {viewMode === 'matrix' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0, maxWidth: '100%' }}>
           <div className="ws-table-wrap">
             <table className="ws-table">
               <thead>
@@ -727,9 +1006,10 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
                   {activePertemuan.map((p, idx) => (
                     <th
                       key={p.pertemuanKe}
+                      title={`Tanggal pertemuan: ${p.tanggal}`}
                       style={{
                         textAlign: 'center',
-                        minWidth: 40,
+                        minWidth: 44,
                         padding: '7px 4px',
                         borderRight:
                           idx === activePertemuan.length - 1
@@ -740,13 +1020,16 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
                       <div style={{ fontSize: 11.5, fontWeight: 600, color: '#172033' }}>
                         P{p.pertemuanKe}
                       </div>
+                      <div style={{ fontSize: 9.5, color: '#64748b', fontWeight: 500 }}>
+                        {p.tanggal ? p.tanggal.slice(5) : ''}
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleSetAllHadir(p.pertemuanKe)}
                         aria-label={`Tandai semua hadir pada pertemuan ${p.pertemuanKe}`}
                         title={`Tandai semua hadir pada pertemuan ${p.pertemuanKe}`}
                         style={{
-                          marginTop: 4,
+                          marginTop: 3,
                           padding: '2px 5px',
                           borderRadius: 5,
                           border: '1px solid #cbd5e1',
@@ -768,8 +1051,8 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
                   <th style={{ textAlign: 'center', width: 34, color: '#1d4ed8' }}>I</th>
                   <th style={{ textAlign: 'center', width: 34, color: '#b91c1c' }}>A</th>
                   <th style={{ textAlign: 'center', width: 46 }}>%</th>
-                  <th className="no-print" style={{ textAlign: 'center', width: 44 }}>
-                    Hapus
+                  <th className="no-print" style={{ textAlign: 'center', width: 88 }}>
+                    Kelola
                   </th>
                 </tr>
               </thead>
@@ -793,21 +1076,12 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
                   </tr>
                 ) : (
                   filteredSiswa.map((siswa, idx) => {
-                    let sH = 0;
-                    let sS = 0;
-                    let sI = 0;
-                    let sA = 0;
-                    activePertemuan.forEach((p) => {
-                      const st = p.statusMap[siswa.id] || 'H';
-                      if (st === 'H') sH++;
-                      else if (st === 'S') sS++;
-                      else if (st === 'I') sI++;
-                      else if (st === 'A') sA++;
-                    });
-                    const pct =
-                      activePertemuan.length > 0
-                        ? Math.round((sH / activePertemuan.length) * 100)
-                        : 100;
+                    const recap = attendanceRecap.perStudent[siswa.id];
+                    const sH = recap?.hadir ?? 0;
+                    const sS = recap?.sakit ?? 0;
+                    const sI = recap?.izin ?? 0;
+                    const sA = recap?.alfa ?? 0;
+                    const pct = recap?.persentaseHadir ?? 100;
 
                     return (
                       <tr key={siswa.id}>
@@ -850,7 +1124,8 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
                               marginTop: 1,
                             }}
                           >
-                            {siswa.nis} · {siswa.jenisKelamin}
+                            {siswa.nis || 'Tanpa NIS'}
+                            {siswa.nisn ? ` · NISN ${siswa.nisn}` : ''} · {siswa.jenisKelamin}
                           </div>
                         </td>
 
@@ -948,22 +1223,57 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
                         >
                           {pct}%
                         </td>
-                        <td className="no-print" style={{ textAlign: 'center' }}>
+                        <td className="no-print" style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditStudent(siswa)}
+                            aria-label={`Edit identitas ${siswa.nama}`}
+                            title="Edit Identitas Siswa"
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#2563eb',
+                              cursor: 'pointer',
+                              padding: 4,
+                              borderRadius: 6,
+                              display: 'inline-flex',
+                            }}
+                          >
+                            <Edit2 size={13} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenTransferModal(siswa)}
+                            aria-label={`Pindah rombel ${siswa.nama}`}
+                            title="Mutasi / Pindah Rombel"
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#d97706',
+                              cursor: 'pointer',
+                              padding: 4,
+                              borderRadius: 6,
+                              display: 'inline-flex',
+                            }}
+                          >
+                            <ArrowRightLeft size={13} aria-hidden="true" />
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleDeleteSiswa(siswa.id, siswa.nama)}
                             aria-label={`Hapus siswa ${siswa.nama}`}
+                            title="Hapus Siswa"
                             style={{
                               border: 'none',
                               background: 'transparent',
                               color: '#94a3b8',
                               cursor: 'pointer',
-                              padding: 5,
+                              padding: 4,
                               borderRadius: 6,
                               display: 'inline-flex',
                             }}
                           >
-                            <Trash2 size={14} aria-hidden="true" />
+                            <Trash2 size={13} aria-hidden="true" />
                           </button>
                         </td>
                       </tr>
@@ -1074,14 +1384,45 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
               })}
             </div>
 
-            <button
-              type="button"
-              onClick={() => handleSetAllHadir(selectedPertemuan)}
-              className="btn btn-sm btn-outline"
-            >
-              <Check size={13} aria-hidden="true" />
-              <span>Tandai semua hadir (P{selectedPertemuan})</span>
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {(() => {
+                const curPert = kelasHarian.daftarPresensi.find(
+                  (p) => p.pertemuanKe === selectedPertemuan
+                );
+                if (!curPert) return null;
+                return (
+                  <label
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 12,
+                      color: '#334155',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <Calendar size={13} aria-hidden="true" />
+                    <input
+                      type="date"
+                      aria-label={`Tanggal Pertemuan ${selectedPertemuan}`}
+                      value={curPert.tanggal}
+                      onChange={(e) => handleUpdateMeetingDate(selectedPertemuan, e.target.value)}
+                      className="form-input"
+                      style={{ padding: '4px 8px', fontSize: 12, width: 'auto' }}
+                    />
+                  </label>
+                );
+              })()}
+
+              <button
+                type="button"
+                onClick={() => handleSetAllHadir(selectedPertemuan)}
+                className="btn btn-sm btn-outline"
+              >
+                <Check size={13} aria-hidden="true" />
+                <span>Tandai semua hadir (P{selectedPertemuan})</span>
+              </button>
+            </div>
           </div>
 
           <div
@@ -1284,6 +1625,270 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
         )}
       </AnimatePresence>
 
+      {/* Modal Edit Identitas Siswa */}
+      {editingStudent && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Edit Identitas Siswa"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <form
+            onSubmit={handleSaveEditStudent}
+            style={{
+              background: '#ffffff',
+              borderRadius: 14,
+              padding: 20,
+              maxWidth: 460,
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+              Edit Identitas Siswa
+            </h3>
+            <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
+              Perubahan nama, NIS, NISN, atau jenis kelamin tidak akan menghapus riwayat presensi maupun nilai yang sudah tersimpan.
+            </p>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                Nama Lengkap
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                value={editNama}
+                onChange={(e) => {
+                  setEditNama(e.target.value);
+                  setEditError(null);
+                }}
+                required
+              />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 84px', gap: 8 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  NIS (opsional)
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editNis}
+                  onChange={(e) => {
+                    setEditNis(e.target.value);
+                    setEditError(null);
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  NISN (opsional)
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editNisn}
+                  onChange={(e) => {
+                    setEditNisn(e.target.value);
+                    setEditError(null);
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  L / P
+                </label>
+                <select
+                  className="form-select"
+                  value={editJK}
+                  onChange={(e) => setEditJK(e.target.value as 'L' | 'P')}
+                >
+                  <option value="L">L</option>
+                  <option value="P">P</option>
+                </select>
+              </div>
+            </div>
+            {editError && (
+              <div
+                role="alert"
+                style={{
+                  fontSize: 12,
+                  color: '#b91c1c',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: 7,
+                  padding: '6px 10px',
+                }}
+              >
+                {editError}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={() => setEditingStudent(null)}
+              >
+                Batal
+              </button>
+              <button type="submit" className="btn btn-sm btn-primary">
+                Simpan Perubahan
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal Mutasi / Pindah Rombel Siswa */}
+      {transferringStudent && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Mutasi atau Pindah Rombel"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <form
+            onSubmit={handleConfirmTransfer}
+            style={{
+              background: '#ffffff',
+              borderRadius: 14,
+              padding: 20,
+              maxWidth: 460,
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+              Mutasi / Arsip Siswa: {transferringStudent.nama}
+            </h3>
+            <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
+              Riwayat presensi &amp; nilai pada rombel <strong>{schoolProfile.rombelAktif}</strong> tetap tersimpan di arsip dan tidak terhapus.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setTransferMode('transfer')}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: transferMode === 'transfer' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                  background: transferMode === 'transfer' ? '#eff6ff' : '#ffffff',
+                  color: transferMode === 'transfer' ? '#1d4ed8' : '#334155',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Pindah Rombel
+              </button>
+              <button
+                type="button"
+                onClick={() => setTransferMode('archive')}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: transferMode === 'archive' ? '2px solid #b45309' : '1px solid #cbd5e1',
+                  background: transferMode === 'archive' ? '#fffbeb' : '#ffffff',
+                  color: transferMode === 'archive' ? '#b45309' : '#334155',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Arsipkan Siswa
+              </button>
+            </div>
+            {transferMode === 'transfer' && (
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  Rombel Tujuan
+                </label>
+                <input
+                  type="text"
+                  list="rombel-tujuan-list"
+                  className="form-input"
+                  placeholder="Mis: VII B / VIII B"
+                  value={transferTargetRombel}
+                  onChange={(e) => setTransferTargetRombel(e.target.value)}
+                  required
+                />
+                <datalist id="rombel-tujuan-list">
+                  {(schoolProfile.daftarRombel || [])
+                    .filter((r) => r !== schoolProfile.rombelAktif)
+                    .map((r) => (
+                      <option key={r} value={r} />
+                    ))}
+                </datalist>
+              </div>
+            )}
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                {transferMode === 'archive' ? 'Tanggal Efektif Arsip' : 'Tanggal Efektif Mutasi'}
+              </label>
+              <input
+                type="date"
+                className="form-input"
+                value={transferDate}
+                onChange={(e) => setTransferDate(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                Catatan (opsional)
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder={
+                  transferMode === 'archive'
+                    ? 'Mis: Mutasi keluar sekolah / nonaktif'
+                    : 'Mis: Penyesuaian rombel semester berjalan'
+                }
+                value={transferNote}
+                onChange={(e) => setTransferNote(e.target.value)}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={() => setTransferringStudent(null)}
+              >
+                Batal
+              </button>
+              <button type="submit" className="btn btn-sm btn-primary">
+                {transferMode === 'archive' ? 'Konfirmasi Arsipkan' : 'Pindahkan Rombel'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Modal Impor Data Siswa dari Excel / Dapodik */}
       <ImportSiswaModal
         isOpen={isImportModalOpen}
@@ -1291,6 +1896,7 @@ export const PresensiTab: React.FC<PresensiTabProps> = ({
         onImport={handleImportStudents}
         currentCount={kelasHarian.daftarSiswa.length}
         rombelName={schoolProfile.rombelAktif}
+        existingStudents={kelasHarian.daftarSiswa}
       />
     </div>
   );

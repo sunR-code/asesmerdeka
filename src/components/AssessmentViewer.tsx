@@ -15,21 +15,24 @@ import {
   Table2,
   BookOpen,
   ArrowRight,
-  ArrowLeft
+  ArrowLeft,
+  AlertTriangle
 } from 'lucide-react';
 import type { 
   AsesmenDokumen, 
   UserQuota, 
   ButirSoal, 
   SoalPilihanGanda,
+  SoalPilihanGandaKompleks,
   SoalUraian 
 } from '../types/assessment';
 import type { SchoolProfile } from '../utils/schoolProfileStorage';
 import { getSchoolProfile } from '../utils/schoolProfileStorage';
 import { exportToDocx, exportKisiKisiToDocx } from '../utils/docxExporter';
 import { exportElementToImage } from '../utils/imageExporter';
-import { isLicensed } from '../utils/licenseManager';
+import { isLicensed, requireActiveLicenseForAction } from '../utils/licenseManager';
 import { regenerateSingleQuestion } from '../services/aiGenerator';
+import { enrichDocWithQualityAndCognitive, buildAssessmentClipboardText } from '../utils/assessmentQualityEngine';
 
 interface AssessmentViewerProps {
   assessment: AsesmenDokumen;
@@ -85,47 +88,25 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
   };
 
   const handleCopyText = () => {
-    let text = `${assessment.namaSekolah}\n`;
-    text += `${assessment.judul.toUpperCase()}\n`;
-    text += `Mata Pelajaran: ${assessment.mataPelajaran} | Kelas: ${assessment.kelas}\n`;
-    text += `Alokasi Waktu: ${assessment.alokasiWaktu}\n\n`;
-    
-    text += `PETUNJUK UMUM:\n`;
-    assessment.petunjukUmum.forEach((p, idx) => {
-      text += `${idx + 1}. ${p}\n`;
-    });
-    text += `\n--- BUTIR SOAL ---\n\n`;
-
-    assessment.soalList.forEach((soal) => {
-      if (soal.tipe === 'pilihan_ganda') {
-        text += `${soal.nomor}. ${soal.pertanyaan}\n`;
-        if (soal.stimulus) text += `(Stimulus: ${soal.stimulus})\n`;
-        soal.pilihan.forEach(opt => {
-          text += `   ${opt.label}. ${opt.teks}\n`;
-        });
-        if (mode === 'teacher_guide') {
-          text += `   [Kunci: ${soal.kunci}] - Pembahasan: ${soal.pembahasan}\n`;
-        }
-        text += '\n';
-      } else if (soal.tipe === 'pilihan_ganda_kompleks') {
-        text += `${soal.nomor}. [AKM] ${soal.pertanyaan}\n`;
-        if (soal.stimulus) text += `(Stimulus: ${soal.stimulus})\n`;
-        soal.pernyataan.forEach((p, i) => {
-          text += `   ${i + 1}. ${p.teks} -> [${p.isBenar ? 'BENAR' : 'SALAH'}]\n`;
-        });
-        text += '\n';
-      } else if (soal.tipe === 'uraian') {
-        text += `${soal.nomor}. [URAIAN] ${soal.pertanyaan}\n`;
-        if (mode === 'teacher_guide') {
-          text += `   Pedoman Penskoran: ${soal.pedomanPenskoran}\n`;
-        }
-        text += '\n';
-      }
-    });
-
+    const text = buildAssessmentClipboardText(assessment, mode);
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleVerifyCognitive = (soalId: string) => {
+    if (!onUpdateAssessment) return;
+    const updatedList = assessment.soalList.map((s) =>
+      s.id === soalId
+        ? { ...s, needsCognitiveReview: false, teacherVerifiedCognitive: true }
+        : s
+    );
+    const enriched = enrichDocWithQualityAndCognitive({
+      ...assessment,
+      soalList: updatedList,
+    });
+    onUpdateAssessment(enriched);
+    showToast('Level kognitif butir soal ditandai terverifikasi oleh guru.');
   };
 
   // Start Editing
@@ -137,12 +118,14 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
   // Save Editing
   const saveEdit = () => {
     if (!draftSoal || !onUpdateAssessment) return;
-    const updatedList = assessment.soalList.map(s => s.id === draftSoal.id ? draftSoal : s);
-    const updatedDoc: AsesmenDokumen = {
+    const updatedList = assessment.soalList.map((s) =>
+      s.id === draftSoal.id ? { ...draftSoal, teacherVerifiedCognitive: true } : s
+    );
+    const enriched = enrichDocWithQualityAndCognitive({
       ...assessment,
-      soalList: updatedList
-    };
-    onUpdateAssessment(updatedDoc);
+      soalList: updatedList,
+    });
+    onUpdateAssessment(enriched);
     setEditingSoalId(null);
     setDraftSoal(null);
     showToast(`Perubahan Soal No. ${draftSoal.nomor} berhasil disimpan.`);
@@ -156,16 +139,17 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
 
   // Regenerate 1 Question
   const handleRegenerate = async (soal: ButirSoal) => {
+    if (!requireActiveLicenseForAction('meregenerasi butir soal dengan AI')) return;
     if (!onUpdateAssessment) return;
     setRegeneratingId(soal.id);
     try {
       const newQuestion = await regenerateSingleQuestion(assessment, soal);
       const updatedList = assessment.soalList.map(s => s.id === soal.id ? newQuestion : s);
-      const updatedDoc: AsesmenDokumen = {
+      const enriched = enrichDocWithQualityAndCognitive({
         ...assessment,
-        soalList: updatedList
-      };
-      onUpdateAssessment(updatedDoc);
+        soalList: updatedList,
+      });
+      onUpdateAssessment(enriched);
       showToast(`✨ Soal No. ${soal.nomor} berhasil diregenerasi oleh AI!`);
     } catch (e: any) {
       alert('Gagal meregenerasi butir soal: ' + e.message);
@@ -186,11 +170,11 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
       ...s,
       nomor: idx + 1
     }));
-    const updatedDoc: AsesmenDokumen = {
+    const enriched = enrichDocWithQualityAndCognitive({
       ...assessment,
-      soalList: reindexed
-    };
-    onUpdateAssessment(updatedDoc);
+      soalList: reindexed,
+    });
+    onUpdateAssessment(enriched);
     showToast(`Soal No. ${nomor} berhasil dihapus.`);
   };
 
@@ -215,9 +199,10 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
         ],
         kunci: 'A',
         pembahasan: 'Tulis pembahasan kunci jawaban di sini...',
-        levelKognitif: 'C3 (Aplikasi)',
+        levelKognitif: 'C3 (Menerapkan)',
         indikatorSoal: 'Indikator ketercapaian soal baru.',
-        skor: 10
+        skor: 1,
+        sourceType: 'manual',
       };
     } else {
       newSoal = {
@@ -228,17 +213,18 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
         pertanyaan: 'Tulis pertanyaan uraian HOTS di sini...',
         pedomanPenskoran: 'Skor 4: Menjawab lengkap dan logis.\nSkor 2: Menjawab sebagian.\nSkor 0: Tidak menjawab.',
         contohJawaban: 'Contoh jawaban ideal siswa...',
-        levelKognitif: 'C4 (Analisis)',
+        levelKognitif: 'C4 (Menganalisis)',
         indikatorSoal: 'Menganalisis permasalahan...',
-        skorMaksimal: 20
+        skorMaksimal: 4,
+        sourceType: 'manual',
       };
     }
 
-    const updatedDoc: AsesmenDokumen = {
+    const enriched = enrichDocWithQualityAndCognitive({
       ...assessment,
-      soalList: [...assessment.soalList, newSoal]
-    };
-    onUpdateAssessment(updatedDoc);
+      soalList: [...assessment.soalList, newSoal],
+    });
+    onUpdateAssessment(enriched);
     startEdit(newSoal);
     showToast(`Butir Soal No. ${nextNomor} ditambahkan. Silakan edit isinya.`);
   };
@@ -355,35 +341,91 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
         </div>
       </div>
 
+      {/* Ringkasan Mutu Akademik & Validasi Kognitif (Non-print) */}
+      {(assessment.usedFallback || assessment.qualitySummary) && (
+        <div
+          className="no-print"
+          style={{
+            marginBottom: 16,
+            padding: '12px 16px',
+            borderRadius: 'var(--radius-md)',
+            background: (assessment.qualitySummary?.cognitiveMismatchCount || 0) > 0 || assessment.usedFallback ? '#fffbeb' : '#f0fdf4',
+            border: `1px solid ${(assessment.qualitySummary?.cognitiveMismatchCount || 0) > 0 || assessment.usedFallback ? '#fcd34d' : '#bbf7d0'}`,
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            fontSize: 12.5,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', color: '#1e293b' }}>
+            <AlertTriangle size={15} color={(assessment.qualitySummary?.cognitiveMismatchCount || 0) > 0 || assessment.usedFallback ? '#d97706' : '#16a34a'} />
+            <span>
+              <strong>Mutu Soal:</strong>{' '}
+              {assessment.qualitySummary
+                ? `LOTS ${assessment.qualitySummary.distribution.LOTS} • MOTS ${assessment.qualitySummary.distribution.MOTS} • HOTS ${assessment.qualitySummary.distribution.HOTS}`
+                : 'Siap ditinjau'}
+            </span>
+            {assessment.qualitySummary && assessment.qualitySummary.cognitiveMismatchCount > 0 && (
+              <span className="badge badge-amber" style={{ fontSize: 11 }}>
+                {assessment.qualitySummary.cognitiveMismatchCount} butir perlu verifikasi level kognitif
+              </span>
+            )}
+            {assessment.usedFallback && (
+              <span className="badge badge-amber" style={{ fontSize: 11 }}>
+                Cadangan Kurikulum Offline ({assessment.fallbackReason || 'Tinjau sebelum dicetak'})
+              </span>
+            )}
+          </div>
+          {assessment.qualitySummary && (
+            <span style={{ fontWeight: 700, color: '#0f172a' }}>
+              Skor Kualitas: {assessment.qualitySummary.score}/100
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Printable Sheet Canvas */}
       <div ref={sheetRef} className="print-sheet" style={{
         background: '#ffffff',
         color: '#1e293b',
         borderRadius: 'var(--radius-lg)',
-        padding: '40px 48px',
+        padding: 'clamp(18px, 4vw, 44px)',
         boxShadow: 'var(--shadow-lg)',
         position: 'relative',
-        minHeight: 800,
-        overflow: 'hidden'
+        minHeight: 800
       }}>
         
         {/* Anti-piracy watermark for Free tier */}
         {!isPro && (
-          <div style={{
-            position: 'absolute',
-            top: '40%',
-            left: '10%',
-            right: '10%',
-            textAlign: 'center',
-            transform: 'rotate(-25deg)',
-            fontSize: 32,
-            fontWeight: 800,
-            color: 'rgba(79, 70, 229, 0.06)',
-            pointerEvents: 'none',
-            userSelect: 'none',
-            zIndex: 1
-          }}>
-            ASESMERDEKA • LISENSI EVALUASI PRIBADI
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              overflow: 'hidden',
+              pointerEvents: 'none',
+              borderRadius: 'inherit',
+              zIndex: 1
+            }}
+          >
+            <div style={{
+              position: 'absolute',
+              top: '40%',
+              left: '10%',
+              right: '10%',
+              textAlign: 'center',
+              transform: 'rotate(-25deg)',
+              fontSize: 32,
+              fontWeight: 800,
+              color: 'rgba(79, 70, 229, 0.06)',
+              pointerEvents: 'none',
+              userSelect: 'none',
+              letterSpacing: '0.1em'
+            }}>
+              ASESMERDEKA • LISENSI EVALUASI PRIBADI
+            </div>
           </div>
         )}
 
@@ -430,18 +472,18 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
           marginBottom: 24,
           fontSize: 13
         }}>
-          <div>
+          <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
             <div style={{ marginBottom: 4 }}><strong>Mata Pelajaran:</strong> {assessment.mataPelajaran}</div>
             <div style={{ marginBottom: 4 }}>
               <strong>Kelas / Rombel:</strong> {activeProfile.rombelAktif || `Kelas ${assessment.kelas}`} ({assessment.jenjangFase.split(' ')[0]} {assessment.jenjangFase.split(' ')[1]})
             </div>
             <div><strong>Materi Pokok:</strong> {assessment.materiPokok}</div>
           </div>
-          <div>
+          <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
             {mode === 'worksheet' ? (
               <>
-                <div style={{ marginBottom: 4 }}>Nama Siswa : ....................................................</div>
-                <div style={{ marginBottom: 4 }}>No. Absen / NIS : ....................................................</div>
+                <div style={{ marginBottom: 4 }}>Nama Siswa : <span style={{ display: 'inline-block', minWidth: 110, maxWidth: '100%', borderBottom: '1px dotted #334155' }}>&nbsp;</span></div>
+                <div style={{ marginBottom: 4 }}>No. Absen / NIS : <span style={{ display: 'inline-block', minWidth: 100, maxWidth: '100%', borderBottom: '1px dotted #334155' }}>&nbsp;</span></div>
                 <div>Waktu : {assessment.alokasiWaktu}</div>
               </>
             ) : (
@@ -465,6 +507,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                 <strong>Capaian Pembelajaran (CP):</strong> {assessment.capaianPembelajaran}
               </div>
 
+              <div className="print-table-scroll" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: '#1e3a8a', color: '#ffffff', textAlign: 'center' }}>
@@ -499,6 +542,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
 
             {/* KARTU SOAL INDIVIDUAL */}
@@ -523,6 +567,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                           <span>KARTU SOAL NOMOR {soal.nomor} ({soal.tipe === 'pilihan_ganda' ? 'PILIHAN GANDA' : soal.tipe === 'pilihan_ganda_kompleks' ? 'AKM KOMPLEKS' : 'URAIAN'})</span>
                           <span>Level: {soal.levelKognitif} • Skor: {soal.tipe === 'uraian' ? soal.skorMaksimal : soal.skor}</span>
                         </div>
+                        <div className="print-table-scroll" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                           <tbody>
                             <tr>
@@ -546,6 +591,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                             </tr>
                           </tbody>
                         </table>
+                        </div>
                       </div>
                     );
                   })}
@@ -587,14 +633,29 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                 }}
               >
                 
-                {/* Non-print action buttons: Edit, Regenerate, Delete */}
+                {/* Non-print action buttons: Verify, Edit, Regenerate, Delete */}
                 <div className="no-print" style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'flex-end',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
                   gap: 6,
                   marginBottom: 8
                 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    {soal.needsCognitiveReview && !soal.teacherVerifiedCognitive && (
+                      <button
+                        type="button"
+                        onClick={() => handleVerifyCognitive(soal.id)}
+                        className="btn btn-sm btn-outline"
+                        style={{ fontSize: 11, padding: '3px 8px', borderColor: '#f59e0b', background: '#fffbeb', color: '#92400e' }}
+                        title={soal.cognitiveMismatchReason || 'Level kognitif label vs kata kerja soal perlu tinjauan guru'}
+                      >
+                        <AlertTriangle size={12} /> Tinjau Bloom ({soal.bloomLevel || soal.levelKognitif}) — Tandai Sesuai
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   {!isEditing && (
                     <>
                       <button
@@ -632,6 +693,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                       </button>
                     </>
                   )}
+                  </div>
                 </div>
 
                 {/* MODE EDIT FORM */}
@@ -718,19 +780,143 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                       </div>
                     )}
 
-                    {/* Pembahasan or Uraian Scoring Edit */}
-                    {draftSoal.tipe === 'uraian' ? (
+                    {/* If PGK: Edit Pernyataan & Benar/Salah */}
+                    {draftSoal.tipe === 'pilihan_ganda_kompleks' && (
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6, color: '#334155' }}>
+                          Pernyataan PGK & Kunci Benar/Salah:
+                        </label>
+                        {(draftSoal as SoalPilihanGandaKompleks).pernyataan.map((pItem, pIdx) => (
+                          <div key={pItem.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <span style={{ fontWeight: 700, width: 22 }}>{pIdx + 1}.</span>
+                            <input
+                              type="text"
+                              className="form-input"
+                              value={pItem.teks}
+                              onChange={(e) => {
+                                const nextPernyataan = [...(draftSoal as SoalPilihanGandaKompleks).pernyataan];
+                                nextPernyataan[pIdx] = { ...nextPernyataan[pIdx], teks: e.target.value };
+                                setDraftSoal({ ...draftSoal, pernyataan: nextPernyataan } as SoalPilihanGandaKompleks);
+                              }}
+                              style={{ flex: 1, minWidth: 200, background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', padding: '6px 10px', fontSize: 13 }}
+                            />
+                            <select
+                              className="form-select"
+                              value={pItem.isBenar ? 'B' : 'S'}
+                              onChange={(e) => {
+                                const nextPernyataan = [...(draftSoal as SoalPilihanGandaKompleks).pernyataan];
+                                nextPernyataan[pIdx] = { ...nextPernyataan[pIdx], isBenar: e.target.value === 'B' };
+                                setDraftSoal({ ...draftSoal, pernyataan: nextPernyataan } as SoalPilihanGandaKompleks);
+                              }}
+                              style={{ width: 95, padding: '6px 8px', fontSize: 12 }}
+                            >
+                              <option value="B">BENAR</option>
+                              <option value="S">SALAH</option>
+                            </select>
+                            {(draftSoal as SoalPilihanGandaKompleks).pernyataan.length > 2 && (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline"
+                                style={{ padding: '4px 8px', color: '#dc2626', borderColor: '#fca5a5' }}
+                                onClick={() => {
+                                  const nextPernyataan = (draftSoal as SoalPilihanGandaKompleks).pernyataan.filter((_, idx) => idx !== pIdx);
+                                  setDraftSoal({ ...draftSoal, pernyataan: nextPernyataan } as SoalPilihanGandaKompleks);
+                                }}
+                              >
+                                Hapus
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          style={{ fontSize: 11, marginTop: 4 }}
+                          onClick={() => {
+                            const nextIdx = (draftSoal as SoalPilihanGandaKompleks).pernyataan.length + 1;
+                            const nextPernyataan = [
+                              ...(draftSoal as SoalPilihanGandaKompleks).pernyataan,
+                              { id: `p_${draftSoal.nomor}_${nextIdx}_${Date.now()}`, teks: 'Pernyataan baru...', isBenar: true },
+                            ];
+                            setDraftSoal({ ...draftSoal, pernyataan: nextPernyataan } as SoalPilihanGandaKompleks);
+                          }}
+                        >
+                          + Tambah Pernyataan
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Level Kognitif & Indikator Edit */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 10 }}>
                       <div>
                         <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 4, color: '#334155' }}>
-                          Pedoman Penskoran:
+                          Level Kognitif (Bloom):
                         </label>
-                        <textarea
-                          className="form-textarea"
-                          rows={2}
-                          value={(draftSoal as SoalUraian).pedomanPenskoran || ''}
-                          onChange={(e) => setDraftSoal({ ...draftSoal, pedomanPenskoran: e.target.value } as SoalUraian)}
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={draftSoal.levelKognitif || ''}
+                          onChange={(e) => setDraftSoal({ ...draftSoal, levelKognitif: e.target.value })}
                           style={{ background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', padding: '6px 10px', fontSize: 13 }}
                         />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 4, color: '#334155' }}>
+                          Indikator Soal:
+                        </label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={draftSoal.indikatorSoal || ''}
+                          onChange={(e) => setDraftSoal({ ...draftSoal, indikatorSoal: e.target.value })}
+                          style={{ background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', padding: '6px 10px', fontSize: 13 }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Pembahasan or Uraian Scoring Edit */}
+                    {draftSoal.tipe === 'uraian' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div>
+                          <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 4, color: '#334155' }}>
+                            Contoh Jawaban Ideal:
+                          </label>
+                          <textarea
+                            className="form-textarea"
+                            rows={2}
+                            value={(draftSoal as SoalUraian).contohJawaban || ''}
+                            onChange={(e) => setDraftSoal({ ...draftSoal, contohJawaban: e.target.value } as SoalUraian)}
+                            style={{ background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', padding: '6px 10px', fontSize: 13 }}
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 10 }}>
+                          <div>
+                            <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 4, color: '#334155' }}>
+                              Pedoman Penskoran:
+                            </label>
+                            <textarea
+                              className="form-textarea"
+                              rows={2}
+                              value={(draftSoal as SoalUraian).pedomanPenskoran || ''}
+                              onChange={(e) => setDraftSoal({ ...draftSoal, pedomanPenskoran: e.target.value } as SoalUraian)}
+                              style={{ background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', padding: '6px 10px', fontSize: 13 }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 4, color: '#334155' }}>
+                              Skor Maksimal:
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={100}
+                              className="form-input"
+                              value={(draftSoal as SoalUraian).skorMaksimal || 4}
+                              onChange={(e) => setDraftSoal({ ...draftSoal, skorMaksimal: Math.max(1, Number(e.target.value) || 4) } as SoalUraian)}
+                              style={{ background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', padding: '6px 10px', fontSize: 13 }}
+                            />
+                          </div>
+                        </div>
                       </div>
                     ) : (
                       <div>
@@ -823,6 +1009,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                 {/* Tipe 2: Pilihan Ganda Kompleks (AKM) */}
                 {soal.tipe === 'pilihan_ganda_kompleks' && (
                   <div style={{ marginTop: 8 }}>
+                    <div className="print-table-scroll" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 8 }}>
                       <thead>
                         <tr style={{ background: '#f1f5f9', textAlign: 'left' }}>
@@ -845,6 +1032,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                         ))}
                       </tbody>
                     </table>
+                    </div>
 
                     {mode === 'teacher_guide' && (
                       <div style={{ padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, fontSize: 12, color: '#166534' }}>
@@ -927,6 +1115,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                 </p>
               </div>
 
+              <div className="print-table-scroll" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: '#f1f5f9', textAlign: 'left' }}>
@@ -952,6 +1141,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
@@ -960,34 +1150,34 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
 
         {/* Blok Pengesahan Tanda Tangan Kepala Sekolah & Guru (Otomatis dari Data Kelas) */}
         {activeProfile.tampilkanTandaTangan && mode !== 'worksheet' && (
-          <div style={{
+          <div className="doc-signature-grid" style={{
             marginTop: 36,
             paddingTop: 16,
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
             gap: 24,
             textAlign: 'center',
             fontSize: 12,
             color: '#1e293b',
             pageBreakInside: 'avoid'
           }}>
-            <div>
+            <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
               <div>Mengetahui,</div>
               <div style={{ marginBottom: 56 }}>Kepala Sekolah / Madrasah</div>
-              <div style={{ fontWeight: 700, textDecoration: 'underline' }}>
-                {activeProfile.namaKepalaSekolah || '......................................................'}
+              <div style={{ fontWeight: 700, textDecoration: 'underline', overflowWrap: 'anywhere' }}>
+                {activeProfile.namaKepalaSekolah || '..............................'}
               </div>
               <div style={{ fontSize: 11, color: '#475569' }}>
                 {activeProfile.nipKepalaSekolah ? `NIP. ${activeProfile.nipKepalaSekolah}` : 'NIP. -'}
               </div>
             </div>
-            <div>
+            <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
               <div>
                 {activeProfile.kotaSekolah || 'Indonesia'}, {assessment.createdAt}
               </div>
               <div style={{ marginBottom: 56 }}>Guru Mata Pelajaran</div>
-              <div style={{ fontWeight: 700, textDecoration: 'underline' }}>
-                {assessment.namaPenyusun || activeProfile.namaGuru || '......................................................'}
+              <div style={{ fontWeight: 700, textDecoration: 'underline', overflowWrap: 'anywhere' }}>
+                {assessment.namaPenyusun || activeProfile.namaGuru || '..............................'}
               </div>
               <div style={{ fontSize: 11, color: '#475569' }}>
                 {activeProfile.nipGuru ? `NIP. ${activeProfile.nipGuru}` : 'NIP. -'}
@@ -997,7 +1187,7 @@ export const AssessmentViewer: React.FC<AssessmentViewerProps> = ({
         )}
 
         {/* Footer Dokumen */}
-        <div style={{ marginTop: 32, paddingTop: 14, borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#64748b' }}>
+        <div style={{ marginTop: 32, paddingTop: 14, borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, fontSize: 11, color: '#64748b' }}>
           <div>Dokumen Sah Pembelajaran Kurikulum Merdeka • {assessment.namaSekolah || activeProfile.namaSekolah}</div>
           <div>Disusun melalui AsesMerdeka</div>
         </div>

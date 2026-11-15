@@ -97,8 +97,8 @@ export function buildPJOKQuestionBank(
           indikatorSoal: 'Peserta didik dapat menentukan manfaat melakukan cooling down setelah berolahraga.',
         },
         {
-          stimulus: `Menjaga kebersihan diri merupakan bagian penting dari pola hidup sehat. Setelah berolahraga dan berkeringat, tindakan terbaik yang harus kita lakukan adalah ....`,
-          pertanyaan: `Tindakan menjaga kebersihan diri yang paling tepat adalah ....`,
+          stimulus: `Menjaga kebersihan diri merupakan bagian penting dari pola hidup sehat. Setelah mengikuti kegiatan olahraga di lapangan hingga pakaian basah oleh keringat, tubuh perlu ditangani dengan cara yang bersih dan aman.`,
+          pertanyaan: `Tindakan menjaga kebersihan diri yang paling tepat setelah berolahraga adalah ....`,
           opsi5: [
             'Langsung tidur di kasur dengan pakaian yang basah oleh keringat',
             'Mengelap keringat, mengganti pakaian yang bersih, dan mandi setelah suhu tubuh normal',

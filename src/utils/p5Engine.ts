@@ -7,6 +7,10 @@ import type {
   SiswaObservasiP5 
 } from '../types/p5Project';
 import type { KelasHarianData } from '../types/kelasHarian';
+import {
+  isKelasHarianSimulated,
+  isKelasHarianLegacyUnverified,
+} from './kelasHarianStorage';
 
 export interface P5TemaPreset {
   tema: P5Tema;
@@ -631,8 +635,22 @@ export function generateP5Document(
   const totalJP = preset.alurAktivitas.reduce((acc, curr) => acc + curr.alokasiJP, 0);
 
   // Sinkronisasi data siswa untuk lembar observasi
-  const siswaList = kelasHarian && kelasHarian.daftarSiswa.length > 0
-    ? kelasHarian.daftarSiswa
+  const hasRealRoster = Boolean(kelasHarian && kelasHarian.daftarSiswa.length > 0);
+  const usingDummyFallback = !hasRealRoster;
+  const isRosterSimulated =
+    usingDummyFallback ||
+    isKelasHarianSimulated(kelasHarian) ||
+    isKelasHarianLegacyUnverified(kelasHarian);
+  const simulationReason = usingDummyFallback
+    ? 'Daftar siswa kelas belum diisi — menggunakan 5 nama contoh (Ahmad Fauzi, dkk.) serta skor observasi contoh.'
+    : isKelasHarianSimulated(kelasHarian)
+    ? 'Daftar siswa kelas masih menggunakan 30 siswa contoh/simulasi serta skor observasi contoh.'
+    : isKelasHarianLegacyUnverified(kelasHarian)
+    ? 'Daftar siswa berasal dari penyimpanan lama yang belum terverifikasi sebagai data aktual.'
+    : 'Skor observasi awal masih berupa contoh pratinjau; sesuaikan predikat BB/MB/BSH/SB berdasarkan pengamatan aktual.';
+
+  const siswaList = hasRealRoster
+    ? kelasHarian!.daftarSiswa
     : [
         { nis: '001', nama: 'Ahmad Fauzi' },
         { nis: '002', nama: 'Budi Santoso' },
@@ -681,6 +699,8 @@ export function generateP5Document(
     alurAktivitas: preset.alurAktivitas,
     rencanaAsesmen: preset.rencanaAsesmen,
     rekapObservasiSiswa,
+    isSimulated: isRosterSimulated,
+    simulationReason,
     tanggalPenyusunan: new Date().toLocaleDateString('id-ID', {
       day: 'numeric',
       month: 'long',

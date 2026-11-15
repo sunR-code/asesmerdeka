@@ -20,6 +20,7 @@ import {
   resolveSubjectFamily,
   resolveJenjangPedagogicalProfile,
   resolveSubjectApproachRule,
+  buildDefaultStudentProductAndCriteria,
 } from './lkpdSubjectBlueprints';
 
 export interface ContextualLKPDResult {
@@ -208,6 +209,8 @@ Kembalikan HANYA 1 objek JSON valid (tanpa markdown fence) dengan kunci:
     }
   ],
   "pemeriksaanHasil": ["Langkah konkret memeriksa ulang kebenaran hasil"],
+  "produkHasilBelajar": "Bentuk hasil/produk akhir konkret yang harus dihasilkan atau disajikan siswa pada LKPD ini",
+  "kriteriaPenilaianSiswa": ["Kriteria keberhasilan ramah siswa 1 (tanpa membocorkan kunci jawaban)", "Kriteria keberhasilan ramah siswa 2"],
   "pertanyaanAnalisis": [
     {
       "nomor": 1,
@@ -254,10 +257,12 @@ function normalizeAIResponseStrict(
   profile: SchoolProfile,
   presetType: LKPDPresetType,
   topikKonteks: string,
-  fallback: LKPDDokumen
+  _fallback: LKPDDokumen
 ): StrictNormalizationResult {
   const jenjangFase = jenjangToDefaultFase(profile.jenjang, profile.kelasUtama);
   const jenjangProf = resolveJenjangPedagogicalProfile(profile.jenjang, profile.kelasUtama);
+  const family = resolveSubjectFamily(profile.mataPelajaranUtama);
+  const rule = resolveSubjectApproachRule(family, presetType);
   const normalizedKonteks = topikKonteks.trim() || undefined;
   const structuralErrors: string[] = [];
   const maxTokensCut = raw?._geminiFinishReason === 'MAX_TOKENS';
@@ -312,19 +317,23 @@ function normalizeAIResponseStrict(
   const petunjukPengerjaan =
     Array.isArray(raw?.petunjukPengerjaan) && raw.petunjukPengerjaan.length > 0
       ? raw.petunjukPengerjaan.map((p: any) => String(p ?? '').trim()).filter(Boolean)
-      : fallback.petunjukPengerjaan;
+      : [
+          'Bacalah sasaran belajar dan data stimulus secara cermat sebelum menjawab.',
+          `Kerjakan setiap langkah aktivitas menggunakan ${rule.preferredModesByPreset[presetType].toLowerCase()}.`,
+          'Periksa kembali kelengkapan satuan, bukti, dan alasan pada seluruh jawaban.',
+        ];
 
   const stimulusKasus = {
     judul:
       typeof raw?.stimulusKasus?.judul === 'string' && raw.stimulusKasus.judul.trim()
         ? raw.stimulusKasus.judul.trim()
-        : fallback.stimulusKasus.judul,
+        : normalizedKonteks || tp.materiPokok,
     teks: rawStimulusTeks,
     pertanyaanAwal:
       typeof raw?.stimulusKasus?.pertanyaanAwal === 'string' &&
       raw.stimulusKasus.pertanyaanAwal.trim()
         ? raw.stimulusKasus.pertanyaanAwal.trim()
-        : fallback.stimulusKasus.pertanyaanAwal,
+        : `Informasi kunci apa dari stimulus di atas yang diperlukan untuk memahami ${tp.materiPokok}?`,
   };
 
   let stimulusData: LKPDStimulusData | undefined;
@@ -402,8 +411,11 @@ function normalizeAIResponseStrict(
 
   const kesimpulanRefleksi =
     Array.isArray(raw?.kesimpulanRefleksi) && raw.kesimpulanRefleksi.length > 0
-      ? raw.kesimpulanRefleksi.map((k: any) => String(k ?? ''))
-      : fallback.kesimpulanRefleksi;
+      ? raw.kesimpulanRefleksi.map((k: any) => String(k ?? '').trim()).filter(Boolean)
+      : [
+          `Kesimpulan: Pada materi "${tp.materiPokok}", hubungan atau prinsip kunci yang ditemukan adalah ....................`,
+          'Refleksi: Langkah mana yang paling menantang bagimu dan bagaimana kamu memeriksa ketepatannya?',
+        ];
 
   let eksperimenData: LKPDEksperimenData | undefined;
   if (
@@ -475,7 +487,7 @@ function normalizeAIResponseStrict(
       tahapanWaktu:
         typeof raw.proyekData.tahapanWaktu === 'string'
           ? raw.proyekData.tahapanWaktu.trim()
-          : fallback.proyekData?.tahapanWaktu || '',
+          : `Pelaksanaan terstruktur (${jenjangProf.defaultDurationMinutes} menit per sesi)`,
       peranAnggota: raw.proyekData.peranAnggota.map((p: any) => ({
         peran: typeof p?.peran === 'string' ? p.peran.trim() : 'Anggota Tim',
         tanggungJawab:
@@ -487,64 +499,89 @@ function normalizeAIResponseStrict(
             deskripsiSkor:
               typeof r?.deskripsiSkor === 'string' ? r.deskripsiSkor.trim() : 'Deskripsi skor',
           }))
-        : fallback.proyekData?.rubrikKarya || [],
+        : [
+            {
+              kriteria: `Ketepatan Konsep ${tp.materiPokok}`,
+              deskripsiSkor: 'Karya/produk merujuk langsung pada data stimulus dan kaidah materi.',
+            },
+          ],
     };
   }
 
   let panduanGuru: LKPDTeacherGuide;
+  const synthesizedGuide = buildSynthesizedTeacherGuide(pertanyaanAnalisis, tp);
   if (raw?.panduanGuru && typeof raw.panduanGuru === 'object') {
+    const rawKeys = Array.isArray(raw.panduanGuru.kunciDanContohJawaban)
+      ? raw.panduanGuru.kunciDanContohJawaban.map((k: any, i: number) => ({
+          nomor: typeof k?.nomor === 'number' ? k.nomor : i + 1,
+          jawabanInti: String(k?.jawabanInti ?? '').trim(),
+          langkahPenyelesaian: Array.isArray(k?.langkahPenyelesaian)
+            ? k.langkahPenyelesaian.map(String)
+            : [],
+          alternatifValid:
+            typeof k?.alternatifValid === 'string' ? k.alternatifValid.trim() : undefined,
+        }))
+      : [];
+    if (Array.isArray(raw.panduanGuru.kunciDanContohJawaban) && rawKeys.length === 0) {
+      structuralErrors.push('AI mengembalikan array kunciDanContohJawaban kosong pada panduanGuru.');
+    }
+    const rawRubrik = Array.isArray(raw.panduanGuru.rubrikPenilaian)
+      ? raw.panduanGuru.rubrikPenilaian.map((r: any) => ({
+          aspek: String(r?.aspek ?? tp.materiPokok).trim(),
+          perluBimbingan: String(r?.perluBimbingan ?? '').trim(),
+          berkembang: String(r?.berkembang ?? '').trim(),
+          cakap: String(r?.cakap ?? '').trim(),
+          mahir: String(r?.mahir ?? '').trim(),
+        }))
+      : [];
+    if (Array.isArray(raw.panduanGuru.rubrikPenilaian) && rawRubrik.length === 0) {
+      structuralErrors.push('AI mengembalikan array rubrikPenilaian kosong pada panduanGuru.');
+    }
+
     panduanGuru = {
-      kunciDanContohJawaban: Array.isArray(raw.panduanGuru.kunciDanContohJawaban)
-        ? raw.panduanGuru.kunciDanContohJawaban.map((k: any, i: number) => ({
-            nomor: typeof k?.nomor === 'number' ? k.nomor : i + 1,
-            jawabanInti: String(k?.jawabanInti ?? '').trim(),
-            langkahPenyelesaian: Array.isArray(k?.langkahPenyelesaian)
-              ? k.langkahPenyelesaian.map(String)
-              : [],
-            alternatifValid:
-              typeof k?.alternatifValid === 'string' ? k.alternatifValid.trim() : undefined,
-          }))
-        : buildSynthesizedTeacherGuide(pertanyaanAnalisis, tp).kunciDanContohJawaban,
+      kunciDanContohJawaban: rawKeys.length > 0 ? rawKeys : synthesizedGuide.kunciDanContohJawaban,
       miskonsepsiUmum: Array.isArray(raw.panduanGuru.miskonsepsiUmum)
         ? raw.panduanGuru.miskonsepsiUmum.map((m: any) => ({
             miskonsepsi: String(m?.miskonsepsi ?? '').trim(),
             caraMenangani: String(m?.caraMenangani ?? '').trim(),
           }))
-        : buildSynthesizedTeacherGuide(pertanyaanAnalisis, tp).miskonsepsiUmum,
+        : synthesizedGuide.miskonsepsiUmum,
       pemetaanTP: Array.isArray(raw.panduanGuru.pemetaanTP)
         ? raw.panduanGuru.pemetaanTP.map((p: any) => ({
             kodeSubTP: String(p?.kodeSubTP ?? tp.kode).trim(),
             kompetensiTarget: String(p?.kompetensiTarget ?? tp.tujuanPembelajaran).trim(),
             aktivitasTerkait: String(p?.aktivitasTerkait ?? 'Aktivitas LKPD').trim(),
           }))
-        : buildSynthesizedTeacherGuide(pertanyaanAnalisis, tp).pemetaanTP,
-      rubrikPenilaian: Array.isArray(raw.panduanGuru.rubrikPenilaian)
-        ? raw.panduanGuru.rubrikPenilaian.map((r: any) => ({
-            aspek: String(r?.aspek ?? tp.materiPokok).trim(),
-            perluBimbingan: String(r?.perluBimbingan ?? '').trim(),
-            berkembang: String(r?.berkembang ?? '').trim(),
-            cakap: String(r?.cakap ?? '').trim(),
-            mahir: String(r?.mahir ?? '').trim(),
-          }))
-        : buildSynthesizedTeacherGuide(pertanyaanAnalisis, tp).rubrikPenilaian,
+        : synthesizedGuide.pemetaanTP,
+      rubrikPenilaian: rawRubrik.length > 0 ? rawRubrik : synthesizedGuide.rubrikPenilaian,
     };
   } else {
-    panduanGuru = buildSynthesizedTeacherGuide(pertanyaanAnalisis, tp);
+    panduanGuru = synthesizedGuide;
   }
+
+  const defaultStudentMeta = buildDefaultStudentProductAndCriteria(
+    presetType,
+    tp.materiPokok,
+    panduanGuru.rubrikPenilaian
+  );
 
   const doc: LKPDDokumen = {
     id: `lkpd-${tp.id}-${Date.now().toString(36)}`,
     tpId: tp.id,
     presetType,
+    draftSource: 'ai_generated',
+    schoolId: profile.schoolId,
     konteksAktual: normalizedKonteks,
     judul:
       typeof raw?.judul === 'string' && raw.judul.trim()
         ? raw.judul.trim()
-        : fallback.judul,
+        : normalizedKonteks
+        ? `${tp.materiPokok}: ${normalizedKonteks}`
+        : tp.materiPokok,
     pendekatanKegiatan:
       typeof raw?.pendekatanKegiatan === 'string' && raw.pendekatanKegiatan.trim()
         ? raw.pendekatanKegiatan.trim()
-        : fallback.pendekatanKegiatan,
+        : rule.preferredModesByPreset[presetType],
     modeKerja: safeWorkMode(raw?.modeKerja, jenjangProf.defaultWorkMode),
     mataPelajaran: profile.mataPelajaranUtama,
     jenjangFase,
@@ -566,12 +603,18 @@ function normalizeAIResponseStrict(
     elemen: tp.elemen,
     materiPokok: tp.materiPokok,
     tujuanPembelajaran: tp.tujuanPembelajaran,
-    targetBelajarSiswa: Array.isArray(raw?.targetBelajarSiswa)
-      ? raw.targetBelajarSiswa.map(String)
-      : fallback.targetBelajarSiswa,
-    prasyaratMateri: Array.isArray(raw?.prasyaratMateri)
-      ? raw.prasyaratMateri.map(String)
-      : fallback.prasyaratMateri,
+    targetBelajarSiswa:
+      Array.isArray(raw?.targetBelajarSiswa) && raw.targetBelajarSiswa.length > 0
+        ? raw.targetBelajarSiswa.map(String)
+        : tp.subTP && tp.subTP.length > 0
+        ? tp.subTP.slice(0, 3).map((s) => `${s.kompetensi} (${s.kode})`)
+        : [tp.tujuanPembelajaran],
+    prasyaratMateri:
+      Array.isArray(raw?.prasyaratMateri) && raw.prasyaratMateri.length > 0
+        ? raw.prasyaratMateri.map(String)
+        : tp.prasyarat && tp.prasyarat.length > 0
+        ? tp.prasyarat
+        : [`Pengetahuan dasar elemen ${tp.elemen}`],
     targetSubTP: tp.subTP?.map((s) => ({
       id: s.id,
       kode: s.kode,
@@ -580,7 +623,7 @@ function normalizeAIResponseStrict(
     alokasiWaktu:
       typeof raw?.alokasiWaktu === 'string' && raw.alokasiWaktu.trim()
         ? raw.alokasiWaktu.trim()
-        : fallback.alokasiWaktu,
+        : `${jenjangProf.defaultDurationMinutes} Menit`,
     tpSourceHash: computeTPContentHash(tp),
     needsReview: false,
 
@@ -591,21 +634,33 @@ function normalizeAIResponseStrict(
     diferensiasiData,
     proyekData,
     langkahAktivitas,
-    pemeriksaanHasil: Array.isArray(raw?.pemeriksaanHasil)
-      ? raw.pemeriksaanHasil.map(String)
-      : fallback.pemeriksaanHasil,
+    pemeriksaanHasil:
+      Array.isArray(raw?.pemeriksaanHasil) && raw.pemeriksaanHasil.length > 0
+        ? raw.pemeriksaanHasil.map(String)
+        : ['Periksa kembali kecocokan jawaban dengan data/fakta yang tertulis pada stimulus.'],
     pertanyaanAnalisis,
+    produkHasilBelajar:
+      typeof raw?.produkHasilBelajar === 'string' && raw.produkHasilBelajar.trim()
+        ? raw.produkHasilBelajar.trim()
+        : defaultStudentMeta.produkHasilBelajar,
+    kriteriaPenilaianSiswa:
+      Array.isArray(raw?.kriteriaPenilaianSiswa) && raw.kriteriaPenilaianSiswa.length > 0
+        ? raw.kriteriaPenilaianSiswa.map((k: any) => String(k ?? '').trim()).filter(Boolean)
+        : defaultStudentMeta.kriteriaPenilaianSiswa,
     dukunganTambahan:
       typeof raw?.dukunganTambahan === 'string' && raw.dukunganTambahan.trim()
         ? raw.dukunganTambahan.trim()
-        : fallback.dukunganTambahan,
+        : jenjangProf.scaffoldingNote,
     pengayaan:
       raw?.pengayaan && typeof raw.pengayaan === 'object' && Array.isArray(raw.pengayaan.tugas)
         ? {
             instruksi: String(raw.pengayaan.instruksi ?? 'Pengayaan terkait TP:').trim(),
             tugas: raw.pengayaan.tugas.map(String),
           }
-        : fallback.pengayaan,
+        : {
+            instruksi: 'Tantangan pendalaman terkait TP:',
+            tugas: [`Analisis dampak perubahan salah satu syarat pada konteks "${tp.materiPokok}".`],
+          },
     kesimpulanRefleksi,
     panduanGuru,
   };

@@ -50,7 +50,11 @@ export function buildScienceQuestionBank(
           : isKimia
           ? 'Pada atom netral ²³₁₁Na: Nomor atom Z = 11 menunjukkan jumlah proton = 11 dan elektron = 11. Jumlah neutron = A - Z = 23 - 11 = 12 neutron (Pilihan A).'
           : 'Katak adalah predator alami belalang (Konsumen I). Jika populasi katak menurun drastis, populasi belalang akan meledak (meningkat pesat) sehingga memakan lebih banyak tanaman padi dan menurunkan hasil panen (Pilihan A).',
-        levelKognitif: 'C4 (Menganalisis Hukum Sains / Sebab-Akibat)',
+        levelKognitif: isFisika
+          ? 'C3 (Menerapkan Hukum II Newton)'
+          : isKimia
+          ? 'C3 (Menentukan Partikel Dasar Atom)'
+          : 'C4 (Menganalisis Sebab-Akibat Ekosistem)',
         indikatorSoal: `Disajikan kasus ilmiah pada materi ${req.materiPokok}, peserta didik dapat menganalisis hasil perhitungan atau dampak perubahan komponen sistem.`,
       },
       {

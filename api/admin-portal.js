@@ -6,10 +6,105 @@ import {
   deleteSeatRecordFromRedis,
   revokeLicenseInRedis,
   localLicenseRegistryStore,
+  getEffectiveUsedSeatCount,
+  evaluateServerLifecycleState,
+  normalizeTeacherKeyServer,
+  getActiveTeacherDevicesUnionServer,
+  isSchoolLicenseCodeServer,
 } from './activate-license.js';
 import { OFFICIAL_SEEDED_LICENSES } from './officialSeeds.js';
 
 export { localLicenseRegistryStore };
+
+export const localAdminRateLimitStore = new Map();
+const MAX_ADMIN_PIN_ATTEMPTS = 5;
+const ADMIN_LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
+
+export function clearAdminPortalRateLimitStore() {
+  localAdminRateLimitStore.clear();
+}
+
+function resolveAdminRateLimitKey(req) {
+  const fwd = String(req?.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+  const remote = String(req?.socket?.remoteAddress || req?.ip || 'local').trim();
+  const clientIp = fwd || remote || 'local';
+  return `asesmerdeka:admin:rl:v1:${clientIp}`;
+}
+
+async function checkAdminRateLimit(req) {
+  const key = resolveAdminRateLimitKey(req);
+  const now = Date.now();
+  const { url, token, configured } = getRedisCredentials();
+  let entry = null;
+
+  if (!configured) {
+    entry = localAdminRateLimitStore.get(key) || null;
+  } else {
+    try {
+      const res = await fetch(`${url.replace(/\/$/, '')}/get/${encodeURIComponent(key)}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data?.result) {
+          entry = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+        }
+      }
+    } catch {
+      entry = localAdminRateLimitStore.get(key) || null;
+    }
+  }
+
+  if (entry && entry.attempts >= MAX_ADMIN_PIN_ATTEMPTS && now < Number(entry.resetAt || 0)) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((Number(entry.resetAt) - now) / 1000));
+    return { allowed: false, retryAfterSeconds };
+  }
+  return { allowed: true };
+}
+
+async function recordFailedAdminAttempt(req) {
+  const key = resolveAdminRateLimitKey(req);
+  const now = Date.now();
+  const prev = localAdminRateLimitStore.get(key);
+  const attempts = prev && now < prev.resetAt ? prev.attempts + 1 : 1;
+  const resetAt = prev && now < prev.resetAt ? prev.resetAt : now + ADMIN_LOCKOUT_WINDOW_MS;
+  const record = { attempts, resetAt };
+  localAdminRateLimitStore.set(key, record);
+
+  const { url, token, configured } = getRedisCredentials();
+  if (configured) {
+    try {
+      const ttlSec = Math.max(60, Math.ceil((resetAt - now) / 1000));
+      await fetch(`${url.replace(/\/$/, '')}/set/${encodeURIComponent(key)}?EX=${ttlSec}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify(record),
+      });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function clearAdminFailedAttempts(req) {
+  const key = resolveAdminRateLimitKey(req);
+  localAdminRateLimitStore.delete(key);
+  const { url, token, configured } = getRedisCredentials();
+  if (configured) {
+    try {
+      await fetch(`${url.replace(/\/$/, '')}/del/${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // ignore
+    }
+  }
+}
 
 const REGISTRY_REDIS_KEY = 'asesmerdeka:admin:license_registry:v1';
 const EXPECTED_ADMIN_PIN_HASH_36 = '2ID3PNQBIO';
@@ -42,7 +137,11 @@ function verifyAdminPin(pin) {
   if (cleanPin.length < 4) return false;
 
   const envPin = (process.env.ADMIN_PIN || process.env.VITE_ADMIN_PIN || '').trim();
-  if (envPin && cleanPin === envPin) return true;
+  if (envPin) {
+    const a = Buffer.from(cleanPin, 'utf8');
+    const b = Buffer.from(envPin, 'utf8');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
 
   const hash36 = computeHash36(`ADMIN_KEYGEN_V1:${cleanPin}:MERDEKA_SALT_2026`);
   if (hash36 === EXPECTED_ADMIN_PIN_HASH_36) return true;
@@ -180,15 +279,28 @@ export default async function handler(req, res) {
   }
 
   try {
+    const rateCheck = await checkAdminRateLimit(req);
+    if (!rateCheck.allowed) {
+      res.setHeader('Retry-After', String(rateCheck.retryAfterSeconds));
+      return res.status(429).json({
+        ok: false,
+        rateLimited: true,
+        retryAfterSeconds: rateCheck.retryAfterSeconds,
+        message: `Terlalu banyak percobaan PIN Admin yang gagal. Coba lagi dalam ${rateCheck.retryAfterSeconds} detik.`,
+      });
+    }
+
     const body = typeof req.body === 'string' ? safeParseJson(req.body) : req.body || {};
     const adminPin = String(body.adminPin || req.headers?.['x-admin-pin'] || '').trim();
 
     if (!verifyAdminPin(adminPin)) {
+      await recordFailedAdminAttempt(req);
       return res.status(403).json({
         ok: false,
         message: 'PIN Admin tidak valid atau tidak memiliki hak akses.',
       });
     }
+    await clearAdminFailedAttempts(req);
 
     const action = String(body.action || '').trim().toLowerCase();
 
@@ -211,14 +323,36 @@ export default async function handler(req, res) {
             : Array.isArray(item.devices)
             ? item.devices
             : [];
+          const teacherSeats = seatRecord?.teacherSeats || item.teacherSeats;
           const maxSeats = Number(seatRecord?.maxSeats) || Number(item.maxSeats) || 1;
-          const usedSeats = devices.length;
+          const isSchool = isSchoolLicenseCodeServer(item.code, maxSeats, seatRecord || item);
+          const usedSeats = seatRecord
+            ? getEffectiveUsedSeatCount(seatRecord)
+            : teacherSeats
+            ? Object.values(teacherSeats).filter((t) => t && t.status === 'active').length
+            : devices.length;
+          const expiresAt = seatRecord?.expiresAt !== undefined ? seatRecord.expiresAt : item.expiresAt ?? null;
+          const lifecycleState = evaluateServerLifecycleState(
+            {
+              ...item,
+              ...(seatRecord || {}),
+              devices,
+              usedSeats,
+              expiresAt,
+            },
+            false
+          );
           const status = usedSeats > 0 ? 'aktif' : 'belum_aktif';
           return {
             ...item,
             maxSeats,
             usedSeats,
             devices,
+            ...(teacherSeats ? { teacherSeats, activeTeacherCount: usedSeats } : {}),
+            ...(isSchool ? { maxDevicesPerTeacher: 2 } : {}),
+            expiresAt,
+            renewedAt: seatRecord?.renewedAt || item.renewedAt || null,
+            lifecycleState,
             status,
             updatedAt: seatRecord?.updatedAt || item.updatedAt || item.createdAt,
           };
@@ -245,6 +379,8 @@ export default async function handler(req, res) {
       const count = Math.max(1, Math.min(100, Number(body.count) || 1));
       const customMaxSeats =
         Number(body.customMaxSeats) > 0 ? Math.round(Number(body.customMaxSeats)) : null;
+      const expiresAt =
+        typeof body.expiresAt === 'string' && body.expiresAt.trim() ? body.expiresAt.trim() : null;
 
       let prefix = 'GM26';
       let tier = 'guru';
@@ -294,13 +430,19 @@ export default async function handler(req, res) {
           usedSeats: 0,
           devices: [],
           status: 'belum_aktif',
+          lifecycleState: 'paid',
+          ...(expiresAt ? { expiresAt } : {}),
         };
 
         // Simpan catatan kursi awal ke asesmerdeka:seats:v1:<CODE>
         await saveSeatRecordToRedis(code, {
           licenseCode: code,
+          planType,
+          tier,
           maxSeats: finalMaxSeats,
           devices: [],
+          lifecycleState: 'paid',
+          ...(expiresAt ? { expiresAt } : {}),
           updatedAt: nowIso,
         });
 
@@ -335,9 +477,13 @@ export default async function handler(req, res) {
       const nowIso = new Date().toISOString();
 
       await saveSeatRecordToRedis(cleanCode, {
+        ...(existingSeat || {}),
         licenseCode: cleanCode,
         maxSeats,
         devices: [],
+        ...(existingSeat?.teacherSeats ? { teacherSeats: {} } : {}),
+        usedSeats: 0,
+        lifecycleState: 'paid',
         updatedAt: nowIso,
       });
 
@@ -345,13 +491,179 @@ export default async function handler(req, res) {
         regItem.updatedAt = nowIso;
         regItem.devices = [];
         regItem.usedSeats = 0;
+        if (regItem.teacherSeats) regItem.teacherSeats = {};
         regItem.status = 'belum_aktif';
+        regItem.lifecycleState = 'paid';
         await saveRegistryToRedis(currentRegistry);
       }
 
       return res.status(200).json({
         ok: true,
         message: 'Kunci perangkat berhasil di-reset.',
+      });
+    }
+
+    // 4B. Actions per Kursi Guru Sekolah: disable_teacher_seat, enable_teacher_seat, reset_teacher_devices
+    if (
+      action === 'disable_teacher_seat' ||
+      action === 'enable_teacher_seat' ||
+      action === 'reset_teacher_devices'
+    ) {
+      const rawCode = String(body.licenseCode || '').trim();
+      const rawTeacherKey = String(body.teacherKey || body.teacherPin || '').trim();
+      if (!rawCode || !rawTeacherKey) {
+        return res.status(400).json({
+          ok: false,
+          message: 'Parameter licenseCode dan teacherKey wajib disertakan.',
+        });
+      }
+
+      const cleanCode = normalizeLicenseCode(rawCode);
+      const teacherKey = normalizeTeacherKeyServer(rawTeacherKey);
+      const seatRecord = await getSeatRecordFromRedis(cleanCode);
+      if (!seatRecord || !seatRecord.teacherSeats || !seatRecord.teacherSeats[teacherKey]) {
+        return res.status(404).json({
+          ok: false,
+          message: `Kursi guru "${teacherKey}" belum terdaftar pada lisensi ${cleanCode}.`,
+        });
+      }
+
+      const target = seatRecord.teacherSeats[teacherKey];
+      const nowIso = new Date().toISOString();
+      const maxSeats = Number(seatRecord.maxSeats) || 25;
+
+      if (action === 'disable_teacher_seat') {
+        target.status = 'disabled';
+        target.disabledAt = nowIso;
+        target.updatedAt = nowIso;
+      } else if (action === 'enable_teacher_seat') {
+        const activeCount = Object.values(seatRecord.teacherSeats).filter(
+          (t) => t && t.status === 'active'
+        ).length;
+        if (target.status !== 'active' && activeCount >= maxSeats) {
+          return res.status(409).json({
+            ok: false,
+            message: `Kuota ${maxSeats}/${maxSeats} kursi guru sudah penuh.`,
+          });
+        }
+        target.status = 'active';
+        target.disabledAt = undefined;
+        target.updatedAt = nowIso;
+      } else if (action === 'reset_teacher_devices') {
+        target.devices = [];
+        target.updatedAt = nowIso;
+      }
+
+      const unionDevices = getActiveTeacherDevicesUnionServer(seatRecord.teacherSeats);
+      const nextUsedSeats = Object.values(seatRecord.teacherSeats).filter(
+        (t) => t && t.status === 'active'
+      ).length;
+
+      seatRecord.devices = unionDevices;
+      seatRecord.usedSeats = nextUsedSeats;
+      seatRecord.updatedAt = nowIso;
+      await saveSeatRecordToRedis(cleanCode, seatRecord);
+
+      const currentRegistry = await getRegistryFromRedis();
+      const regItem = currentRegistry.find((l) => l.code === cleanCode);
+      if (regItem) {
+        regItem.devices = unionDevices;
+        regItem.usedSeats = nextUsedSeats;
+        regItem.teacherSeats = seatRecord.teacherSeats;
+        regItem.status = nextUsedSeats > 0 ? 'aktif' : 'belum_aktif';
+        regItem.updatedAt = nowIso;
+        await saveRegistryToRedis(currentRegistry);
+      }
+
+      return res.status(200).json({
+        ok: true,
+        usedSeats: nextUsedSeats,
+        maxSeats,
+        teacherKey,
+        message:
+          action === 'disable_teacher_seat'
+            ? `Kursi guru "${teacherKey}" dinonaktifkan. Kuota sekolah kini ${nextUsedSeats}/${maxSeats}.`
+            : action === 'enable_teacher_seat'
+            ? `Kursi guru "${teacherKey}" diaktifkan kembali (${nextUsedSeats}/${maxSeats}).`
+            : `Perangkat guru "${teacherKey}" berhasil di-reset tanpa mengganggu guru lainnya.`,
+      });
+    }
+
+    // 4C. Actions Lifecycle: renew_license & suspend_license
+    if (action === 'renew_license' || action === 'suspend_license') {
+      const rawCode = String(body.licenseCode || '').trim();
+      if (!rawCode) {
+        return res.status(400).json({
+          ok: false,
+          message: 'Parameter licenseCode wajib disertakan.',
+        });
+      }
+
+      const cleanCode = normalizeLicenseCode(rawCode);
+      const nowIso = new Date().toISOString();
+      const existingSeat = await getSeatRecordFromRedis(cleanCode);
+      const currentRegistry = await getRegistryFromRedis();
+      const regItem = currentRegistry.find((l) => l.code === cleanCode);
+
+      if (action === 'suspend_license') {
+        const nextSeat = {
+          ...(existingSeat || {}),
+          licenseCode: cleanCode,
+          maxSeats: existingSeat?.maxSeats || regItem?.maxSeats || 2,
+          devices: Array.isArray(existingSeat?.devices) ? existingSeat.devices : [],
+          suspended: true,
+          suspendedAt: nowIso,
+          lifecycleState: 'suspended',
+          updatedAt: nowIso,
+        };
+        await saveSeatRecordToRedis(cleanCode, nextSeat);
+        if (regItem) {
+          regItem.lifecycleState = 'suspended';
+          regItem.suspendedAt = nowIso;
+          regItem.updatedAt = nowIso;
+          await saveRegistryToRedis(currentRegistry);
+        }
+        return res.status(200).json({
+          ok: true,
+          lifecycleState: 'suspended',
+          message: `Lisensi ${cleanCode} berhasil ditangguhkan sementara (data akademik pengguna tetap aman).`,
+        });
+      }
+
+      // renew_license
+      const newExpiresAt =
+        typeof body.expiresAt === 'string' && body.expiresAt.trim()
+          ? body.expiresAt.trim()
+          : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+      const existingDevices = Array.isArray(existingSeat?.devices) ? existingSeat.devices : [];
+      const usedSeats = existingSeat ? getEffectiveUsedSeatCount(existingSeat) : existingDevices.length;
+      const nextLifecycle = usedSeats > 0 ? 'active' : 'paid';
+
+      const nextSeat = {
+        ...(existingSeat || {}),
+        licenseCode: cleanCode,
+        maxSeats: existingSeat?.maxSeats || regItem?.maxSeats || 2,
+        devices: existingDevices,
+        suspended: false,
+        expiresAt: newExpiresAt,
+        renewedAt: nowIso,
+        lifecycleState: nextLifecycle,
+        updatedAt: nowIso,
+      };
+      await saveSeatRecordToRedis(cleanCode, nextSeat);
+      if (regItem) {
+        regItem.expiresAt = newExpiresAt;
+        regItem.renewedAt = nowIso;
+        regItem.lifecycleState = nextLifecycle;
+        regItem.updatedAt = nowIso;
+        await saveRegistryToRedis(currentRegistry);
+      }
+
+      return res.status(200).json({
+        ok: true,
+        lifecycleState: nextLifecycle,
+        expiresAt: newExpiresAt,
+        message: `Masa berlaku lisensi ${cleanCode} berhasil diperpanjang hingga ${newExpiresAt}.`,
       });
     }
 

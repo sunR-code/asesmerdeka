@@ -11,7 +11,14 @@ import {
 } from 'lucide-react';
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
 
-export type WorkspaceStorageStatus = 'local' | 'syncing' | 'synced' | 'sync_error';
+export type WorkspaceStorageStatus =
+  | 'local'
+  | 'unconfigured'
+  | 'syncing'
+  | 'synced'
+  | 'conflict'
+  | 'reverify_required'
+  | 'sync_error';
 
 interface TopHeaderProps {
   pageSection?: string;
@@ -34,7 +41,7 @@ const STORAGE_STATUS_META: Record<
     title: string;
     dotColor: string;
     textColor: string;
-    icon: 'local' | 'syncing' | 'synced' | 'sync_error';
+    icon: 'local' | 'syncing' | 'synced' | 'conflict' | 'sync_error';
   }
 > = {
   local: {
@@ -42,6 +49,13 @@ const STORAGE_STATUS_META: Record<
     title: 'Perubahan tersimpan di penyimpanan peramban perangkat ini',
     dotColor: '#64748b',
     textColor: '#475569',
+    icon: 'local',
+  },
+  unconfigured: {
+    label: 'Cloud belum dikonfigurasi',
+    title: 'Server berjalan pada memori dev lokal tanpa Upstash Redis; data tersimpan aman di perangkat ini',
+    dotColor: '#d97706',
+    textColor: '#92400e',
     icon: 'local',
   },
   syncing: {
@@ -57,6 +71,20 @@ const STORAGE_STATUS_META: Record<
     dotColor: '#059669',
     textColor: '#047857',
     icon: 'synced',
+  },
+  conflict: {
+    label: 'Konflik Cloud',
+    title: 'Konflik sinkronisasi terdeteksi — klik untuk menyelesaikan agar data perangkat lain tidak tertimpa',
+    dotColor: '#dc2626',
+    textColor: '#b91c1c',
+    icon: 'conflict',
+  },
+  reverify_required: {
+    label: 'Verifikasi PIN Cloud',
+    title: 'Masa transisi PIN lama berakhir — klik untuk verifikasi ulang PIN Cloud Sync tanpa kehilangan data',
+    dotColor: '#d97706',
+    textColor: '#b45309',
+    icon: 'sync_error',
   },
   sync_error: {
     label: 'Hanya lokal',
@@ -176,17 +204,62 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         {/* Indikator penyimpanan sesuai kondisi nyata perangkat/cloud */}
         <div
           className="header-pill-autosave"
+          role={
+            (storageStatus === 'conflict' || storageStatus === 'reverify_required') &&
+            onOpenLicenseModal
+              ? 'button'
+              : undefined
+          }
+          tabIndex={
+            (storageStatus === 'conflict' || storageStatus === 'reverify_required') &&
+            onOpenLicenseModal
+              ? 0
+              : undefined
+          }
+          onClick={
+            (storageStatus === 'conflict' || storageStatus === 'reverify_required') &&
+            onOpenLicenseModal
+              ? onOpenLicenseModal
+              : undefined
+          }
+          onKeyDown={
+            (storageStatus === 'conflict' || storageStatus === 'reverify_required') &&
+            onOpenLicenseModal
+              ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onOpenLicenseModal();
+                  }
+                }
+              : undefined
+          }
           style={{
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6,
             padding: '5px 10px',
             borderRadius: 8,
-            background: '#f8fafc',
-            border: '1px solid #e2e8f0',
+            background:
+              storageStatus === 'conflict'
+                ? '#fef2f2'
+                : storageStatus === 'unconfigured' || storageStatus === 'reverify_required'
+                  ? '#fffbeb'
+                  : '#f8fafc',
+            border:
+              storageStatus === 'conflict'
+                ? '1px solid #fecaca'
+                : storageStatus === 'unconfigured' || storageStatus === 'reverify_required'
+                  ? '1px solid #fde68a'
+                  : '1px solid #e2e8f0',
             fontSize: 12,
-            fontWeight: 500,
+            fontWeight:
+              storageStatus === 'conflict' || storageStatus === 'reverify_required' ? 700 : 500,
             color: statusInfo.textColor,
+            cursor:
+              (storageStatus === 'conflict' || storageStatus === 'reverify_required') &&
+              onOpenLicenseModal
+                ? 'pointer'
+                : 'default',
           }}
           title={statusInfo.title}
         >
@@ -194,7 +267,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             <RefreshCw size={13} className="animate-spin" style={{ color: statusInfo.dotColor }} />
           ) : statusInfo.icon === 'synced' ? (
             <Cloud size={13} style={{ color: statusInfo.dotColor }} />
-          ) : statusInfo.icon === 'sync_error' ? (
+          ) : statusInfo.icon === 'conflict' || statusInfo.icon === 'sync_error' ? (
             <AlertTriangle size={13} style={{ color: statusInfo.dotColor }} />
           ) : (
             <HardDrive size={13} style={{ color: statusInfo.dotColor }} />

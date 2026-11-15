@@ -1,3 +1,10 @@
+import type {
+  PromesValidationIssue,
+  PromesWeekCategory,
+  SemesterAcademicCalendar,
+  SubjectJPConfig,
+} from './academicSchedule';
+
 export interface KegiatanPembelajaranLangkah {
   pertemuan: number;
   alokasiMenit: number;
@@ -8,6 +15,13 @@ export interface KegiatanPembelajaranLangkah {
 
 export interface ModulAjarDokumen {
   id: string;
+  tpId?: string;
+  modelType?: string;
+  draftSource?: 'user_edited' | 'ai_generated' | 'template' | 'community';
+  savedAt?: string;
+  schoolId?: string;
+  tpSourceHash?: string;
+  needsReview?: boolean;
   judul: string;
   mataPelajaran: string;
   jenjangFase: string;
@@ -30,15 +44,23 @@ export interface ModulAjarDokumen {
   materiPokok: string;
   elemen: string;
   tujuanPembelajaran: string;
+  targetSubTP?: { id: string; kode: string; kompetensi: string }[];
+  prasyaratMateri?: string;
+  buktiKetercapaian?: string[];
   kompetensiAwal: string[];
   profilPelajarPancasila: string[];
   saranaPrasarana: string[];
   targetPesertaDidik: string;
   modelPembelajaran: string;
 
-  // Komponen Inti
+  // Komponen Inti & Bahan Ajar Substantif
   pemahamanBermakna: string;
   pertanyaanPemantik: string[];
+  bahanBacaan?: {
+    ringkasanInti: string;
+    konsepKunci: string[];
+    referensiCatatan?: string;
+  };
   kegiatanPembelajaran: KegiatanPembelajaranLangkah[];
 
   // Asesmen
@@ -185,6 +207,9 @@ export interface LKPDDokumen {
   id: string;
   tpId?: string;
   presetType?: LKPDPresetType;
+  draftSource?: 'user_edited' | 'ai_generated' | 'template';
+  savedAt?: string;
+  schoolId?: string;
   konteksAktual?: string;
   judul: string;
   pendekatanKegiatan?: string;
@@ -235,6 +260,8 @@ export interface LKPDDokumen {
   }[];
   pemeriksaanHasil?: string[];
   pertanyaanAnalisis: LKPDPertanyaanItem[];
+  produkHasilBelajar?: string;
+  kriteriaPenilaianSiswa?: string[];
   dukunganTambahan?: string;
   pengayaan?: {
     instruksi: string;
@@ -278,11 +305,15 @@ export interface ATPDokumen {
 
 export interface ProtaItem {
   no: number;
+  tpId?: string;
   semester: '1 (Ganjil)' | '2 (Genap)';
   kodeTP: string;
   lingkupMateri: string;
   tujuanPembelajaran: string;
   alokasiJP: number;
+  mingguMulai?: number;
+  mingguSelesai?: number;
+  progresSpiral?: string;
   keterangan: string;
 }
 
@@ -303,21 +334,49 @@ export interface ProtaDokumen {
   totalJPSemester1: number;
   totalJPSemester2: number;
   totalJPTahunan: number;
+  sumberSemester1?: 'saved' | 'catalog';
+  sumberSemester2?: 'saved' | 'catalog';
+  mingguEfektifSemester1?: number;
+  mingguEfektifSemester2?: number;
+  mingguEfektifTahunan?: number;
+  kapasitasJPSemester1?: number;
+  kapasitasJPSemester2?: number;
+  kapasitasJPTahunan?: number;
+  kalenderSem1Terkonfirmasi?: boolean;
+  kalenderSem2Terkonfirmasi?: boolean;
+  jpConfig?: SubjectJPConfig;
+  peringatanProta?: string[];
 }
 
 export interface PromesMingguColumn {
+  weekKey?: string;
+  semesterWeekNumber?: number;
   bulanNama: string; // "Juli", "Agustus", dsb.
   mingguKe: number;  // 1..5
+  startDate?: string;
+  endDate?: string;
   isEfektif: boolean;
+  kategoriMinggu?: PromesWeekCategory;
   labelKegiatan?: string; // e.g. "MPLS", "STS", "SAS", "Libur"
+  kapasitasJP?: number;
+  hariEfektif?: number;
+  hariSekolahNormal?: number;
+  catatanHariLibur?: string;
 }
 
 export interface PromesRowItem {
   no: number;
+  tpId?: string;
   kodeTP: string;
   materiPokok: string;
   tujuanPembelajaran: string;
   alokasiJP: number;
+  mingguMulai?: number;
+  mingguSelesai?: number;
+  jpTerjadwal?: number;
+  jpBelumTerjadwal?: number;
+  konflikJadwal?: string;
+  isManualOverride?: boolean;
   distribusiJP: { [colIndex: number]: number }; // index kolom -> jam
 }
 
@@ -336,6 +395,24 @@ export interface PromesDokumen {
   kotaSekolah: string;
   columns: PromesMingguColumn[];
   rows: PromesRowItem[];
-  totalJPEfektif: number;
+  totalJPEfektif: number; // Sama dengan totalJPTerjadwal (total jam yang benar-benar terjadwal)
+  jpPerMinggu?: number;
+  durasiJPMinut?: number;
+  pertemuanPerMinggu?: number;
+  totalMingguKalender?: number;
+  totalMingguEfektif?: number;
+  totalMingguNonEfektif?: number;
+  totalKapasitasJPSemester?: number;
+  totalJPDibutuhkanTP?: number;
+  totalJPTerjadwal?: number;
+  totalJPBelumTerjadwal?: number;
+  selisihKapasitasJP?: number;
+  defisitJP?: number;
+  surplusJP?: number;
+  kalenderTerkonfirmasi?: boolean;
+  jpTerkonfirmasi?: boolean;
+  calendarSummary?: SemesterAcademicCalendar;
+  jpConfig?: SubjectJPConfig;
+  validationIssues?: PromesValidationIssue[];
 }
 

@@ -6,6 +6,7 @@ import type {
   SoalPilihanGandaKompleks,
   SoalUraian,
   KriteriaRubrik,
+  TPTraceabilityItem,
 } from '../types/assessment';
 import type { RangkumanDokumen } from '../types/summary';
 import type { PGTemplate, PGKTemplate, UraianTemplate, QuestionBank } from './asesmen/types';
@@ -15,6 +16,11 @@ import {
   formatCognitiveLevel,
   balanceOptionAndKey,
 } from './asesmen/types';
+import {
+  UNIFIED_KKTP_INTERVALS,
+  enrichDocWithQualityAndCognitive,
+  normalizeQuestionText,
+} from './assessmentQualityEngine';
 import {
   buildSDEnglishQuestionBank,
   buildDescriptiveEnglishBank,
@@ -47,31 +53,87 @@ export function buildSmartCurriculumAsesmen(
     ? ['A', 'B', 'C', 'D', 'E']
     : ['A', 'B', 'C', 'D'];
 
-  const domainBank = getQuestionBankForRequest(req, isSMA);
+  const { bank: domainBank, isGeneralFallback } = resolveDomainQuestionBank(req, isSMA);
   const bank = req.sourceRangkuman
     ? mergeWithRangkumanBank(req.sourceRangkuman, domainBank, req)
     : domainBank;
 
+  const tpMap: TPTraceabilityItem[] =
+    req.tpListContext && req.tpListContext.length > 0
+      ? req.tpListContext
+      : req.tpId || req.tujuanPembelajaranInput
+        ? [
+            {
+              id: req.tpId || 'tp_active_1',
+              kode: req.tpKode || 'TP-1',
+              materiPokok: req.materiPokok,
+              deskripsi: req.tujuanPembelajaranInput || bank.tujuanPembelajaranDefault,
+            },
+          ]
+        : [];
+
+  const resolveTPBinding = (idx: number) => {
+    if (tpMap.length === 0) return {};
+    const targetTp = tpMap[idx % tpMap.length];
+    const subList = targetTp.subTP || [];
+    const targetSub =
+      subList.length > 0
+        ? subList.find((s) => req.subTpIds?.includes(s.id)) || subList[idx % subList.length]
+        : undefined;
+    return {
+      tpId: targetTp.id,
+      tpKode: targetTp.kode,
+      subTpId: targetSub?.id,
+      subTpDeskripsi: targetSub?.deskripsi,
+    };
+  };
+
   const soalList: ButirSoal[] = [];
   let currentNo = 1;
+  const fallbackReasons: string[] = [];
+  if (isGeneralFallback) {
+    fallbackReasons.push(
+      `Mata pelajaran "${req.mataPelajaran}" memakai kerangka soal kontekstual umum (bukan bank spesifik mapel); wajib ditinjau guru.`
+    );
+  }
+
+  // Deduplikasi pool agar tidak ada butir kembar identik
+  const uniquePG = bank.pgPool.filter(
+    (item, idx, arr) =>
+      arr.findIndex((o) => normalizeQuestionText(o.pertanyaan) === normalizeQuestionText(item.pertanyaan)) === idx
+  );
+  const uniquePGK = bank.pgkPool.filter(
+    (item, idx, arr) =>
+      arr.findIndex((o) => normalizeQuestionText(o.pertanyaan) === normalizeQuestionText(item.pertanyaan)) === idx
+  );
+  const uniqueUraian = bank.uraianPool.filter(
+    (item, idx, arr) =>
+      arr.findIndex((o) => normalizeQuestionText(o.pertanyaan) === normalizeQuestionText(item.pertanyaan)) === idx
+  );
+
+  const actualPGCount = Math.min(Math.max(0, req.jumlahPG), uniquePG.length);
+  const actualPGKCount = Math.min(Math.max(0, req.jumlahPGK), uniquePGK.length);
+  const actualUraianCount = Math.min(Math.max(0, req.jumlahUraian), uniqueUraian.length);
+
+  if (
+    actualPGCount < req.jumlahPG ||
+    actualPGKCount < req.jumlahPGK ||
+    actualUraianCount < req.jumlahUraian
+  ) {
+    fallbackReasons.push(
+      `Bank templat luring hanya memiliki ${actualPGCount}/${req.jumlahPG} PG, ${actualPGKCount}/${req.jumlahPGK} PGK, dan ${actualUraianCount}/${req.jumlahUraian} Uraian unik tanpa duplikasi. Gunakan Gemini AI untuk jumlah soal lebih besar.`
+    );
+  }
 
   // Pola rotasi kunci jawaban yang seimbang (A, C, B, D, [E])
   const rotationOrder = isSMA ? [0, 2, 1, 3, 4] : [0, 2, 1, 3];
 
-  // 1. Susun Soal Pilihan Ganda (PG) tanpa duplikasi untuk paket standar
-  for (let i = 0; i < req.jumlahPG; i++) {
-    const baseTpl = bank.pgPool[i % bank.pgPool.length];
-    const cycle = Math.floor(i / bank.pgPool.length);
-    const tpl: PGTemplate =
-      cycle === 0
-        ? baseTpl
-        : {
-            ...baseTpl,
-            pertanyaan: `[Variasi Penalaran #${cycle + 1}] ${baseTpl.pertanyaan}`,
-          };
-
+  // 1. Susun Soal Pilihan Ganda (PG) unik tanpa duplikasi kloning modulo
+  for (let i = 0; i < actualPGCount; i++) {
+    const tpl = uniquePG[i];
     const targetKeyIdx = rotationOrder[i % rotationOrder.length];
     const balanced = balanceOptionAndKey(tpl, optionLetters, targetKeyIdx);
+    const tpBinding = resolveTPBinding(currentNo - 1);
 
     soalList.push({
       id: `pg-${currentNo}`,
@@ -85,21 +147,16 @@ export function buildSmartCurriculumAsesmen(
       levelKognitif: formatCognitiveLevel(tpl.levelKognitif, req.levelKognitif, i),
       indikatorSoal: tpl.indikatorSoal,
       skor: 10,
+      difficultyLevel: req.difficultyLevel,
+      ...tpBinding,
     } as SoalPilihanGanda);
     currentNo++;
   }
 
-  // 2. Susun Soal Pilihan Ganda Kompleks (AKM)
-  for (let i = 0; i < req.jumlahPGK; i++) {
-    const baseTpl = bank.pgkPool[i % bank.pgkPool.length];
-    const cycle = Math.floor(i / bank.pgkPool.length);
-    const tpl: PGKTemplate =
-      cycle === 0
-        ? baseTpl
-        : {
-            ...baseTpl,
-            pertanyaan: `[Analisis Lanjutan #${cycle + 1}] ${baseTpl.pertanyaan}`,
-          };
+  // 2. Susun Soal Pilihan Ganda Kompleks (AKM) unik
+  for (let i = 0; i < actualPGKCount; i++) {
+    const tpl = uniquePGK[i];
+    const tpBinding = resolveTPBinding(currentNo - 1);
 
     soalList.push({
       id: `pgk-${currentNo}`,
@@ -116,21 +173,16 @@ export function buildSmartCurriculumAsesmen(
       levelKognitif: formatCognitiveLevel(tpl.levelKognitif, req.levelKognitif, i),
       indikatorSoal: tpl.indikatorSoal,
       skor: 15,
+      difficultyLevel: req.difficultyLevel,
+      ...tpBinding,
     } as SoalPilihanGandaKompleks);
     currentNo++;
   }
 
-  // 3. Susun Soal Uraian
-  for (let i = 0; i < req.jumlahUraian; i++) {
-    const baseTpl = bank.uraianPool[i % bank.uraianPool.length];
-    const cycle = Math.floor(i / bank.uraianPool.length);
-    const tpl: UraianTemplate =
-      cycle === 0
-        ? baseTpl
-        : {
-            ...baseTpl,
-            pertanyaan: `[Studi Kasus Lanjutan #${cycle + 1}] ${baseTpl.pertanyaan}`,
-          };
+  // 3. Susun Soal Uraian unik
+  for (let i = 0; i < actualUraianCount; i++) {
+    const tpl = uniqueUraian[i];
+    const tpBinding = resolveTPBinding(currentNo - 1);
 
     soalList.push({
       id: `ur-${currentNo}`,
@@ -143,27 +195,36 @@ export function buildSmartCurriculumAsesmen(
       levelKognitif: formatCognitiveLevel(tpl.levelKognitif, req.levelKognitif, i + 1),
       indikatorSoal: tpl.indikatorSoal,
       skorMaksimal: 20,
+      difficultyLevel: req.difficultyLevel,
+      ...tpBinding,
     } as SoalUraian);
     currentNo++;
   }
 
-  // 4. Rubrik KKTP
-  const rubrikKKTP: KriteriaRubrik[] = [
-    {
-      tujuanPembelajaran:
-        req.tujuanPembelajaranInput ||
-        `Peserta didik mampu memahami struktur konsep, menganalisis informasi, dan memecahkan permasalahan kontekstual pada materi ${req.materiPokok}.`,
-      buktiKetercapaian: `Ketepatan menjawab soal pemahaman konsep, ketelitian menganalisis pernyataan stimulus AKM, serta kelengkapan argumen pada soal uraian ${req.materiPokok}.`,
-      perluBimbingan: `Belum mampu mengidentifikasi konsep dasar dan ciri utama pada materi ${req.materiPokok}; memerlukan pendampingan langsung dan remedial terarah (Skor 0–60).`,
-      cukup: `Mampu mengidentifikasi konsep dasar ${req.materiPokok}, namun masih kurang teliti saat menganalisis soal berbasis bacaan/kasus (Skor 61–74).`,
-      baik: `Mampu memahami struktur konsep dan menganalisis sebagian besar soal stimulus serta menyusun jawaban uraian dengan tepat dan mandiri (Skor 75–87).`,
-      sangatBaik: `Sangat mahir menganalisis soal penalaran kritis (HOTS), menguasai kaidah/rumus secara tuntas, serta mampu menyusun jawaban uraian secara sistematis dan kreatif (Skor 88–100).`,
-    },
-  ];
+  // 4. Rubrik KKTP (hanya dibuat jika req.sertakanRubrik !== false, dengan interval standar 0-60/61-70/71-85/86-100)
+  const rubrikKKTP: KriteriaRubrik[] =
+    req.sertakanRubrik !== false
+      ? [
+          {
+            tujuanPembelajaran:
+              req.tujuanPembelajaranInput ||
+              `Peserta didik mampu memahami struktur konsep, menganalisis informasi, dan memecahkan permasalahan kontekstual pada materi ${req.materiPokok}.`,
+            buktiKetercapaian: `Ketepatan menjawab soal pemahaman konsep, ketelitian menganalisis pernyataan stimulus AKM, serta kelengkapan argumen pada soal uraian ${req.materiPokok}.`,
+            perluBimbingan: `Belum mampu mengidentifikasi konsep dasar dan ciri utama pada materi ${req.materiPokok}; memerlukan pendampingan langsung dan remedial terarah (Skor ${UNIFIED_KKTP_INTERVALS.perluBimbingan}).`,
+            cukup: `Mampu mengidentifikasi konsep dasar ${req.materiPokok}, namun masih kurang teliti saat menganalisis soal berbasis bacaan/kasus (Skor ${UNIFIED_KKTP_INTERVALS.cukup}).`,
+            baik: `Mampu memahami struktur konsep dan menganalisis sebagian besar soal stimulus serta menyusun jawaban uraian dengan tepat dan mandiri (Skor ${UNIFIED_KKTP_INTERVALS.baik}).`,
+            sangatBaik: `Sangat mahir menganalisis soal penalaran kritis (HOTS), menguasai kaidah/rumus secara tuntas, serta mampu menyusun jawaban uraian secara sistematis dan kreatif (Skor ${UNIFIED_KKTP_INTERVALS.sangatBaik}).`,
+          },
+        ]
+      : [];
 
   const isEnglish = req.mataPelajaran.toLowerCase().includes('inggris');
+  const tujuanList =
+    tpMap.length > 0
+      ? tpMap.map((tp) => tp.deskripsi).filter(Boolean)
+      : [req.tujuanPembelajaranInput || bank.tujuanPembelajaranDefault];
 
-  return {
+  const baseDoc: AsesmenDokumen = {
     id: 'DOC-' + Date.now().toString(36).toUpperCase(),
     createdAt: new Date().toLocaleDateString('id-ID', {
       day: 'numeric',
@@ -174,17 +235,25 @@ export function buildSmartCurriculumAsesmen(
     mataPelajaran: req.mataPelajaran,
     jenjangFase: req.jenjangFase,
     kelas: req.kelas,
+    rombel: req.rombel,
+    semester: req.semester,
+    schoolId: req.schoolId,
     tipeAsesmen: req.tipeAsesmen,
     alokasiWaktu: req.alokasiWaktu,
-    tahunAjaran: '2026/2027',
+    tahunAjaran: req.tahunAjaran || '2026/2027',
     namaSekolah: req.namaSekolah || 'Satuan Pendidikan Kurikulum Merdeka',
     namaPenyusun: req.namaGuru || 'Guru Mata Pelajaran',
     capaianPembelajaran: bank.capaianPembelajaran,
-    tujuanPembelajaran: [
-      req.tujuanPembelajaranInput || bank.tujuanPembelajaranDefault,
-    ],
+    tujuanPembelajaran: tujuanList,
+    tpIds: tpMap.map((t) => t.id),
+    subTpIds: req.subTpIds,
+    tpMap,
     materiPokok: req.materiPokok,
     profilPelajarPancasila: ['Bernalar Kritis', 'Kreatif', 'Mandiri'],
+    generationSource: isGeneralFallback ? 'adaptive_fallback' : 'curated_bank',
+    usedFallback: fallbackReasons.length > 0,
+    fallbackReason: fallbackReasons.length > 0 ? fallbackReasons.join(' ') : undefined,
+    difficultyLevel: req.difficultyLevel,
     petunjukUmum: isEnglish
       ? [
           'Pray before you start working on this assessment.',
@@ -201,6 +270,10 @@ export function buildSmartCurriculumAsesmen(
     soalList,
     rubrikKKTP,
   };
+
+  return enrichDocWithQualityAndCognitive(baseDoc, {
+    requestedLevel: req.levelKognitif,
+  });
 }
 
 /**
@@ -272,10 +345,15 @@ export function buildSingleRegeneratedQuestion(
     : ['A', 'B', 'C', 'D'];
 
   const bank = getQuestionBankForRequest(dummyReq, isSMA);
+  const existingNorms = new Set(
+    (assessment.soalList || []).map((s) => normalizeQuestionText(s.pertanyaan))
+  );
   const randomOffset = Math.floor(Math.random() * 10) + targetSoal.nomor + 1;
 
   if (targetSoal.tipe === 'pilihan_ganda') {
-    const tpl = bank.pgPool[randomOffset % bank.pgPool.length];
+    const unused = bank.pgPool.filter((tpl) => !existingNorms.has(normalizeQuestionText(tpl.pertanyaan)));
+    const candidatePool = unused.length > 0 ? unused : bank.pgPool;
+    const tpl = candidatePool[randomOffset % candidatePool.length];
     const balanced = balanceOptionAndKey(tpl, optionLetters, randomOffset);
     return {
       id: `pg-${targetSoal.nomor}-${Date.now().toString(36)}`,
@@ -289,11 +367,16 @@ export function buildSingleRegeneratedQuestion(
       levelKognitif: tpl.levelKognitif,
       indikatorSoal: tpl.indikatorSoal,
       skor: targetSoal.skor || 10,
+      tpId: targetSoal.tpId,
+      tpKode: targetSoal.tpKode,
+      subTpId: targetSoal.subTpId,
     } as SoalPilihanGanda;
   }
 
   if (targetSoal.tipe === 'pilihan_ganda_kompleks') {
-    const tpl = bank.pgkPool[randomOffset % bank.pgkPool.length];
+    const unused = bank.pgkPool.filter((tpl) => !existingNorms.has(normalizeQuestionText(tpl.pertanyaan)));
+    const candidatePool = unused.length > 0 ? unused : bank.pgkPool;
+    const tpl = candidatePool[randomOffset % candidatePool.length];
     return {
       id: `pgk-${targetSoal.nomor}-${Date.now().toString(36)}`,
       nomor: targetSoal.nomor,
@@ -309,10 +392,15 @@ export function buildSingleRegeneratedQuestion(
       levelKognitif: tpl.levelKognitif,
       indikatorSoal: tpl.indikatorSoal,
       skor: targetSoal.skor || 15,
+      tpId: targetSoal.tpId,
+      tpKode: targetSoal.tpKode,
+      subTpId: targetSoal.subTpId,
     } as SoalPilihanGandaKompleks;
   }
 
-  const tpl = bank.uraianPool[randomOffset % bank.uraianPool.length];
+  const unusedUr = bank.uraianPool.filter((tpl) => !existingNorms.has(normalizeQuestionText(tpl.pertanyaan)));
+  const candidateUrPool = unusedUr.length > 0 ? unusedUr : bank.uraianPool;
+  const tpl = candidateUrPool[randomOffset % candidateUrPool.length];
   return {
     id: `ur-${targetSoal.nomor}-${Date.now().toString(36)}`,
     nomor: targetSoal.nomor,
@@ -324,6 +412,9 @@ export function buildSingleRegeneratedQuestion(
     levelKognitif: tpl.levelKognitif,
     indikatorSoal: tpl.indikatorSoal,
     skorMaksimal: (targetSoal as SoalUraian).skorMaksimal || 20,
+    tpId: targetSoal.tpId,
+    tpKode: targetSoal.tpKode,
+    subTpId: targetSoal.subTpId,
   } as SoalUraian;
 }
 
@@ -331,13 +422,21 @@ export function getQuestionBankForRequest(
   req: GenerationRequest,
   isSMA: boolean
 ): QuestionBank {
+  return resolveDomainQuestionBank(req, isSMA).bank;
+}
+
+function resolveDomainQuestionBank(
+  req: GenerationRequest,
+  isSMA: boolean
+): { bank: QuestionBank; isGeneralFallback: boolean } {
   const lowerMapel = req.mataPelajaran.toLowerCase();
   const lowerMateri = req.materiPokok.toLowerCase();
   const isSD = isSDRequest(req);
+  const isNonIslamAgama = /kristen|katolik|protestan|hindu|buddha|konghucu|khonghucu/.test(lowerMapel);
 
   // 1. BAHASA INGGRIS SD (Kelas 1–6)
   if (lowerMapel.includes('inggris') && isSD) {
-    return buildSDEnglishQuestionBank(req);
+    return { bank: buildSDEnglishQuestionBank(req), isGeneralFallback: false };
   }
 
   // 2. BAHASA INGGRIS — DESCRIPTIVE TEXT (SMP / SMA / SMK)
@@ -345,22 +444,22 @@ export function getQuestionBankForRequest(
     lowerMateri.includes('descriptive') ||
     (lowerMapel.includes('inggris') && lowerMateri.includes('deskripsi'))
   ) {
-    return buildDescriptiveEnglishBank();
+    return { bank: buildDescriptiveEnglishBank(), isGeneralFallback: false };
   }
 
   // 3. BAHASA INGGRIS — PROCEDURE / RECOUNT / NARRATIVE / EXPOSITION (SMP / SMA / SMK)
   if (lowerMapel.includes('inggris')) {
-    return buildOtherEnglishQuestionBank(req, lowerMateri);
+    return { bank: buildOtherEnglishQuestionBank(req, lowerMateri), isGeneralFallback: false };
   }
 
   // 4. MATEMATIKA (SD / SMP / SMA / SMK)
   if (lowerMapel.includes('matematika')) {
-    return buildMathQuestionBank(req, lowerMateri);
+    return { bank: buildMathQuestionBank(req, lowerMateri), isGeneralFallback: false };
   }
 
   // 5. BAHASA INDONESIA
   if (lowerMapel.includes('indonesia')) {
-    return buildIndonesianQuestionBank(req, lowerMateri);
+    return { bank: buildIndonesianQuestionBank(req, lowerMateri), isGeneralFallback: false };
   }
 
   // 6. IPA / IPAS / FISIKA / KIMIA / BIOLOGI
@@ -370,21 +469,22 @@ export function getQuestionBankForRequest(
     lowerMapel.includes('kimia') ||
     lowerMapel.includes('biologi')
   ) {
-    return buildScienceQuestionBank(req, lowerMapel, lowerMateri);
+    return { bank: buildScienceQuestionBank(req, lowerMapel, lowerMateri), isGeneralFallback: false };
   }
 
-  // 7. PAI & MADRASAH (FIKIH, AL-QUR'AN HADIS, AKIDAH AKHLAK, SKI, BAHASA ARAB)
+  // 7. PAI & MADRASAH (hanya Islam, tidak menimpa Pendidikan Agama lain)
   if (
-    lowerMapel.includes('agama') ||
-    lowerMapel.includes('pai') ||
-    lowerMapel.includes('fikih') ||
-    lowerMapel.includes('quran') ||
-    lowerMapel.includes('hadis') ||
-    lowerMapel.includes('akidah') ||
-    lowerMapel.includes('kebudayaan islam') ||
-    lowerMapel.includes('arab')
+    !isNonIslamAgama &&
+    (lowerMapel.includes('agama') ||
+      lowerMapel.includes('pai') ||
+      lowerMapel.includes('fikih') ||
+      lowerMapel.includes('quran') ||
+      lowerMapel.includes('hadis') ||
+      lowerMapel.includes('akidah') ||
+      lowerMapel.includes('kebudayaan islam') ||
+      lowerMapel.includes('arab'))
   ) {
-    return buildIslamicMadrasahQuestionBank(req, lowerMapel, lowerMateri);
+    return { bank: buildIslamicMadrasahQuestionBank(req, lowerMapel, lowerMateri), isGeneralFallback: false };
   }
 
   // 8. PENDIDIKAN PANCASILA / PPKn / KEWARGANEGARAAN
@@ -396,7 +496,7 @@ export function getQuestionBankForRequest(
     lowerMateri.includes('norma') ||
     lowerMateri.includes('uud')
   ) {
-    return buildPancasilaQuestionBank(req, isSD, isSMA);
+    return { bank: buildPancasilaQuestionBank(req, isSD, isSMA), isGeneralFallback: false };
   }
 
   // 9. PJOK / PENDIDIKAN JASMANI, OLAHRAGA, & KESEHATAN
@@ -406,7 +506,7 @@ export function getQuestionBankForRequest(
     lowerMapel.includes('jasmani') ||
     lowerMapel.includes('penjaskes')
   ) {
-    return buildPJOKQuestionBank(req, isSD, isSMA);
+    return { bank: buildPJOKQuestionBank(req, isSD, isSMA), isGeneralFallback: false };
   }
 
   // 10. SENI BUDAYA & PRAKARYA (SENI RUPA, MUSIK, TARI, SBdP)
@@ -419,7 +519,7 @@ export function getQuestionBankForRequest(
     lowerMapel.includes('musik') ||
     lowerMapel.includes('tari')
   ) {
-    return buildSeniPrakaryaQuestionBank(req, isSD, isSMA);
+    return { bank: buildSeniPrakaryaQuestionBank(req, isSD, isSMA), isGeneralFallback: false };
   }
 
   // 11. IPS / SEJARAH / EKONOMI / GEOGRAFI / SOSIOLOGI
@@ -430,7 +530,7 @@ export function getQuestionBankForRequest(
     lowerMapel.includes('geografi') ||
     lowerMapel.includes('sosiologi')
   ) {
-    return buildIPSQuestionBank(req, isSD, isSMA);
+    return { bank: buildIPSQuestionBank(req, isSD, isSMA), isGeneralFallback: false };
   }
 
   // 12. INFORMATIKA & KEJURUAN / PKK (KEWIRAUSAHAAN)
@@ -441,10 +541,10 @@ export function getQuestionBankForRequest(
     lowerMapel.includes('pkk') ||
     lowerMapel.includes('kewirausahaan')
   ) {
-    return buildInformatikaPKKQuestionBank(req, isSD, isSMA);
+    return { bank: buildInformatikaPKKQuestionBank(req, isSD, isSMA), isGeneralFallback: false };
   }
 
-  // 13. MAPEL LAINNYA (Fallback Cerdas Kontekstual Tanpa Pengecoh Aneh)
-  return buildContextualGeneralQuestionBank(req, isSMA);
+  // 13. MAPEL LAINNYA (Fallback Kerangka Kontekstual dengan tanda wajib tinjau)
+  return { bank: buildContextualGeneralQuestionBank(req, isSMA), isGeneralFallback: true };
 }
 

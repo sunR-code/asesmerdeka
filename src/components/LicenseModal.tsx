@@ -37,6 +37,7 @@ import {
   getTierBadgeLabel,
   verifyActiveLicenseWithServer,
   getUserQuota,
+  getLastLicenseStatusMetadata,
 } from '../utils/licenseManager';
 import {
   ONE_TIME_PLANS,
@@ -51,7 +52,34 @@ import {
   isSchoolCollectiveLicenseCode,
   pushWorkspaceToCloud,
   pullWorkspaceFromCloud,
+  CLOUD_SYNC_STATUS_EVENT,
+  getWorkspaceBaseRevision,
+  isCloudBackendConfigured,
+  getPendingCloudConflict,
+  getPendingLegacyPinRecovery,
+  submitLegacyPinRecovery,
+  getCloudSyncUiStatus,
+  getPreConflictBackup,
+  resolveCloudConflict,
+  restorePreConflictBackup,
+  type CloudPendingConflict,
+  type CloudPendingPinRecovery,
+  type CloudPreConflictBackup,
+  type ConflictChoice,
+  type HonestCloudStatus,
 } from '../utils/cloudSyncManager';
+
+function formatConflictPreviewValue(val: unknown): string {
+  if (val === undefined || val === null || val === '') return '(Kosong)';
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  if (typeof val === 'string') return val.length > 90 ? `${val.slice(0, 87)}...` : val;
+  try {
+    const json = JSON.stringify(val);
+    return json.length > 90 ? `${json.slice(0, 87)}...` : json;
+  } catch {
+    return String(val);
+  }
+}
 
 const GOOGLE_APPS_SCRIPT_TEMPLATE = `// Tempel kode ini di Google Sheet -> Extensions -> Apps Script -> Deploy as Web App (Anyone)
 function doPost(e) {
@@ -108,6 +136,33 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const [teacherPinInput, setTeacherPinInput] = useState(() => getSavedTeacherSyncPin());
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => getLastCloudSyncAt());
+  const [cloudConfigured, setCloudConfigured] = useState<boolean | null>(() =>
+    isCloudBackendConfigured()
+  );
+  const [baseRevision, setBaseRevision] = useState<number | null>(() =>
+    getWorkspaceBaseRevision(quota.licenseKey, getSavedTeacherSyncPin())
+  );
+  const [pendingConflict, setPendingConflict] = useState<CloudPendingConflict | null>(() =>
+    getPendingCloudConflict()
+  );
+  const [pendingPinRecovery, setPendingPinRecovery] = useState<CloudPendingPinRecovery | null>(
+    () => getPendingLegacyPinRecovery()
+  );
+  const [cloudUiStatus, setCloudUiStatus] = useState<HonestCloudStatus>(() =>
+    getCloudSyncUiStatus()
+  );
+  const [recoveryMode, setRecoveryMode] = useState<'reverify' | 'replace'>('reverify');
+  const [recoveryCurrentPin, setRecoveryCurrentPin] = useState('');
+  const [recoveryNewPin, setRecoveryNewPin] = useState('');
+  const [recoveryConfirmPin, setRecoveryConfirmPin] = useState('');
+  const [recoveryFeedback, setRecoveryFeedback] = useState<{
+    text: string;
+    isError: boolean;
+  } | null>(null);
+  const [preConflictBackup, setPreConflictBackup] = useState<CloudPreConflictBackup | null>(() =>
+    getPreConflictBackup()
+  );
+  const [conflictChoices, setConflictChoices] = useState<Record<string, ConflictChoice>>({});
   const [apiKeyInput, setApiKeyInput] = useState(() => getSavedGeminiKey());
   const [statusMessage, setStatusMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [copiedDevice, setCopiedDevice] = useState(false);
@@ -145,6 +200,38 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const [maxIndividuSeats, setMaxIndividuSeats] = useState(() => getConfiguredIndividuMaxDevices());
   const [cloudTrackerUrl, setCloudTrackerUrl] = useState(() => getCloudSeatTrackerUrl());
 
+  const refreshCloudSyncSnapshot = () => {
+    setLastSyncTime(getLastCloudSyncAt());
+    setCloudConfigured(isCloudBackendConfigured());
+    const q = getUserQuota();
+    setBaseRevision(getWorkspaceBaseRevision(q.licenseKey || quota.licenseKey, teacherPinInput));
+    const nextConflict = getPendingCloudConflict();
+    setPendingConflict(nextConflict);
+    setPendingPinRecovery(getPendingLegacyPinRecovery());
+    setCloudUiStatus(getCloudSyncUiStatus());
+    setPreConflictBackup(getPreConflictBackup());
+    if (nextConflict && nextConflict.conflicts.length > 0) {
+      setConflictChoices((prev) => {
+        const next: Record<string, ConflictChoice> = {};
+        for (const item of nextConflict.conflicts) {
+          next[item.id] = prev[item.id] || item.defaultChoice || 'local';
+        }
+        return next;
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      refreshCloudSyncSnapshot();
+    }
+    const onCloudEvent = () => {
+      refreshCloudSyncSnapshot();
+    };
+    window.addEventListener(CLOUD_SYNC_STATUS_EVENT, onCloudEvent);
+    return () => window.removeEventListener(CLOUD_SYNC_STATUS_EVENT, onCloudEvent);
+  }, [isOpen, quota.licenseKey]);
+
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -159,7 +246,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   useEffect(() => {
     if (!isOpen || !isLicensed(quota.tier) || !quota.licenseKey) return;
     let active = true;
-    verifyActiveLicenseWithServer().then((res) => {
+    verifyActiveLicenseWithServer(teacherPinInput.trim() || undefined).then((res) => {
       if (!active) return;
       if (!res.valid) {
         onUpdateQuota(getUserQuota());
@@ -180,6 +267,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const isPro = isUnlocked;
   const currentPlan = ONE_TIME_PLANS[selectedPlanId] || ONE_TIME_PLANS['pro_individu'];
   const activeSeatInfo = isUnlocked && quota.licenseKey ? getLicenseSeatStatus(quota.licenseKey) : null;
+  const lastLicenseStatus = !isUnlocked ? getLastLicenseStatusMetadata() : null;
   const tierName = getTierDisplayName(quota.tier);
   const badgeName = getTierBadgeLabel(quota.tier);
 
@@ -222,8 +310,25 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
 
     setIsActivating(true);
     try {
-      // 1. Verifikasi apakah kode berasal dari Mayar Software License API (atau kode internal PRO-MERDEKA-...)
-      const mayarVerify = await verifyMayarLicenseOnline(trimmed, quota.deviceId);
+      const isSchoolLicenseKey =
+        isSchoolCollectiveLicenseCode(trimmed) ||
+        selectedPlanId === 'pro_sekolah' ||
+        selectedPlanId === 'sekolah_pro';
+      const cleanTeacherPin = teacherPinInput.trim();
+      if (isSchoolCollectiveLicenseCode(trimmed) && cleanTeacherPin.length < 2) {
+        setStatusMessage({
+          text: 'Lisensi Kolektif Sekolah (25 Guru) mewajibkan Nama Singkat / PIN Pribadi Guru minimal 2 karakter agar kursi (maks. 2 perangkat per guru) tidak bentrok dengan guru lain.',
+          isError: true,
+        });
+        return;
+      }
+
+      // 1. Verifikasi apakah kode berasal dari Mayar / Registry AsesMerdeka & klaim seat (Individu 2 perangkat / Sekolah 25 Guru × 2 perangkat)
+      const mayarVerify = await verifyMayarLicenseOnline(
+        trimmed,
+        quota.deviceId,
+        isSchoolLicenseKey ? cleanTeacherPin : undefined
+      );
       if (!mayarVerify.valid) {
         setStatusMessage({
           text:
@@ -248,7 +353,10 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
         }
       }
 
-      const res = activateLicense(trimmed);
+      const res = activateLicense(trimmed, {
+        teacherPin: isSchoolLicenseKey ? cleanTeacherPin : undefined,
+        expiresAt: mayarVerify.expiresAt,
+      });
       if (res.success) {
         onUpdateQuota(res.quota);
         setLicenseInput('');
@@ -259,8 +367,8 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
 
         // 3. Otomatis cek apakah ada riwayat pengisian dari perangkat sebelumnya (misal dari HP ke Laptop)
         const pullRes = await pullWorkspaceFromCloud(trimmed, teacherPinInput.trim());
+        refreshCloudSyncSnapshot();
         if (pullRes.ok && pullRes.found && pullRes.restoredCount > 0) {
-          setLastSyncTime(pullRes.updatedAt || new Date().toISOString());
           setStatusMessage({
             text: `${res.message} ${pullRes.message}`,
             isError: false,
@@ -268,16 +376,41 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
           if (onRestoredFromCloud) {
             onRestoredFromCloud();
           }
+        } else if (pullRes.pinReverificationRequired) {
+          setStatusMessage({
+            text: `${res.message} ${pullRes.message} Selesaikan verifikasi PIN pada panel pemulihan di bawah (lisensi Anda tetap aktif).`,
+            isError: true,
+          });
         } else {
           // Jika belum ada data di cloud, unggah data perangkat saat ini sebagai data awal lisensi
           const pushRes = await pushWorkspaceToCloud(trimmed, teacherPinInput.trim());
-          if (pushRes.ok && pushRes.updatedAt) {
-            setLastSyncTime(pushRes.updatedAt);
+          refreshCloudSyncSnapshot();
+          if (pushRes.conflict) {
+            setStatusMessage({
+              text: `${res.message} Konflik sinkronisasi terdeteksi! Silakan pilih strategi penggabungan pada Panel Resolusi Konflik di bawah.`,
+              isError: true,
+            });
+          } else if (pushRes.pinReverificationRequired) {
+            setStatusMessage({
+              text: `${res.message} ${pushRes.message} Selesaikan verifikasi PIN pada panel pemulihan di bawah (lisensi Anda tetap aktif).`,
+              isError: true,
+            });
+          } else if (pushRes.ok && pushRes.cloudConfigured === false) {
+            setStatusMessage({
+              text: `${res.message} Catatan: Cloud Redis belum dikonfigurasi pada server ini, sehingga data tersimpan lokal pada memori perangkat.`,
+              isError: false,
+            });
+          } else if (pushRes.ok && pushRes.cloudConfigured) {
+            setStatusMessage({
+              text: `${res.message} Sinkronisasi Cloud antar perangkat (HP ↔ Laptop) kini aktif (Revisi #${pushRes.revision || 1})!`,
+              isError: false,
+            });
+          } else {
+            setStatusMessage({
+              text: `${res.message} (${pushRes.message})`,
+              isError: !pushRes.ok,
+            });
           }
-          setStatusMessage({
-            text: `${res.message} Sinkronisasi Cloud antar perangkat (HP ↔ Laptop) kini aktif otomatis!`,
-            isError: false,
-          });
         }
       } else {
         setStatusMessage({
@@ -287,6 +420,52 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
       }
     } finally {
       setIsActivating(false);
+    }
+  };
+
+  const handleSubmitLegacyRecovery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const submittedCurrentPin = recoveryCurrentPin;
+    const submittedNewPin = recoveryNewPin;
+    const submittedConfirmPin = recoveryConfirmPin;
+
+    // Segera kosongkan input PIN agar tidak tersimpan atau tampil ulang di state/DOM
+    setRecoveryCurrentPin('');
+    setRecoveryNewPin('');
+    setRecoveryConfirmPin('');
+    setRecoveryFeedback(null);
+    setIsSyncingCloud(true);
+
+    try {
+      const res = await submitLegacyPinRecovery({
+        mode: recoveryMode,
+        currentPin: submittedCurrentPin,
+        newPin: submittedNewPin,
+        confirmNewPin: submittedConfirmPin,
+        licenseCode: quota.licenseKey,
+        resumeAction: pendingPinRecovery?.failedAction || 'pull',
+      });
+      refreshCloudSyncSnapshot();
+      setTeacherPinInput(getSavedTeacherSyncPin());
+      setStatusMessage({ text: res.message, isError: !res.ok });
+      if (res.ok) {
+        setRecoveryFeedback(null);
+        if (res.resumedAction === 'pull' && (res.restoredCount || 0) > 0 && onRestoredFromCloud) {
+          onRestoredFromCloud();
+        }
+      } else {
+        const extraHint = res.rateLimited
+          ? ` (Batas percobaan sementara aktif${res.retryAfterSeconds ? `, tunggu ${res.retryAfterSeconds} detik` : ''}). Data Anda tetap aman.`
+          : res.redisUnavailable
+          ? ' Data lokal Anda tetap utuh dan tidak dihapus.'
+          : '';
+        setRecoveryFeedback({
+          text: `${res.message}${extraHint}`,
+          isError: true,
+        });
+      }
+    } finally {
+      setIsSyncingCloud(false);
     }
   };
 
@@ -379,7 +558,14 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
         transition={{ type: 'spring', stiffness: 450, damping: 28 }}
         className="modal-content"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 680, maxHeight: '92vh', overflowY: 'auto' }}
+        style={{
+          width: '100%',
+          maxWidth: 'min(680px, calc(100vw - 24px))',
+          maxHeight: '92vh',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          boxSizing: 'border-box',
+        }}
       >
         {/* Modal Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -405,7 +591,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                 {isUnlocked
                   ? `Status: LISENSI ${badgeName} AKTIF • Kode: ${quota.licenseKey || 'RESMI'} (${
                       activeSeatInfo ? `${Math.max(1, activeSeatInfo.usedSeats)}/${activeSeatInfo.maxSeats}` : '1/1'
-                    } Perangkat)`
+                    } ${quota.tier === 'sekolah' || quota.tier === 'sekolah_pro' ? 'Guru' : 'Perangkat'})`
                   : 'Mode Pratinjau (Lihat Fitur) — Aktifkan Lisensi untuk Buat & Unduh Dokumen Tanpa Batas'}
               </p>
             </div>
@@ -433,6 +619,42 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
             {statusMessage.text}
           </div>
         )}
+
+        {/* Lifecycle Status Notice when previously licensed (Expired / Revoked / Suspended) */}
+        {!isUnlocked &&
+          lastLicenseStatus &&
+          (lastLicenseStatus.state === 'expired' ||
+            lastLicenseStatus.state === 'revoked' ||
+            lastLicenseStatus.state === 'suspended') && (
+            <div
+              data-testid="license-lifecycle-notice"
+              style={{
+                padding: '12px 16px',
+                borderRadius: 'var(--radius-md)',
+                background: '#fffbeb',
+                border: '1px solid #f59e0b',
+                color: '#92400e',
+                fontSize: 12.5,
+                lineHeight: 1.5,
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ fontWeight: 800, marginBottom: 4 }}>
+                {lastLicenseStatus.state === 'expired'
+                  ? 'Masa Berlaku Lisensi Telah Berakhir'
+                  : lastLicenseStatus.state === 'suspended'
+                  ? 'Lisensi Sedang Ditangguhkan / Kursi Guru Dinonaktifkan'
+                  : 'Lisensi Dinonaktifkan / Dicabut'}
+              </div>
+              <div>
+                {lastLicenseStatus.message ||
+                  'Aplikasi beralih ke Mode Pratinjau. Silakan aktivasi ulang atau perpanjang lisensi Anda.'}
+              </div>
+              <div style={{ marginTop: 6, fontWeight: 700, color: '#065f46' }}>
+                Seluruh data siswa, nilai, presensi, jurnal, dan e-Rapor di perangkat Anda tetap utuh 100% dan tidak dihapus.
+              </div>
+            </div>
+          )}
 
         {/* Device Fingerprint Card */}
         <div
@@ -595,18 +817,25 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
 
                     <div>
                       <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                        Kuota Perangkat Terdaftar
+                        Kuota Perangkat & Masa Aktif
                       </div>
                       <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a', marginTop: 5 }}>
                         {activeSeatInfo
-                          ? `${Math.max(1, activeSeatInfo.usedSeats)} dari ${activeSeatInfo.maxSeats} Perangkat Aktif`
+                          ? quota.tier === 'sekolah' || quota.tier === 'sekolah_pro'
+                            ? `${Math.max(1, activeSeatInfo.usedSeats)} dari ${activeSeatInfo.maxSeats} Kursi Guru Aktif`
+                            : `${Math.max(1, activeSeatInfo.usedSeats)} dari ${activeSeatInfo.maxSeats} Perangkat Aktif`
                           : '1 Perangkat Aktif'}
                       </div>
                       <div style={{ fontSize: 11, color: '#059669', fontWeight: 600 }}>
-                        {quota.tier === 'sekolah'
-                          ? 'Lisensi Kolektif Sekolah (Maks. 25 Guru/Perangkat)'
-                          : 'Dapat dipakai di Laptop/Komputer & HP Anda'}
+                        {quota.tier === 'sekolah' || quota.tier === 'sekolah_pro'
+                          ? 'Lisensi Kolektif Sekolah (Maks. 25 Guru × 2 Perangkat/Guru)'
+                          : 'Dapat dipakai di Laptop/Komputer & HP Anda (Maks. 2 Perangkat)'}
                       </div>
+                      {quota.expiresAt && (
+                        <div style={{ fontSize: 11, color: '#475569', fontWeight: 600, marginTop: 2 }}>
+                          Berlaku hingga: {new Date(quota.expiresAt).toLocaleDateString('id-ID')}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -652,8 +881,69 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                       <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>
                         ☁️ Sinkronisasi Riwayat Antar Perangkat (HP ↔ Laptop/Komputer)
                       </span>
-                      {lastSyncTime && (
+                      {pendingConflict ? (
                         <span
+                          data-testid="cloud-sync-status-badge"
+                          style={{
+                            fontSize: 11,
+                            color: '#b91c1c',
+                            fontWeight: 700,
+                            background: '#fef2f2',
+                            padding: '2px 8px',
+                            borderRadius: 99,
+                            border: '1px solid #fecaca',
+                          }}
+                        >
+                          ⚠️ Konflik Revisi #{pendingConflict.serverRevision}
+                        </span>
+                      ) : pendingPinRecovery ? (
+                        <span
+                          data-testid="cloud-sync-status-badge"
+                          style={{
+                            fontSize: 11,
+                            color: '#b45309',
+                            fontWeight: 700,
+                            background: '#fffbeb',
+                            padding: '2px 8px',
+                            borderRadius: 99,
+                            border: '1px solid #fcd34d',
+                          }}
+                        >
+                          🔒 Perlu Verifikasi Ulang PIN Legacy
+                        </span>
+                      ) : cloudUiStatus === 'sync_error' ? (
+                        <span
+                          data-testid="cloud-sync-status-badge"
+                          style={{
+                            fontSize: 11,
+                            color: '#b91c1c',
+                            fontWeight: 700,
+                            background: '#fef2f2',
+                            padding: '2px 8px',
+                            borderRadius: 99,
+                            border: '1px solid #fecaca',
+                          }}
+                        >
+                          ⚠️ Sinkronisasi Terkendala / Server Tidak Tersedia
+                        </span>
+                      ) : cloudConfigured === false ? (
+                        <span
+                          data-testid="cloud-sync-status-badge"
+                          style={{
+                            fontSize: 11,
+                            color: '#92400e',
+                            fontWeight: 700,
+                            background: '#fffbeb',
+                            padding: '2px 8px',
+                            borderRadius: 99,
+                            border: '1px solid #fde68a',
+                          }}
+                        >
+                          Mode Dev Lokal (Cloud Redis Belum Dikonfigurasi)
+                        </span>
+                      ) : cloudConfigured === true && lastSyncTime ? (
+                        <span
+                          data-testid="cloud-sync-status-badge"
                           style={{
                             fontSize: 11,
                             color: '#059669',
@@ -664,20 +954,29 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                             border: '1px solid #a7f3d0',
                           }}
                         >
-                          ✓ Tersinkron: {new Date(lastSyncTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                          ✓ Tersinkron{baseRevision ? ` (Rev #${baseRevision})` : ''}:{' '}
+                          {new Date(lastSyncTime).toLocaleTimeString('id-ID', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
                         </span>
-                      )}
+                      ) : null}
                     </div>
 
                     <p style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, margin: 0 }}>
-                      Identitas sekolah, pengaturan kelas, daftar siswa, nilai harian, dan bank soal Anda tersimpan otomatis pada kode lisensi ini. Jika Anda membuka di perangkat ke-2 (HP atau Laptop), cukup masukkan kode lisensi di atas atau klik tombol di bawah untuk menyamakan data.
+                      {cloudConfigured === false
+                        ? 'Server lokal saat ini menggunakan memori dev tanpa Upstash Redis, sehingga data hanya bertahan selama sesi dev berjalan dan tetap tersimpan di peramban perangkat ini.'
+                        : 'Identitas sekolah, pengaturan kelas, daftar siswa, nilai harian, dan bank soal Anda tersimpan dengan kontrol revisi atomik (OCC) pada kode lisensi ini agar perubahan dari perangkat lain tidak tertimpa diam-diam.'}
                     </p>
 
-                    {quota.tier === 'sekolah' && (
+                    {(quota.tier === 'sekolah' ||
+                      quota.tier === 'sekolah_pro' ||
+                      isSchoolCollectiveLicenseCode(quota.licenseKey)) && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 11.5, fontWeight: 700, color: '#475569' }}>ID/PIN Pribadi Guru:</span>
                         <input
-                          type="text"
+                          type="password"
+                          autoComplete="off"
                           className="form-input"
                           placeholder="Misal: FAJAR88"
                           value={teacherPinInput}
@@ -695,10 +994,11 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                         type="button"
                         disabled={isSyncingCloud}
                         onClick={async () => {
+                          setRecoveryFeedback(null);
                           setIsSyncingCloud(true);
                           try {
                             const res = await pushWorkspaceToCloud(quota.licenseKey, teacherPinInput);
-                            if (res.ok && res.updatedAt) setLastSyncTime(res.updatedAt);
+                            refreshCloudSyncSnapshot();
                             setStatusMessage({ text: res.message, isError: !res.ok });
                           } finally {
                             setIsSyncingCloud(false);
@@ -714,10 +1014,11 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                         type="button"
                         disabled={isSyncingCloud}
                         onClick={async () => {
+                          setRecoveryFeedback(null);
                           setIsSyncingCloud(true);
                           try {
                             const res = await pullWorkspaceFromCloud(quota.licenseKey, teacherPinInput);
-                            if (res.ok && res.updatedAt) setLastSyncTime(res.updatedAt);
+                            refreshCloudSyncSnapshot();
                             setStatusMessage({ text: res.message, isError: !res.ok });
                             if (res.ok && res.found && onRestoredFromCloud) {
                               onRestoredFromCloud();
@@ -732,6 +1033,472 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                         🔄 Ambil Riwayat dari Perangkat Lain (HP/Laptop)
                       </button>
                     </div>
+
+                    {/* Panel Pemulihan & Migrasi Keamanan PIN Legacy */}
+                    {pendingPinRecovery && (
+                      <form
+                        onSubmit={handleSubmitLegacyRecovery}
+                        data-testid="cloud-pin-recovery-panel"
+                        style={{
+                          marginTop: 4,
+                          padding: '12px 14px',
+                          background: '#fffbeb',
+                          border: '1px solid #fcd34d',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 10,
+                          width: '100%',
+                          boxSizing: 'border-box',
+                        }}
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Lock size={14} /> Pemulihan &amp; Verifikasi Ulang PIN Cloud Sync
+                          </span>
+                          <span style={{ fontSize: 11.5, color: '#78350f', lineHeight: 1.5 }}>
+                            Masa transisi keamanan PIN lama telah berakhir. Data siswa, presensi, jurnal mengajar, nilai, dan e-Rapor Anda tetap aman dan tidak terhapus. Anda juga tidak perlu mengaktifkan ulang lisensi — silakan verifikasi ulang menggunakan PIN lama atau ganti ke PIN baru untuk melanjutkan sinkronisasi:
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            data-testid="recovery-mode-reverify"
+                            disabled={isSyncingCloud}
+                            onClick={() => {
+                              setRecoveryMode('reverify');
+                              setRecoveryFeedback(null);
+                            }}
+                            style={{
+                              flex: '1 1 165px',
+                              padding: '7px 10px',
+                              borderRadius: 6,
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              border:
+                                recoveryMode === 'reverify'
+                                  ? '1.5px solid #d97706'
+                                  : '1px solid #cbd5e1',
+                              background: recoveryMode === 'reverify' ? '#fef3c7' : '#ffffff',
+                              color: '#78350f',
+                            }}
+                          >
+                            1. Verifikasi Ulang PIN Lama
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="recovery-mode-replace"
+                            disabled={isSyncingCloud}
+                            onClick={() => {
+                              setRecoveryMode('replace');
+                              setRecoveryFeedback(null);
+                            }}
+                            style={{
+                              flex: '1 1 165px',
+                              padding: '7px 10px',
+                              borderRadius: 6,
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              border:
+                                recoveryMode === 'replace'
+                                  ? '1.5px solid #2563eb'
+                                  : '1px solid #cbd5e1',
+                              background: recoveryMode === 'replace' ? '#eff6ff' : '#ffffff',
+                              color: '#1e3a8a',
+                            }}
+                          >
+                            2. Verifikasi &amp; Ganti ke PIN Baru
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <label
+                              htmlFor="recovery-current-pin"
+                              style={{ fontSize: 11.5, fontWeight: 700, color: '#78350f' }}
+                            >
+                              PIN Guru Lama / Saat Ini
+                            </label>
+                            <input
+                              id="recovery-current-pin"
+                              data-testid="recovery-current-pin-input"
+                              type="password"
+                              autoComplete="off"
+                              spellCheck={false}
+                              disabled={isSyncingCloud}
+                              className="form-input"
+                              placeholder="Masukkan PIN lama Anda"
+                              value={recoveryCurrentPin}
+                              onChange={(e) => setRecoveryCurrentPin(e.target.value)}
+                              style={{
+                                fontSize: 12,
+                                padding: '7px 10px',
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                background: '#ffffff',
+                              }}
+                            />
+                          </div>
+
+                          {recoveryMode === 'replace' && (
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                gap: 8,
+                              }}
+                            >
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <label
+                                  htmlFor="recovery-new-pin"
+                                  style={{ fontSize: 11.5, fontWeight: 700, color: '#1e3a8a' }}
+                                >
+                                  PIN Guru Baru (Min. 2 karakter)
+                                </label>
+                                <input
+                                  id="recovery-new-pin"
+                                  data-testid="recovery-new-pin-input"
+                                  type="password"
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  disabled={isSyncingCloud}
+                                  className="form-input"
+                                  placeholder="Masukkan PIN baru"
+                                  value={recoveryNewPin}
+                                  onChange={(e) => setRecoveryNewPin(e.target.value)}
+                                  style={{
+                                    fontSize: 12,
+                                    padding: '7px 10px',
+                                    width: '100%',
+                                    boxSizing: 'border-box',
+                                    background: '#ffffff',
+                                  }}
+                                />
+                              </div>
+
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <label
+                                  htmlFor="recovery-confirm-pin"
+                                  style={{ fontSize: 11.5, fontWeight: 700, color: '#1e3a8a' }}
+                                >
+                                  Konfirmasi PIN Guru Baru
+                                </label>
+                                <input
+                                  id="recovery-confirm-pin"
+                                  data-testid="recovery-confirm-pin-input"
+                                  type="password"
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  disabled={isSyncingCloud}
+                                  className="form-input"
+                                  placeholder="Ulangi PIN baru"
+                                  value={recoveryConfirmPin}
+                                  onChange={(e) => setRecoveryConfirmPin(e.target.value)}
+                                  style={{
+                                    fontSize: 12,
+                                    padding: '7px 10px',
+                                    width: '100%',
+                                    boxSizing: 'border-box',
+                                    background: '#ffffff',
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {recoveryFeedback && (
+                          <div
+                            data-testid="recovery-feedback-alert"
+                            style={{
+                              padding: '8px 10px',
+                              borderRadius: 6,
+                              fontSize: 11.5,
+                              fontWeight: 600,
+                              lineHeight: 1.45,
+                              background: recoveryFeedback.isError ? '#fef2f2' : '#ecfdf5',
+                              border: `1px solid ${recoveryFeedback.isError ? '#fecaca' : '#a7f3d0'}`,
+                              color: recoveryFeedback.isError ? '#b91c1c' : '#065f46',
+                            }}
+                          >
+                            {recoveryFeedback.text}
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <button
+                            type="submit"
+                            data-testid="recovery-submit-button"
+                            disabled={isSyncingCloud}
+                            className="btn btn-sm btn-primary"
+                            style={{ fontSize: 12 }}
+                          >
+                            {isSyncingCloud
+                              ? '⏳ Memproses Verifikasi...'
+                              : recoveryMode === 'replace'
+                              ? '🔒 Verifikasi, Perbarui PIN & Lanjutkan Sync'
+                              : '✓ Verifikasi PIN Lama & Lanjutkan Sync'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    {/* Panel Resolusi Konflik Sinkronisasi */}
+                    {pendingConflict && (
+                      <div
+                        data-testid="cloud-conflict-panel"
+                        style={{
+                          marginTop: 4,
+                          padding: '12px 14px',
+                          background: '#fff1f2',
+                          border: '1px solid #fecdd3',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 10,
+                        }}
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: '#9f1239' }}>
+                            ⚠️ Panel Resolusi Konflik Sinkronisasi (Server Revisi #{pendingConflict.serverRevision})
+                          </span>
+                          <span style={{ fontSize: 11.5, color: '#881337', lineHeight: 1.45 }}>
+                            Perangkat lain ({pendingConflict.lastDeviceId || 'Perangkat Lain'}) telah menyimpan revisi lebih baru
+                            {pendingConflict.serverUpdatedAt
+                              ? ` pada ${new Date(pendingConflict.serverUpdatedAt).toLocaleString('id-ID')}`
+                              : ''}
+                            , sementara perangkat ini berbasis Revisi #{pendingConflict.baseRevision ?? 0}. Pilih cara penyelesaian agar tidak ada data yang hilang diam-diam:
+                          </span>
+                        </div>
+
+                        {pendingConflict.autoMergedSummary.length > 0 && (
+                          <div
+                            style={{
+                              background: '#ecfdf5',
+                              border: '1px solid #a7f3d0',
+                              borderRadius: 6,
+                              padding: '8px 10px',
+                              fontSize: 11,
+                              color: '#065f46',
+                            }}
+                          >
+                            <strong>Perubahan non-bentrok siap digabung otomatis:</strong>
+                            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                              {pendingConflict.autoMergedSummary.map((line, idx) => (
+                                <li key={idx}>{line}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {pendingConflict.conflicts.length > 0 && (
+                          <div
+                            style={{
+                              maxHeight: 230,
+                              overflowY: 'auto',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 8,
+                            }}
+                          >
+                            {pendingConflict.conflicts.map((item) => {
+                              const selectedChoice =
+                                conflictChoices[item.id] || item.defaultChoice || 'local';
+                              return (
+                                <div
+                                  key={item.id}
+                                  data-testid={`conflict-item-${item.id}`}
+                                  style={{
+                                    background: '#ffffff',
+                                    border: '1px solid #fecdd3',
+                                    borderRadius: 6,
+                                    padding: '8px 10px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 6,
+                                  }}
+                                >
+                                  <div style={{ fontSize: 11.5, fontWeight: 700, color: '#1e293b' }}>
+                                    {item.label} <span style={{ color: '#64748b', fontWeight: 500 }}>({item.fieldLabel})</span>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setConflictChoices((prev) => ({
+                                          ...prev,
+                                          [item.id]: 'local',
+                                        }))
+                                      }
+                                      style={{
+                                        flex: '1 1 140px',
+                                        textAlign: 'left',
+                                        padding: '6px 8px',
+                                        borderRadius: 6,
+                                        fontSize: 11,
+                                        cursor: 'pointer',
+                                        border:
+                                          selectedChoice === 'local'
+                                            ? '1.5px solid #2563eb'
+                                            : '1px solid #cbd5e1',
+                                        background: selectedChoice === 'local' ? '#eff6ff' : '#f8fafc',
+                                        color: '#0f172a',
+                                      }}
+                                    >
+                                      <strong>Versi Perangkat Ini:</strong>{' '}
+                                      {formatConflictPreviewValue(item.localValue)}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setConflictChoices((prev) => ({
+                                          ...prev,
+                                          [item.id]: 'server',
+                                        }))
+                                      }
+                                      style={{
+                                        flex: '1 1 140px',
+                                        textAlign: 'left',
+                                        padding: '6px 8px',
+                                        borderRadius: 6,
+                                        fontSize: 11,
+                                        cursor: 'pointer',
+                                        border:
+                                          selectedChoice === 'server'
+                                            ? '1.5px solid #059669'
+                                            : '1px solid #cbd5e1',
+                                        background: selectedChoice === 'server' ? '#ecfdf5' : '#f8fafc',
+                                        color: '#0f172a',
+                                      }}
+                                    >
+                                      <strong>Versi Cloud:</strong>{' '}
+                                      {formatConflictPreviewValue(item.serverValue)}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            disabled={isSyncingCloud}
+                            onClick={async () => {
+                              setIsSyncingCloud(true);
+                              try {
+                                const res = await resolveCloudConflict('merge_safe', {
+                                  choices: conflictChoices,
+                                  allowDefaultForUnchosen: true,
+                                });
+                                refreshCloudSyncSnapshot();
+                                setStatusMessage({ text: res.message, isError: !res.ok });
+                                if (res.ok && onRestoredFromCloud) {
+                                  onRestoredFromCloud();
+                                }
+                              } finally {
+                                setIsSyncingCloud(false);
+                              }
+                            }}
+                            className="btn btn-sm btn-primary"
+                            style={{ fontSize: 11.5 }}
+                          >
+                            Gabungkan Aman (Safe Merge)
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isSyncingCloud}
+                            onClick={async () => {
+                              setIsSyncingCloud(true);
+                              try {
+                                const res = await resolveCloudConflict('use_server');
+                                refreshCloudSyncSnapshot();
+                                setStatusMessage({ text: res.message, isError: !res.ok });
+                                if (res.ok && onRestoredFromCloud) {
+                                  onRestoredFromCloud();
+                                }
+                              } finally {
+                                setIsSyncingCloud(false);
+                              }
+                            }}
+                            className="btn btn-sm btn-outline"
+                            style={{ fontSize: 11.5, background: '#ffffff' }}
+                          >
+                            Gunakan Versi Cloud (Rev #{pendingConflict.serverRevision})
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isSyncingCloud}
+                            onClick={async () => {
+                              setIsSyncingCloud(true);
+                              try {
+                                const res = await resolveCloudConflict('force_local');
+                                refreshCloudSyncSnapshot();
+                                setStatusMessage({ text: res.message, isError: !res.ok });
+                              } finally {
+                                setIsSyncingCloud(false);
+                              }
+                            }}
+                            className="btn btn-sm btn-outline"
+                            style={{
+                              fontSize: 11.5,
+                              background: '#ffffff',
+                              color: '#9f1239',
+                              borderColor: '#fda4af',
+                            }}
+                          >
+                            Pertahankan Versi Perangkat Ini
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Backup Otomatis Pra-Konflik */}
+                    {preConflictBackup && (
+                      <div
+                        data-testid="cloud-preconflict-backup"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
+                          gap: 8,
+                          padding: '8px 10px',
+                          background: '#f1f5f9',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          color: '#334155',
+                        }}
+                      >
+                        <span>
+                          Snapshot cadangan pra-konflik tersedia (
+                          {new Date(preConflictBackup.savedAt).toLocaleTimeString('id-ID')})
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isSyncingCloud}
+                          onClick={() => {
+                            const res = restorePreConflictBackup();
+                            refreshCloudSyncSnapshot();
+                            setStatusMessage({ text: res.message, isError: !res.ok });
+                            if (res.ok && onRestoredFromCloud) {
+                              onRestoredFromCloud();
+                            }
+                          }}
+                          className="btn btn-sm btn-outline"
+                          style={{ fontSize: 11, background: '#ffffff', padding: '3px 8px' }}
+                        >
+                          Pulihkan Snapshot Pra-Konflik
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 

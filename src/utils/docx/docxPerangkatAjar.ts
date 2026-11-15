@@ -8,6 +8,8 @@ import {
   Table,
   TableRow,
   TableCell,
+  TableLayoutType,
+  VerticalAlign,
   WidthType,
   BorderStyle,
   PageBreak,
@@ -25,12 +27,12 @@ import type {
 import { getSchoolProfile } from '../schoolProfileStorage';
 import type { SchoolProfile } from '../schoolProfileStorage';
 import { cleanTopicHeading } from '../lkpdSubjectBlueprints';
-import { buildSignatureBlockTable } from './docxShared';
+import { buildSignatureBlockTable, createStyledDocxDocument } from './docxShared';
 
 /**
  * Ekspor Modul Ajar (RPP Kurikulum Merdeka) ke Microsoft Word (.docx)
  */
-export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile?: SchoolProfile): Promise<void> {
+export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: SchoolProfile): (Paragraph | Table)[] {
   const profile = userProfile || getSchoolProfile();
   const children: (Paragraph | Table)[] = [];
 
@@ -88,11 +90,12 @@ export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile
     ['Satuan Pendidikan', modul.namaSekolah || profile.namaSekolah],
     ['Penyusun / Guru', modul.namaGuru || profile.namaGuru],
     ['Mata Pelajaran', modul.mataPelajaran],
-    ['Fase / Kelas / Semester', `${modul.jenjangFase} / Kelas ${modul.kelas} (${profile.rombelAktif || modul.rombel}) / ${modul.semester}`],
+    ['Fase / Kelas / Semester', `${modul.jenjangFase} / Kelas ${modul.kelas} (${modul.rombel || profile.rombelAktif || '-'}) / ${modul.semester}`],
     ['Elemen Capaian', modul.elemen],
     ['Alokasi Waktu', modul.alokasiWaktu],
     ['Target Peserta Didik', modul.targetPesertaDidik],
     ['Model Pembelajaran', modul.modelPembelajaran],
+    ...(modul.kompetensiAwal?.length ? [['Kompetensi Awal', modul.kompetensiAwal.join('; ')]] : []),
   ];
 
   children.push(
@@ -135,7 +138,12 @@ export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile
       children: [new TextRun({ text: 'II. KOMPONEN INTI PEMBELAJARAN', bold: true, size: 22, color: '1E3A8A' })],
     }),
     new Paragraph({ children: [new TextRun({ text: `A. Tujuan Pembelajaran (TP ${modul.tpKode}):`, bold: true, size: 20 })], spacing: { after: 30 } }),
-    new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: modul.tujuanPembelajaran, size: 19 })], spacing: { after: 80 } }),
+    new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: modul.tujuanPembelajaran, size: 19 })], spacing: { after: 60 } }),
+    ...(modul.targetSubTP && modul.targetSubTP.length > 0
+      ? [
+          new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: `Indikator / Sub-TP: ${modul.targetSubTP.join('; ')}`, size: 18, color: '334155' })], spacing: { after: 60 } }),
+        ]
+      : []),
     new Paragraph({ children: [new TextRun({ text: 'B. Pemahaman Bermakna:', bold: true, size: 20 })], spacing: { after: 30 } }),
     new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: modul.pemahamanBermakna, size: 19, italics: true })], spacing: { after: 80 } }),
     new Paragraph({ children: [new TextRun({ text: 'C. Pertanyaan Pemantik:', bold: true, size: 20 })], spacing: { after: 30 } })
@@ -160,7 +168,7 @@ export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile
       children.push(new Paragraph({ indent: { left: 480 }, children: [new TextRun({ text: `• ${p}`, size: 18 })], spacing: { after: 20 } }));
     });
 
-    children.push(new Paragraph({ children: [new TextRun({ text: '2. Kegiatan Inti (Sintaks PBL/Discovery):', bold: true, size: 19 })], indent: { left: 240 }, spacing: { before: 40, after: 20 } }));
+    children.push(new Paragraph({ children: [new TextRun({ text: `2. Kegiatan Inti (${modul.modelPembelajaran || 'Pembelajaran Aktif'}):`, bold: true, size: 19 })], indent: { left: 240 }, spacing: { before: 40, after: 20 } }));
     keg.inti.forEach((it) => {
       children.push(new Paragraph({ indent: { left: 480 }, children: [new TextRun({ text: `• ${it}`, size: 18 })], spacing: { after: 20 } }));
     });
@@ -187,6 +195,8 @@ export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile
   if (modul.rubrikPenilaianSingkat && modul.rubrikPenilaianSingkat.length > 0) {
     const rubRows = [
       new TableRow({
+        tableHeader: true,
+        cantSplit: true,
         children: ['Kriteria Penilaian', 'Baru Berkembang (0-60)', 'Layak (61-70)', 'Cakap (71-85)', 'Mahir (86-100)'].map(
           (h) => new TableCell({ shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 17 })] })] })
         ),
@@ -195,6 +205,7 @@ export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile
     modul.rubrikPenilaianSingkat.forEach((r) => {
       rubRows.push(
         new TableRow({
+          cantSplit: true,
           children: [
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.kriteria, bold: true, size: 17 })] })] }),
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.baruBerkembang, size: 17 })] })] }),
@@ -229,10 +240,40 @@ export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile
     children.push(new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• ${dp}`, size: 18 })], spacing: { after: 20 } }));
   });
 
+  if (modul.bahanBacaan) {
+    children.push(
+      new Paragraph({ children: [new TextRun({ text: 'D. Bahan Bacaan Guru & Peserta Didik:', bold: true, size: 20 })], spacing: { before: 80, after: 30 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: modul.bahanBacaan.ringkasanInti || '', size: 18 })], spacing: { after: 30 } })
+    );
+    if (modul.bahanBacaan.konsepKunci?.length) {
+      children.push(
+        new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `Konsep Kunci: ${modul.bahanBacaan.konsepKunci.join(' • ')}`, italics: true, size: 18 })], spacing: { after: 40 } })
+      );
+    }
+  }
+
+  if (modul.refleksiGuru?.length || modul.refleksiSiswa?.length) {
+    children.push(new Paragraph({ children: [new TextRun({ text: 'E. Refleksi Guru & Peserta Didik:', bold: true, size: 20 })], spacing: { before: 80, after: 30 } }));
+    if (modul.refleksiGuru?.length) {
+      children.push(new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: '• Refleksi Guru: ', bold: true, size: 18 }), new TextRun({ text: modul.refleksiGuru.join(' '), size: 18 })], spacing: { after: 20 } }));
+    }
+    if (modul.refleksiSiswa?.length) {
+      children.push(new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: '• Refleksi Peserta Didik: ', bold: true, size: 18 }), new TextRun({ text: modul.refleksiSiswa.join(' '), size: 18 })], spacing: { after: 40 } }));
+    }
+  }
+
   if (profile.tampilkanTandaTangan) {
     children.push(new Paragraph({ spacing: { after: 200 } }), buildSignatureBlockTable(profile, modul.namaGuru));
   }
 
+  return children;
+}
+
+/**
+ * Ekspor Modul Ajar (RPP Kurikulum Merdeka) ke Microsoft Word (.docx)
+ */
+export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile?: SchoolProfile): Promise<void> {
+  const children = buildModulAjarElements(modul, userProfile);
   const doc = new Document({ sections: [{ properties: {}, children }] });
   const blob = await Packer.toBlob(doc);
   const cleanFilename = `Modul_Ajar_${modul.materiPokok.replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Kurikulum_Merdeka'}`;
@@ -240,13 +281,13 @@ export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile
 }
 
 /**
- * Ekspor Lembar Kerja Peserta Didik (LKPD) ke Microsoft Word (.docx)
+ * Menyusun elemen DOCX LKPD agar dapat digunakan baik pada ekspor mandiri maupun Bundel Supervisi
  */
-export async function exportLKPDToDocx(
+export function buildLKPDElements(
   lkpd: LKPDDokumen,
   userProfile?: SchoolProfile,
   isTeacherMode?: boolean
-): Promise<Blob> {
+): (Paragraph | Table)[] {
   const profile = userProfile || getSchoolProfile();
   const children: (Paragraph | Table)[] = [];
   const presetType: LKPDPresetType =
@@ -361,9 +402,15 @@ export async function exportLKPDToDocx(
               margins: cellPadding,
               children: [
                 new Paragraph({ children: [new TextRun({ text: `Mata Pelajaran : ${lkpd.mataPelajaran}`, bold: true, size: 19 })] }),
-                new Paragraph({ children: [new TextRun({ text: `Kelas / Rombel : Kelas ${lkpd.kelas} (${profile.rombelAktif || lkpd.rombel})`, size: 19 })] }),
+                new Paragraph({ children: [new TextRun({ text: `Kelas / Rombel : Kelas ${lkpd.kelas} (${lkpd.rombel || profile.rombelAktif || '-'})`, size: 19 })] }),
                 new Paragraph({ children: [new TextRun({ text: `Alokasi Waktu  : ${lkpd.alokasiWaktu}`, size: 19 })] }),
                 new Paragraph({ children: [new TextRun({ text: `Tujuan Belajar : ${lkpd.tujuanPembelajaran}`, size: 18 })] }),
+                ...(lkpd.targetSubTP && lkpd.targetSubTP.length > 0
+                  ? [new Paragraph({ children: [new TextRun({ text: `Indikator Sub-TP : ${lkpd.targetSubTP.join('; ')}`, size: 17, color: '475569' })] })]
+                  : []),
+                ...(lkpd.konteksAktual
+                  ? [new Paragraph({ children: [new TextRun({ text: `Konteks Belajar : ${lkpd.konteksAktual}`, size: 17, color: '475569' })] })]
+                  : []),
               ],
             }),
             new TableCell({
@@ -403,7 +450,7 @@ export async function exportLKPDToDocx(
       new Paragraph({
         children: [
           new TextRun({ text: 'Prasyarat Pengetahuan: ', bold: true, size: 18, color: '334155' }),
-          new TextRun({ text: lkpd.prasyaratMateri.join('; '), size: 18, color: '475569' }),
+          new TextRun({ text: lkpd.prasyaratMateri.map((p) => p.trim().replace(/[.]+$/, '')).join('; '), size: 18, color: '475569' }),
         ],
         spacing: { before: 20, after: 80 },
       })
@@ -1128,6 +1175,38 @@ export async function exportLKPDToDocx(
     });
   }
 
+  if (lkpd.produkHasilBelajar) {
+    children.push(
+      new Paragraph({
+        heading: HeadingLevel.HEADING_3,
+        children: [new TextRun({ text: 'TARGET PRODUK / BUKTI HASIL BELAJAR:', bold: true, size: 20, color: '1E3A8A' })],
+        spacing: { before: 80, after: 30 },
+      }),
+      new Paragraph({
+        children: [new TextRun({ text: lkpd.produkHasilBelajar, size: 18, color: '0F172A' })],
+        spacing: { after: 40 },
+      })
+    );
+  }
+
+  if (lkpd.kriteriaPenilaianSiswa && lkpd.kriteriaPenilaianSiswa.length > 0) {
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: 'Kriteria Keberhasilan Hasil Kerjamu:', bold: true, size: 18, color: '334155' })],
+        spacing: { before: 40, after: 20 },
+      })
+    );
+    lkpd.kriteriaPenilaianSiswa.forEach((krit) => {
+      children.push(
+        new Paragraph({
+          indent: { left: 240 },
+          children: [new TextRun({ text: `• ${krit}`, size: 18 })],
+          spacing: { after: 20 },
+        })
+      );
+    });
+  }
+
   // Kesimpulan & Refleksi Mandiri
   const kesimpulanHeading =
     presetType === 'eksperimen'
@@ -1139,12 +1218,25 @@ export async function exportLKPDToDocx(
   children.push(
     new Paragraph({
       heading: HeadingLevel.HEADING_3,
+      keepNext: true,
       children: [new TextRun({ text: kesimpulanHeading, bold: true, size: 21, color: '0D9488' })],
       spacing: { before: 100, after: 40 },
     })
   );
   lkpd.kesimpulanRefleksi.forEach((kr) => {
-    children.push(new Paragraph({ children: [new TextRun({ text: kr, size: 18 })], spacing: { after: 40 } }));
+    children.push(
+      new Paragraph({ children: [new TextRun({ text: kr, size: 18, bold: true })], spacing: { before: 30, after: 20 } }),
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: '................................................................................................................................................',
+            size: 18,
+            color: '94A3B8',
+          }),
+        ],
+        spacing: { after: 40 },
+      })
+    );
   });
 
   // Tanda Tangan
@@ -1289,6 +1381,18 @@ export async function exportLKPDToDocx(
     }
   }
 
+  return children;
+}
+
+/**
+ * Ekspor Lembar Kerja Peserta Didik (LKPD) ke Microsoft Word (.docx)
+ */
+export async function exportLKPDToDocx(
+  lkpd: LKPDDokumen,
+  userProfile?: SchoolProfile,
+  isTeacherMode?: boolean
+): Promise<Blob> {
+  const children = buildLKPDElements(lkpd, userProfile, isTeacherMode);
   const doc = new Document({ sections: [{ properties: {}, children }] });
   const blob = await Packer.toBlob(doc);
   const cleanMateri = lkpd.materiPokok.replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Siswa';
@@ -1308,9 +1412,9 @@ export async function exportLKPDToDocx(
 }
 
 /**
- * Ekspor Alur Tujuan Pembelajaran (ATP) ke Microsoft Word (.docx)
+ * Menyusun elemen DOCX Alur Tujuan Pembelajaran (ATP)
  */
-export async function exportATPToDocx(atp: ATPDokumen, userProfile?: SchoolProfile): Promise<void> {
+export function buildATPElements(atp: ATPDokumen, userProfile?: SchoolProfile): (Paragraph | Table)[] {
   const profile = userProfile || getSchoolProfile();
   const children: (Paragraph | Table)[] = [];
 
@@ -1376,54 +1480,233 @@ export async function exportATPToDocx(atp: ATPDokumen, userProfile?: SchoolProfi
     children.push(buildSignatureBlockTable(profile, atp.namaGuru));
   }
 
+  return children;
+}
+
+/**
+ * Ekspor Alur Tujuan Pembelajaran (ATP) ke Microsoft Word (.docx)
+ */
+export async function exportATPToDocx(atp: ATPDokumen, userProfile?: SchoolProfile): Promise<void> {
+  const children = buildATPElements(atp, userProfile);
   const doc = new Document({ sections: [{ properties: {}, children }] });
   const blob = await Packer.toBlob(doc);
   saveAs(blob, `ATP_${atp.mataPelajaran}_Kelas_${atp.kelas}.docx`);
 }
 
+function shortActivityCode(label?: string, isEfektif?: boolean): string {
+  if (isEfektif) return '';
+  const l = (label || '').toUpperCase();
+  if (l.includes('BELUM MASUK') || l.includes('PRA')) return 'PRE';
+  if (l.includes('MPLS')) return 'MPL';
+  if (l.includes('STS') || l.includes('PTS')) return 'STS';
+  if (l.includes('SAS') || l.includes('PAS') || l.includes('SAT')) return 'SAS';
+  if (l.includes('RAPOR')) return 'RPR';
+  if (l.includes('LIBUR')) return 'LBR';
+  if (!label) return 'NE';
+  return label.slice(0, 3);
+}
+
 /**
- * Ekspor Program Tahunan (Prota) ke Microsoft Word (.docx)
+ * Menyusun elemen DOCX Program Tahunan (Prota)
  */
-export async function exportProtaToDocx(prota: ProtaDokumen, userProfile?: SchoolProfile): Promise<void> {
+export function buildProtaElements(prota: ProtaDokumen, userProfile?: SchoolProfile): (Paragraph | Table)[] {
   const profile = userProfile || getSchoolProfile();
   const children: (Paragraph | Table)[] = [];
+
+  const gridBorder = { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' };
+  const cellBorders = { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder };
+  const cellMargins = { top: 65, bottom: 65, left: 90, right: 90 };
+
+  if (profile.pakaiFormatKopSekolah && profile.instansiDinas) {
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 20 },
+        children: [
+          new TextRun({
+            text: profile.instansiDinas.toUpperCase(),
+            bold: true,
+            size: 19,
+            color: '475569',
+            font: 'Calibri',
+          }),
+        ],
+      })
+    );
+  }
 
   children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 30 },
-      children: [new TextRun({ text: 'PROGRAM TAHUNAN (PROTA)', bold: true, size: 28, color: '1D4ED8', font: 'Calibri' })],
+      children: [
+        new TextRun({
+          text: (prota.satuanPendidikan || profile.namaSekolah || 'SATUAN PENDIDIKAN').toUpperCase(),
+          bold: true,
+          size: 24,
+          font: 'Calibri',
+        }),
+      ],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 40 },
-      children: [new TextRun({ text: (prota.satuanPendidikan || profile.namaSekolah).toUpperCase(), bold: true, size: 24, font: 'Calibri' })],
+      spacing: { after: 30 },
+      children: [
+        new TextRun({
+          text: 'PROGRAM TAHUNAN (PROTA)',
+          bold: true,
+          size: 26,
+          color: '1D4ED8',
+          font: 'Calibri',
+        }),
+      ],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 140 },
-      children: [new TextRun({ text: `MATA PELAJARAN: ${prota.mataPelajaran.toUpperCase()} • KELAS ${prota.kelas} • TAHUN AJARAN ${prota.tahunAjaran}`, size: 20, color: '555555', font: 'Calibri' })],
+      spacing: { after: 120 },
+      children: [
+        new TextRun({
+          text: `MATA PELAJARAN: ${prota.mataPelajaran.toUpperCase()} • KELAS ${prota.kelas} (${prota.jenjangFase}) • TAHUN AJARAN ${prota.tahunAjaran}`,
+          size: 19,
+          color: '475569',
+          font: 'Calibri',
+        }),
+      ],
     })
   );
 
-  const renderProtaSemester = (judulSem: string, items: ProtaItem[], totalJP: number) => {
+  // Tabel Identitas Administrasi Prota (lebar DXA 9600 twips)
+  const idWidths = [2000, 2800, 2000, 2800];
+  const jpMingguText = prota.jpConfig
+    ? `${prota.jpConfig.jpPerMinggu} JP/minggu × ${prota.jpConfig.durasiJPMinut} mnt (${prota.jpConfig.pertemuanPerMinggu} pertemuan)`
+    : 'Mengikuti konfigurasi sekolah';
+  const mingguEfektifText =
+    typeof prota.mingguEfektifTahunan === 'number'
+      ? `${prota.mingguEfektifTahunan} Minggu (Sem 1: ${prota.mingguEfektifSemester1 ?? '-'} • Sem 2: ${prota.mingguEfektifSemester2 ?? '-'})`
+      : 'Mengikuti kalender akademik sekolah';
+  const statusKalenderText =
+    prota.kalenderSem1Terkonfirmasi && prota.kalenderSem2Terkonfirmasi
+      ? 'Kalender Resmi Sekolah (Terkonfirmasi)'
+      : 'Template Awal (Belum Dikonfirmasi Penuh)';
+
+  const idRowsData: Array<[string, string, string, string]> = [
+    [
+      'Satuan Pendidikan',
+      prota.satuanPendidikan || profile.namaSekolah || '-',
+      'Tahun Ajaran',
+      prota.tahunAjaran,
+    ],
+    [
+      'Mata Pelajaran',
+      prota.mataPelajaran,
+      'Kelas / Fase',
+      `Kelas ${prota.kelas} / ${prota.jenjangFase}`,
+    ],
+    [
+      'Guru Pengampu',
+      `${prota.namaGuru || profile.namaGuru || '-'}${prota.nipGuru ? ` (NIP: ${prota.nipGuru})` : ''}`,
+      'Beban Belajar',
+      jpMingguText,
+    ],
+    [
+      'Minggu Efektif / Th',
+      mingguEfektifText,
+      'Status Kalender',
+      statusKalenderText,
+    ],
+  ];
+
+  children.push(
+    new Table({
+      width: { size: 9600, type: WidthType.DXA },
+      columnWidths: idWidths,
+      layout: TableLayoutType.FIXED,
+      rows: idRowsData.map(
+        ([k1, v1, k2, v2]) =>
+          new TableRow({
+            children: [
+              new TableCell({
+                width: { size: idWidths[0], type: WidthType.DXA },
+                borders: cellBorders,
+                margins: cellMargins,
+                shading: { fill: 'F8FAFC' },
+                children: [new Paragraph({ children: [new TextRun({ text: k1, bold: true, size: 17 })] })],
+              }),
+              new TableCell({
+                width: { size: idWidths[1], type: WidthType.DXA },
+                borders: cellBorders,
+                margins: cellMargins,
+                children: [new Paragraph({ children: [new TextRun({ text: v1, size: 17 })] })],
+              }),
+              new TableCell({
+                width: { size: idWidths[2], type: WidthType.DXA },
+                borders: cellBorders,
+                margins: cellMargins,
+                shading: { fill: 'F8FAFC' },
+                children: [new Paragraph({ children: [new TextRun({ text: k2, bold: true, size: 17 })] })],
+              }),
+              new TableCell({
+                width: { size: idWidths[3], type: WidthType.DXA },
+                borders: cellBorders,
+                margins: cellMargins,
+                children: [new Paragraph({ children: [new TextRun({ text: v2, size: 17 })] })],
+              }),
+            ],
+          })
+      ),
+    }),
+    new Paragraph({ spacing: { after: 120 } })
+  );
+
+  // Tabel Semester 1 & 2 (lebar DXA eksplisit total 9600 twips agar columnSpan presisi di MS Word)
+  const colWidths = [520, 880, 1950, 3800, 850, 1600]; // sum = 9600
+  const span4Width = colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3]; // 7150
+
+  const renderProtaSemester = (
+    judulSem: string,
+    items: ProtaItem[],
+    totalJP: number,
+    mingguEfektifSem?: number,
+    kapasitasSem?: number
+  ) => {
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: judulSem, bold: true, size: 20, color: '0D9488' })],
-        spacing: { before: 60, after: 40 },
+        children: [
+          new TextRun({ text: judulSem, bold: true, size: 20, color: '0D9488' }),
+          ...(typeof mingguEfektifSem === 'number'
+            ? [
+                new TextRun({
+                  text: `  (${mingguEfektifSem} Minggu Efektif${
+                    typeof kapasitasSem === 'number' ? ` • Kapasitas ± ${kapasitasSem} JP` : ''
+                  })`,
+                  size: 17,
+                  color: '475569',
+                }),
+              ]
+            : []),
+        ],
+        spacing: { before: 80, after: 50 },
       })
     );
 
-    const headers = ['No', 'Kode TP', 'Lingkup Materi', 'Tujuan Pembelajaran', 'Alokasi JP', 'Keterangan'];
-    const widths = [6, 12, 24, 38, 10, 10];
+    const headers = ['No', 'Kode TP', 'Lingkup Materi', 'Tujuan Pembelajaran', 'Alokasi JP', 'Keterangan / Progres'];
 
     const headerRow = new TableRow({
+      tableHeader: true,
       children: headers.map(
         (h, i) =>
           new TableCell({
-            width: { size: widths[i], type: WidthType.PERCENTAGE },
+            width: { size: colWidths[i], type: WidthType.DXA },
+            borders: cellBorders,
+            margins: cellMargins,
+            verticalAlign: VerticalAlign.CENTER,
             shading: { fill: '1E3A8A' },
-            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 17 })] })],
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 17 })],
+              }),
+            ],
           })
       ),
     });
@@ -1432,48 +1715,784 @@ export async function exportProtaToDocx(prota: ProtaDokumen, userProfile?: Schoo
       (it) =>
         new TableRow({
           children: [
-            new TableCell({ width: { size: widths[0], type: WidthType.PERCENTAGE }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(it.no), size: 17 })] })] }),
-            new TableCell({ width: { size: widths[1], type: WidthType.PERCENTAGE }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: it.kodeTP, bold: true, size: 17 })] })] }),
-            new TableCell({ width: { size: widths[2], type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: it.lingkupMateri, bold: true, size: 17 })] })] }),
-            new TableCell({ width: { size: widths[3], type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: it.tujuanPembelajaran, size: 17 })] })] }),
-            new TableCell({ width: { size: widths[4], type: WidthType.PERCENTAGE }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${it.alokasiJP} JP`, size: 17 })] })] }),
-            new TableCell({ width: { size: widths[5], type: WidthType.PERCENTAGE }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: it.keterangan, size: 16 })] })] }),
+            new TableCell({
+              width: { size: colWidths[0], type: WidthType.DXA },
+              borders: cellBorders,
+              margins: cellMargins,
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(it.no), size: 17 })] })],
+            }),
+            new TableCell({
+              width: { size: colWidths[1], type: WidthType.DXA },
+              borders: cellBorders,
+              margins: cellMargins,
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: it.kodeTP, bold: true, size: 17 })] })],
+            }),
+            new TableCell({
+              width: { size: colWidths[2], type: WidthType.DXA },
+              borders: cellBorders,
+              margins: cellMargins,
+              children: [new Paragraph({ children: [new TextRun({ text: it.lingkupMateri, bold: true, size: 17 })] })],
+            }),
+            new TableCell({
+              width: { size: colWidths[3], type: WidthType.DXA },
+              borders: cellBorders,
+              margins: cellMargins,
+              children: [
+                new Paragraph({ children: [new TextRun({ text: it.tujuanPembelajaran, size: 17 })] }),
+                ...(it.progresSpiral
+                  ? [
+                      new Paragraph({
+                        spacing: { before: 30 },
+                        children: [
+                          new TextRun({
+                            text: `Catatan Progres: ${it.progresSpiral}`,
+                            italics: true,
+                            size: 15,
+                            color: '1D4ED8',
+                          }),
+                        ],
+                      }),
+                    ]
+                  : []),
+              ],
+            }),
+            new TableCell({
+              width: { size: colWidths[4], type: WidthType.DXA },
+              borders: cellBorders,
+              margins: cellMargins,
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${it.alokasiJP} JP`, bold: true, size: 17 })] })],
+            }),
+            new TableCell({
+              width: { size: colWidths[5], type: WidthType.DXA },
+              borders: cellBorders,
+              margins: cellMargins,
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: it.keterangan, size: 16, color: '334155' })] })],
+            }),
           ],
         })
     );
 
-    // Row Total
+    // Row Total (columnSpan: 4 -> lebar DXA tepat sama dengan penjumlahan 4 kolom pertama = 7150 twips)
     dataRows.push(
       new TableRow({
         children: [
-          new TableCell({ width: { size: 80, type: WidthType.PERCENTAGE }, children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `Total Alokasi Waktu ${judulSem}:`, bold: true, size: 18 })] })] }),
-          new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${totalJP} JP`, bold: true, size: 18 })] })] }),
-          new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: '-', size: 16 })] })] }),
+          new TableCell({
+            width: { size: span4Width, type: WidthType.DXA },
+            columnSpan: 4,
+            borders: cellBorders,
+            margins: cellMargins,
+            shading: { fill: 'F1F5F9' },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.RIGHT,
+                children: [new TextRun({ text: `Total Alokasi Waktu ${judulSem}:`, bold: true, size: 17 })],
+              }),
+            ],
+          }),
+          new TableCell({
+            width: { size: colWidths[4], type: WidthType.DXA },
+            borders: cellBorders,
+            margins: cellMargins,
+            shading: { fill: 'EFF6FF' },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: `${totalJP} JP`, bold: true, size: 17, color: '1D4ED8' })],
+              }),
+            ],
+          }),
+          new TableCell({
+            width: { size: colWidths[5], type: WidthType.DXA },
+            borders: cellBorders,
+            margins: cellMargins,
+            shading: { fill: 'F1F5F9' },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({
+                    text: typeof mingguEfektifSem === 'number' ? `${mingguEfektifSem} Mg Efektif` : '-',
+                    size: 16,
+                    color: '475569',
+                  }),
+                ],
+              }),
+            ],
+          }),
         ],
       })
     );
 
-    children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [headerRow, ...dataRows] }), new Paragraph({ spacing: { after: 100 } }));
+    children.push(
+      new Table({
+        width: { size: 9600, type: WidthType.DXA },
+        columnWidths: colWidths,
+        layout: TableLayoutType.FIXED,
+        rows: [headerRow, ...dataRows],
+      }),
+      new Paragraph({ spacing: { after: 100 } })
+    );
   };
 
-  renderProtaSemester('A. Semester 1 (Ganjil)', prota.itemsSemester1, prota.totalJPSemester1);
-  renderProtaSemester('B. Semester 2 (Genap)', prota.itemsSemester2, prota.totalJPSemester2);
+  renderProtaSemester(
+    'A. Semester 1 (Ganjil)',
+    prota.itemsSemester1,
+    prota.totalJPSemester1,
+    prota.mingguEfektifSemester1,
+    prota.kapasitasJPSemester1
+  );
+  renderProtaSemester(
+    'B. Semester 2 (Genap)',
+    prota.itemsSemester2,
+    prota.totalJPSemester2,
+    prota.mingguEfektifSemester2,
+    prota.kapasitasJPSemester2
+  );
 
+  // Tabel Rekapitulasi Tahunan
+  const recapWidths = [4600, 1650, 1650, 1700];
   children.push(
+    new Table({
+      width: { size: 9600, type: WidthType.DXA },
+      columnWidths: recapWidths,
+      layout: TableLayoutType.FIXED,
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: recapWidths[0], type: WidthType.DXA },
+              borders: cellBorders,
+              margins: cellMargins,
+              shading: { fill: 'EFF6FF' },
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: 'REKAPITULASI PROGRAM TAHUNAN (SEMESTER 1 + SEMESTER 2)',
+                      bold: true,
+                      size: 18,
+                      color: '1D4ED8',
+                    }),
+                  ],
+                }),
+              ],
+            }),
+            new TableCell({
+              width: { size: recapWidths[1], type: WidthType.DXA },
+              borders: cellBorders,
+              margins: cellMargins,
+              shading: { fill: 'F8FAFC' },
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: `Sem 1: ${prota.totalJPSemester1} JP`, bold: true, size: 17 })],
+                }),
+              ],
+            }),
+            new TableCell({
+              width: { size: recapWidths[2], type: WidthType.DXA },
+              borders: cellBorders,
+              margins: cellMargins,
+              shading: { fill: 'F8FAFC' },
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: `Sem 2: ${prota.totalJPSemester2} JP`, bold: true, size: 17 })],
+                }),
+              ],
+            }),
+            new TableCell({
+              width: { size: recapWidths[3], type: WidthType.DXA },
+              borders: cellBorders,
+              margins: cellMargins,
+              shading: { fill: 'DBEAFE' },
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({
+                      text: `Total: ${prota.totalJPTahunan} JP`,
+                      bold: true,
+                      size: 18,
+                      color: '1E3A8A',
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { before: 80, after: 120 },
-      children: [new TextRun({ text: `TOTAL ALOKASI WAKTU 1 TAHUN AJARAN: ${prota.totalJPTahunan} JAM PELAJARAN (JP)`, bold: true, size: 21, color: '1D4ED8' })],
+      spacing: { before: 70, after: 90 },
+      children: [
+        new TextRun({
+          text: `TOTAL ALOKASI WAKTU 1 TAHUN AJARAN: ${prota.totalJPTahunan} JAM PELAJARAN (JP)${
+            typeof prota.mingguEfektifTahunan === 'number'
+              ? ` • ${prota.mingguEfektifTahunan} MINGGU EFEKTIF TAHUNAN`
+              : ''
+          }`,
+          bold: true,
+          size: 20,
+          color: '1D4ED8',
+        }),
+      ],
     })
   );
+
+  if (prota.peringatanProta && prota.peringatanProta.length > 0) {
+    children.push(
+      new Paragraph({
+        spacing: { before: 40, after: 30 },
+        children: [new TextRun({ text: 'Catatan Kalender & Validasi Prota:', bold: true, size: 17, color: '334155' })],
+      })
+    );
+    prota.peringatanProta.forEach((msg) => {
+      children.push(
+        new Paragraph({
+          indent: { left: 240 },
+          spacing: { after: 20 },
+          children: [new TextRun({ text: `• ${msg}`, size: 16, color: '475569' })],
+        })
+      );
+    });
+    children.push(new Paragraph({ spacing: { after: 80 } }));
+  }
 
   if (profile.tampilkanTandaTangan) {
     children.push(buildSignatureBlockTable(profile, prota.namaGuru));
   }
 
-  const doc = new Document({ sections: [{ properties: {}, children }] });
+  return children;
+}
+
+/**
+ * Ekspor Program Tahunan (Prota) ke Microsoft Word (.docx)
+ */
+export async function exportProtaToDocx(prota: ProtaDokumen, userProfile?: SchoolProfile): Promise<void> {
+  const profile = userProfile || getSchoolProfile();
+  const children = buildProtaElements(prota, profile);
+  const doc = createStyledDocxDocument(profile, 'Program Tahunan (Prota)', children);
   const blob = await Packer.toBlob(doc);
   saveAs(blob, `Prota_${prota.mataPelajaran}_Kelas_${prota.kelas}.docx`);
+}
+
+/**
+ * Menyusun elemen DOCX Program Semester (Promes)
+ */
+export function buildPromesElements(promes: PromesDokumen, userProfile?: SchoolProfile): (Paragraph | Table)[] {
+  const profile = userProfile || getSchoolProfile();
+  const children: (Paragraph | Table)[] = [];
+
+  const gridBorder = { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' };
+  const cellBorders = { top: gridBorder, bottom: gridBorder, left: gridBorder, right: gridBorder };
+  const cellMargins = { top: 50, bottom: 50, left: 60, right: 60 };
+
+  if (profile.pakaiFormatKopSekolah && profile.instansiDinas) {
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 20 },
+        children: [
+          new TextRun({
+            text: profile.instansiDinas.toUpperCase(),
+            bold: true,
+            size: 19,
+            color: '475569',
+            font: 'Calibri',
+          }),
+        ],
+      })
+    );
+  }
+
+  children.push(
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 25 },
+      children: [
+        new TextRun({
+          text: (promes.satuanPendidikan || profile.namaSekolah || 'SATUAN PENDIDIKAN').toUpperCase(),
+          bold: true,
+          size: 24,
+          font: 'Calibri',
+        }),
+      ],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 25 },
+      children: [
+        new TextRun({
+          text: 'PROGRAM SEMESTER (PROMES)',
+          bold: true,
+          size: 26,
+          color: '1D4ED8',
+          font: 'Calibri',
+        }),
+      ],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 100 },
+      children: [
+        new TextRun({
+          text: `MATA PELAJARAN: ${promes.mataPelajaran.toUpperCase()} • KELAS ${promes.kelas} (${promes.jenjangFase}) • SEMESTER ${promes.semester.toUpperCase()} • TA ${promes.tahunAjaran}`,
+          size: 18,
+          color: '475569',
+          font: 'Calibri',
+        }),
+      ],
+    })
+  );
+
+  // Ringkasan Identitas, Kalender & Beban JP (Landscape ~14.700 twips)
+  const totalTerjadwal = promes.totalJPTerjadwal ?? promes.totalJPEfektif;
+  const totalDibutuhkan = promes.totalJPDibutuhkanTP ?? promes.rows.reduce((s, r) => s + r.alokasiJP, 0);
+  const totalKapasitas = promes.totalKapasitasJPSemester;
+  const mingguEfektif = promes.totalMingguEfektif ?? promes.columns.filter((c) => c.isEfektif).length;
+  const mingguNonEfektif =
+    promes.totalMingguNonEfektif ?? Math.max(0, promes.columns.length - mingguEfektif);
+  const jpPerMingguLabel = promes.jpPerMinggu
+    ? `${promes.jpPerMinggu} JP/minggu × ${promes.durasiJPMinut ?? 40} mnt (${promes.pertemuanPerMinggu ?? 2} pertemuan/mg)`
+    : 'Mengikuti jadwal mapel';
+
+  const infoWidths = [2400, 4950, 2400, 4950]; // sum = 14700
+  const infoPairs: Array<[string, string, string, string]> = [
+    [
+      'Satuan Pendidikan',
+      promes.satuanPendidikan || profile.namaSekolah || '-',
+      'Semester / Tahun Ajaran',
+      `${promes.semester} • TA ${promes.tahunAjaran}`,
+    ],
+    [
+      'Guru Pengampu',
+      `${promes.namaGuru || profile.namaGuru || '-'}${promes.nipGuru ? ` (NIP: ${promes.nipGuru})` : ''}`,
+      'Alokasi Mapel',
+      jpPerMingguLabel,
+    ],
+    [
+      'Kalender Minggu',
+      `${mingguEfektif} Minggu Efektif • ${mingguNonEfektif} Minggu Non-Efektif (dari ${promes.columns.length} minggu)`,
+      'Rekap JP Semester',
+      `Terjadwal: ${totalTerjadwal} JP • Kebutuhan TP: ${totalDibutuhkan} JP${
+        typeof totalKapasitas === 'number' ? ` • Kapasitas: ${totalKapasitas} JP` : ''
+      }`,
+    ],
+  ];
+
+  children.push(
+    new Table({
+      width: { size: 14700, type: WidthType.DXA },
+      columnWidths: infoWidths,
+      layout: TableLayoutType.FIXED,
+      rows: infoPairs.map(
+        ([k1, v1, k2, v2]) =>
+          new TableRow({
+            children: [
+              new TableCell({
+                width: { size: infoWidths[0], type: WidthType.DXA },
+                borders: cellBorders,
+                margins: cellMargins,
+                shading: { fill: 'F8FAFC' },
+                children: [new Paragraph({ children: [new TextRun({ text: k1, bold: true, size: 16 })] })],
+              }),
+              new TableCell({
+                width: { size: infoWidths[1], type: WidthType.DXA },
+                borders: cellBorders,
+                margins: cellMargins,
+                children: [new Paragraph({ children: [new TextRun({ text: v1, size: 16 })] })],
+              }),
+              new TableCell({
+                width: { size: infoWidths[2], type: WidthType.DXA },
+                borders: cellBorders,
+                margins: cellMargins,
+                shading: { fill: 'F8FAFC' },
+                children: [new Paragraph({ children: [new TextRun({ text: k2, bold: true, size: 16 })] })],
+              }),
+              new TableCell({
+                width: { size: infoWidths[3], type: WidthType.DXA },
+                borders: cellBorders,
+                margins: cellMargins,
+                children: [new Paragraph({ children: [new TextRun({ text: v2, size: 16 })] })],
+              }),
+            ],
+          })
+      ),
+    }),
+    new Paragraph({ spacing: { after: 90 } })
+  );
+
+  // Kelompokkan bulan untuk header 2 baris Promes
+  const monthGroups: Array<{ bulanNama: string; count: number }> = [];
+  for (const col of promes.columns) {
+    const last = monthGroups[monthGroups.length - 1];
+    if (last && last.bulanNama === col.bulanNama) {
+      last.count++;
+    } else {
+      monthGroups.push({ bulanNama: col.bulanNama, count: 1 });
+    }
+  }
+
+  // Tabel Promes (lebar DXA eksplisit agar rapi pada kertas A4 Landscape ~14700 twips)
+  const wNo = 440;
+  const wKode = 600;
+  const wMateri = 3140;
+  const wRentang = 680;
+  const wJP = 620;
+  const fixedSum = wNo + wKode + wMateri + wRentang + wJP; // 5480
+  const weekCellMargins = { top: 30, bottom: 30, left: 12, right: 12 };
+  const colWeekWidth =
+    promes.columns.length > 0 ? Math.max(310, Math.floor((14700 - fixedSum) / promes.columns.length)) : 360;
+  const totalTableWidth = fixedSum + colWeekWidth * promes.columns.length;
+  const tableColWidths = [wNo, wKode, wMateri, wRentang, wJP, ...promes.columns.map(() => colWeekWidth)];
+
+  const headerRow1 = new TableRow({
+    tableHeader: true,
+    children: [
+      new TableCell({
+        width: { size: wNo, type: WidthType.DXA },
+        rowSpan: 2,
+        verticalAlign: VerticalAlign.CENTER,
+        borders: cellBorders,
+        shading: { fill: '1E3A8A' },
+        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 14 })] })],
+      }),
+      new TableCell({
+        width: { size: wKode, type: WidthType.DXA },
+        rowSpan: 2,
+        verticalAlign: VerticalAlign.CENTER,
+        borders: cellBorders,
+        shading: { fill: '1E3A8A' },
+        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kode', bold: true, color: 'FFFFFF', size: 14 })] })],
+      }),
+      new TableCell({
+        width: { size: wMateri, type: WidthType.DXA },
+        rowSpan: 2,
+        verticalAlign: VerticalAlign.CENTER,
+        borders: cellBorders,
+        margins: cellMargins,
+        shading: { fill: '1E3A8A' },
+        children: [new Paragraph({ children: [new TextRun({ text: 'Materi Pokok & Tujuan Pembelajaran', bold: true, color: 'FFFFFF', size: 14 })] })],
+      }),
+      new TableCell({
+        width: { size: wRentang, type: WidthType.DXA },
+        rowSpan: 2,
+        verticalAlign: VerticalAlign.CENTER,
+        borders: cellBorders,
+        shading: { fill: '1E3A8A' },
+        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Minggu', bold: true, color: 'FFFFFF', size: 14 })] })],
+      }),
+      new TableCell({
+        width: { size: wJP, type: WidthType.DXA },
+        rowSpan: 2,
+        verticalAlign: VerticalAlign.CENTER,
+        borders: cellBorders,
+        shading: { fill: '1E3A8A' },
+        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'JP', bold: true, color: 'FFFFFF', size: 14 })] })],
+      }),
+      ...monthGroups.map(
+        (grp) =>
+          new TableCell({
+            width: { size: grp.count * colWeekWidth, type: WidthType.DXA },
+            columnSpan: grp.count,
+            verticalAlign: VerticalAlign.CENTER,
+            borders: cellBorders,
+            shading: { fill: '1E3A8A' },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: grp.bulanNama, bold: true, color: 'FFFFFF', size: 13 })],
+              }),
+            ],
+          })
+      ),
+    ],
+  });
+
+  const headerRow2 = new TableRow({
+    tableHeader: true,
+    children: promes.columns.map((col, idx) => {
+      const shortTag = shortActivityCode(col.labelKegiatan, col.isEfektif);
+      return new TableCell({
+        width: { size: colWeekWidth, type: WidthType.DXA },
+        borders: cellBorders,
+        margins: weekCellMargins,
+        verticalAlign: VerticalAlign.CENTER,
+        shading: { fill: col.isEfektif ? '2563EB' : '475569' },
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [
+              new TextRun({
+                text: `M${col.mingguKe}`,
+                bold: true,
+                color: 'FFFFFF',
+                size: 11,
+              }),
+            ],
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [
+              new TextRun({
+                text: shortTag || `(${col.semesterWeekNumber ?? idx + 1})`,
+                color: 'E2E8F0',
+                size: 9,
+              }),
+            ],
+          }),
+        ],
+      });
+    }),
+  });
+
+  const dataRows = promes.rows.map((row) => {
+    const rowScheduled =
+      typeof row.jpTerjadwal === 'number'
+        ? row.jpTerjadwal
+        : Object.values(row.distribusiJP).reduce((a, b) => a + b, 0);
+    const hasUnscheduled = rowScheduled < row.alokasiJP;
+    const rentangText =
+      row.mingguMulai && row.mingguSelesai ? `M${row.mingguMulai}–M${row.mingguSelesai}` : '-';
+    const jpSummaryText = hasUnscheduled ? `${rowScheduled}/${row.alokasiJP}` : `${row.alokasiJP}`;
+
+    return new TableRow({
+      children: [
+        new TableCell({
+          width: { size: wNo, type: WidthType.DXA },
+          borders: cellBorders,
+          children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(row.no), size: 14 })] })],
+        }),
+        new TableCell({
+          width: { size: wKode, type: WidthType.DXA },
+          borders: cellBorders,
+          children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: row.kodeTP, bold: true, size: 14 })] })],
+        }),
+        new TableCell({
+          width: { size: wMateri, type: WidthType.DXA },
+          borders: cellBorders,
+          margins: cellMargins,
+          children: [
+            new Paragraph({ children: [new TextRun({ text: `${row.materiPokok}`, bold: true, size: 14 })] }),
+            new Paragraph({ children: [new TextRun({ text: row.tujuanPembelajaran, size: 13, color: '334155' })] }),
+            ...(row.konflikJadwal
+              ? [
+                  new Paragraph({
+                    spacing: { before: 20 },
+                    children: [new TextRun({ text: `! ${row.konflikJadwal}`, bold: true, size: 12, color: 'B91C1C' })],
+                  }),
+                ]
+              : []),
+          ],
+        }),
+        new TableCell({
+          width: { size: wRentang, type: WidthType.DXA },
+          borders: cellBorders,
+          children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: rentangText, size: 13 })] })],
+        }),
+        new TableCell({
+          width: { size: wJP, type: WidthType.DXA },
+          borders: cellBorders,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [
+                new TextRun({
+                  text: jpSummaryText,
+                  bold: true,
+                  size: 14,
+                  color: hasUnscheduled ? 'B91C1C' : '0F172A',
+                }),
+              ],
+            }),
+          ],
+        }),
+        ...promes.columns.map((col, cIdx) => {
+          // Pastikan minggu non-efektif/libur tidak pernah mencetak JP pembelajaran
+          const jp = col.isEfektif ? row.distribusiJP[cIdx] : undefined;
+          const nonEfCode = !col.isEfektif ? shortActivityCode(col.labelKegiatan, false) : '';
+          const textVal = jp ? String(jp) : nonEfCode;
+          return new TableCell({
+            width: { size: colWeekWidth, type: WidthType.DXA },
+            borders: cellBorders,
+            margins: weekCellMargins,
+            verticalAlign: VerticalAlign.CENTER,
+            shading: { fill: jp ? 'DCFCE7' : !col.isEfektif ? 'E2E8F0' : 'FFFFFF' },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({
+                    text: textVal,
+                    bold: !!jp,
+                    size: jp ? 13 : 9,
+                    color: jp ? '047857' : '64748B',
+                  }),
+                ],
+              }),
+            ],
+          });
+        }),
+      ],
+    });
+  });
+
+  // Baris Total JP per Minggu (sinkron 100% dengan preview)
+  const totalRow = new TableRow({
+    children: [
+      new TableCell({
+        width: { size: wNo + wKode + wMateri + wRentang, type: WidthType.DXA },
+        columnSpan: 4,
+        borders: cellBorders,
+        margins: cellMargins,
+        shading: { fill: 'F1F5F9' },
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.RIGHT,
+            children: [new TextRun({ text: 'TOTAL JP TERJADWAL PER MINGGU:', bold: true, size: 14 })],
+          }),
+        ],
+      }),
+      new TableCell({
+        width: { size: wJP, type: WidthType.DXA },
+        borders: cellBorders,
+        shading: { fill: 'DBEAFE' },
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: `${totalTerjadwal}`, bold: true, size: 14, color: '1E3A8A' })],
+          }),
+        ],
+      }),
+      ...promes.columns.map((col, cIdx) => {
+        const colSum = col.isEfektif
+          ? promes.rows.reduce((s, r) => s + (r.distribusiJP[cIdx] || 0), 0)
+          : 0;
+        return new TableCell({
+          width: { size: colWeekWidth, type: WidthType.DXA },
+          borders: cellBorders,
+          shading: { fill: col.isEfektif ? 'F8FAFC' : 'CBD5E1' },
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [
+                new TextRun({
+                  text: col.isEfektif ? (colSum > 0 ? String(colSum) : '0') : '-',
+                  bold: colSum > 0,
+                  size: 12,
+                  color: colSum > (col.kapasitasJP ?? promes.jpPerMinggu ?? 99) ? 'B91C1C' : '1E293B',
+                }),
+              ],
+            }),
+          ],
+        });
+      }),
+    ],
+  });
+
+  children.push(
+    new Table({
+      width: { size: totalTableWidth, type: WidthType.DXA },
+      columnWidths: tableColWidths,
+      layout: TableLayoutType.FIXED,
+      rows: [headerRow1, headerRow2, ...dataRows, totalRow],
+    }),
+    new Paragraph({ spacing: { after: 100 } })
+  );
+
+  // Keterangan Libur, Agenda Kalender Non-Efektif & Validasi Kapasitas
+  const nonEffectiveWeeks = promes.columns.filter((c) => !c.isEfektif);
+  if (nonEffectiveWeeks.length > 0) {
+    children.push(
+      new Paragraph({
+        spacing: { before: 40, after: 30 },
+        children: [
+          new TextRun({
+            text: `Keterangan Minggu Non-Efektif & Hari Libur (${nonEffectiveWeeks.length} minggu):`,
+            bold: true,
+            size: 17,
+            color: '1E293B',
+          }),
+        ],
+      })
+    );
+    const nonEfSummaries = nonEffectiveWeeks.map(
+      (c) =>
+        `${c.bulanNama} M${c.mingguKe}${c.startDate ? ` (${c.startDate} s.d. ${c.endDate})` : ''}: ${
+          c.labelKegiatan || 'Non-Efektif'
+        }`
+    );
+    children.push(
+      new Paragraph({
+        indent: { left: 200 },
+        spacing: { after: 60 },
+        children: [new TextRun({ text: nonEfSummaries.join('  |  '), size: 15, color: '475569' })],
+      })
+    );
+  }
+
+  if (promes.calendarSummary) {
+    const cal = promes.calendarSummary;
+    const calItems: string[] = [
+      `Periode Semester: ${cal.tanggalMulaiSemester} s.d. ${cal.tanggalAkhirSemester}`,
+      ...(cal.mplsRange ? [`MPLS: ${cal.mplsRange.startDate} s.d. ${cal.mplsRange.endDate}`] : []),
+      `STS: ${cal.stsRange.startDate} s.d. ${cal.stsRange.endDate}`,
+      `SAS: ${cal.sasRange.startDate} s.d. ${cal.sasRange.endDate}`,
+      `Pembagian Rapor: ${cal.pembagianRaporDate}`,
+      ...(cal.liburNasionalKeagamaan || []).map(
+        (ev) => `Libur Nasional/Keagamaan (${ev.nama}): ${ev.startDate} s.d. ${ev.endDate}`
+      ),
+      ...(cal.liburSekolah || []).map(
+        (ev) => `Libur Sekolah (${ev.nama}): ${ev.startDate} s.d. ${ev.endDate}`
+      ),
+      ...(cal.kegiatanKhususSekolah || []).map(
+        (ev) => `Kegiatan Sekolah (${ev.nama}): ${ev.startDate} s.d. ${ev.endDate}`
+      ),
+    ];
+    children.push(
+      new Paragraph({
+        spacing: { after: 60 },
+        children: [
+          new TextRun({ text: 'Rincian Agenda Kalender Sekolah: ', bold: true, size: 16, color: '334155' }),
+          new TextRun({ text: calItems.join(' • '), size: 15, color: '475569' }),
+        ],
+      })
+    );
+  }
+
+  if (promes.validationIssues && promes.validationIssues.length > 0) {
+    children.push(
+      new Paragraph({
+        spacing: { before: 30, after: 25 },
+        children: [new TextRun({ text: 'Catatan Validasi Jadwal & Kapasitas JP:', bold: true, size: 16, color: '334155' })],
+      })
+    );
+    promes.validationIssues.forEach((issue) => {
+      children.push(
+        new Paragraph({
+          indent: { left: 200 },
+          spacing: { after: 20 },
+          children: [
+            new TextRun({
+              text: `• [${issue.severity.toUpperCase()}] ${issue.pesan}`,
+              size: 15,
+              color: issue.severity === 'error' ? 'B91C1C' : issue.severity === 'warning' ? 'B45309' : '475569',
+            }),
+          ],
+        })
+      );
+    });
+    children.push(new Paragraph({ spacing: { after: 40 } }));
+  }
+
+  if (profile.tampilkanTandaTangan) {
+    children.push(buildSignatureBlockTable(profile, promes.namaGuru, { compact: true }));
+  }
+
+  return children;
 }
 
 /**
@@ -1481,71 +2500,8 @@ export async function exportProtaToDocx(prota: ProtaDokumen, userProfile?: Schoo
  */
 export async function exportPromesToDocx(promes: PromesDokumen, userProfile?: SchoolProfile): Promise<void> {
   const profile = userProfile || getSchoolProfile();
-  const children: (Paragraph | Table)[] = [];
-
-  children.push(
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 30 },
-      children: [new TextRun({ text: 'PROGRAM SEMESTER (PROMES)', bold: true, size: 28, color: '1D4ED8', font: 'Calibri' })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 40 },
-      children: [new TextRun({ text: (promes.satuanPendidikan || profile.namaSekolah).toUpperCase(), bold: true, size: 24, font: 'Calibri' })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 140 },
-      children: [new TextRun({ text: `MATA PELAJARAN: ${promes.mataPelajaran.toUpperCase()} • KELAS ${promes.kelas} • SEMESTER ${promes.semester.toUpperCase()} • TA ${promes.tahunAjaran}`, size: 20, color: '555555', font: 'Calibri' })],
-    })
-  );
-
-  // Tabel Promes
-  const headerRow1 = new TableRow({
-    children: [
-      new TableCell({ width: { size: 4, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kode', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 30, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Materi Pokok & TP', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 6, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'JP', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      ...promes.columns.map(
-        (col) =>
-          new TableCell({
-            width: { size: Math.max(2, Math.round(52 / promes.columns.length)), type: WidthType.PERCENTAGE },
-            shading: { fill: col.isEfektif ? '1E3A8A' : '475569' },
-            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${col.bulanNama.slice(0, 3)} M${col.mingguKe}`, bold: true, color: 'FFFFFF', size: 14 })] })],
-          })
-      ),
-    ],
-  });
-
-  const dataRows = promes.rows.map(
-    (row) =>
-      new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(row.no), size: 16 })] })] }),
-          new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: row.kodeTP, bold: true, size: 16 })] })] }),
-          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `${row.materiPokok}\n`, bold: true, size: 16 }), new TextRun({ text: row.tujuanPembelajaran, size: 15 })] })] }),
-          new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${row.alokasiJP}`, bold: true, size: 16 })] })] }),
-          ...promes.columns.map((col, cIdx) => {
-            const jp = row.distribusiJP[cIdx];
-            const textVal = jp ? String(jp) : !col.isEfektif ? col.labelKegiatan || 'X' : '';
-            return new TableCell({
-              shading: { fill: jp ? 'DCFCE7' : !col.isEfektif ? 'F1F5F9' : 'FFFFFF' },
-              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: textVal, bold: !!jp, size: 14, color: jp ? '047857' : '64748B' })] })],
-            });
-          }),
-        ],
-      })
-  );
-
-  children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [headerRow1, ...dataRows] }), new Paragraph({ spacing: { after: 140 } }));
-
-  if (profile.tampilkanTandaTangan) {
-    children.push(buildSignatureBlockTable(profile, promes.namaGuru));
-  }
-
-  const doc = new Document({ sections: [{ properties: {}, children }] });
+  const children = buildPromesElements(promes, profile);
+  const doc = createStyledDocxDocument(profile, 'Program Semester (Promes)', children, { landscape: true });
   const blob = await Packer.toBlob(doc);
   saveAs(blob, `Promes_${promes.mataPelajaran}_Kelas_${promes.kelas}_${promes.semester.replace(/[^a-zA-Z0-9]/g, '_')}.docx`);
 }

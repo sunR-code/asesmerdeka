@@ -14,7 +14,8 @@ import {
   Leaf, 
   Smile, 
   Coins, 
-  Globe 
+  Globe,
+  AlertTriangle
 } from 'lucide-react';
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
 import { getSchoolProfile } from '../../utils/schoolProfileStorage';
@@ -39,7 +40,13 @@ export const P5ProjectView: React.FC<Props> = ({ profile: propProfile, kelasHari
   const [selectedTema, setSelectedTema] = useState<P5Tema>('Gaya Hidup Berkelanjutan');
   const [activeTab, setActiveTab] = useState<'modul' | 'alur' | 'rubrik' | 'observasi'>('modul');
   const [isExporting, setIsExporting] = useState<boolean>(false);
-  const [p5Doc, setP5Doc] = useState<P5ProjectDocument | null>(null);
+  const [p5Doc, setP5Doc] = useState<P5ProjectDocument | null>(() =>
+    generateP5Document(
+      propProfile || getSchoolProfile(),
+      'Gaya Hidup Berkelanjutan',
+      propKelasHarian || getKelasHarianData(propProfile || getSchoolProfile(), [])
+    )
+  );
 
   // Sync profile & kelasHarian
   useEffect(() => {
@@ -79,6 +86,16 @@ export const P5ProjectView: React.FC<Props> = ({ profile: propProfile, kelasHari
   // Unduh Word (.docx)
   const handleExportDocx = async () => {
     if (!p5Doc) return;
+    if (
+      p5Doc.isSimulated &&
+      typeof window !== 'undefined' &&
+      typeof window.confirm === 'function' &&
+      !window.confirm(
+        `PERINGATAN DATA SIMULASI P5:\n\n${p5Doc.simulationReason || 'Lembar observasi siswa masih memakai data contoh/simulasi.'}\n\nTetap lanjutkan ekspor ke Word (.docx)? Dokumen akan diberi penanda DATA SIMULASI.`
+      )
+    ) {
+      return;
+    }
     try {
       setIsExporting(true);
       await exportP5ToDocx(p5Doc, profile);
@@ -91,6 +108,16 @@ export const P5ProjectView: React.FC<Props> = ({ profile: propProfile, kelasHari
   };
 
   const handlePrint = () => {
+    if (
+      p5Doc?.isSimulated &&
+      typeof window !== 'undefined' &&
+      typeof window.confirm === 'function' &&
+      !window.confirm(
+        `PERINGATAN DATA SIMULASI P5:\n\n${p5Doc.simulationReason || 'Lembar observasi siswa masih memakai data contoh/simulasi.'}\n\nTetap lanjutkan mencetak?`
+      )
+    ) {
+      return;
+    }
     if (!requireActiveLicenseForAction('mencetak Modul Projek P5')) return;
     window.print();
   };
@@ -258,6 +285,29 @@ export const P5ProjectView: React.FC<Props> = ({ profile: propProfile, kelasHari
             Sesuai Panduan Resmi Kemendikbudristek
           </span>
         </div>
+        {p5Doc?.isSimulated && (
+          <div
+            role="status"
+            className="no-print"
+            style={{
+              background: '#fffbeb',
+              border: '1px solid #fcd34d',
+              borderRadius: '10px',
+              padding: '10px 14px',
+              fontSize: '12.5px',
+              color: '#92400e',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+            }}
+          >
+            <AlertTriangle style={{ width: '16px', height: '16px', flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <strong>Data Simulasi / Contoh pada Lembar Observasi P5:</strong>{' '}
+              {p5Doc.simulationReason} Impor daftar siswa asli pada menu Presensi agar daftar observasi mencerminkan kelas Anda.
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
           {P5_TEMA_CATALOG.map((cat) => {

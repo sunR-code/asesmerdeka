@@ -82,4 +82,6 @@ export interface P5ProjectDocument {
   };
   rekapObservasiSiswa: SiswaObservasiP5[];
   tanggalPenyusunan: string;
+  isSimulated?: boolean;
+  simulationReason?: string;
 }

@@ -1534,32 +1534,71 @@ test('AUD-220: Integrasi Mayar.id memverifikasi kode pembelian Mayar, auto-regis
     };
   };
 
-  // 1. Webhook GET (Healthcheck)
-  const getRes = makeMockRes();
-  await mayarWebhookHandler({ method: 'GET' }, getRes);
-  assert.equal(getRes.result.statusCode, 200);
-  assert.equal(getRes.result.body?.ok, true);
+  const prevFetch = globalThis.fetch;
+  const prevMayarKey = process.env.MAYAR_API_KEY;
+  process.env.MAYAR_API_KEY = 'MAYAR_TEST_KEY_AUD220';
+  globalThis.fetch = async (url) => {
+    const urlStr = String(url || '');
+    if (urlStr.includes('/hl/v2/invoices/')) {
+      const lookupId = decodeURIComponent(urlStr.split('/hl/v2/invoices/')[1] || '').toUpperCase();
+      return new Response(
+        JSON.stringify({
+          statusCode: 200,
+          messages: 'success',
+          data: {
+            id: lookupId,
+            status: 'paid',
+            amount: 99000,
+            transactionId: 'TXN-AUD220',
+            transactions: [{ id: 'TXN-AUD220' }],
+            customer: { name: 'Bapak Ahmad Dani', email: 'ahmaddani@sekolah.id' },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    throw new Error(`Unexpected fetch URL in AUD-220: ${urlStr}`);
+  };
 
-  // 2. Webhook POST saat ada transaksi baru dari Mayar
-  const webhookRes = makeMockRes();
-  await mayarWebhookHandler(
-    {
-      method: 'POST',
-      body: {
-        event: 'payment.received',
-        data: {
-          customerName: 'Bapak Ahmad Dani',
-          customerEmail: 'ahmaddani@sekolah.id',
-          licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
-          productName: 'Lisensi Guru Mandiri AsesMerdeka',
+  try {
+    // 1. Webhook GET (Healthcheck)
+    const getRes = makeMockRes();
+    await mayarWebhookHandler({ method: 'GET' }, getRes);
+    assert.equal(getRes.result.statusCode, 200);
+    assert.equal(getRes.result.body?.ok, true);
+
+    // 2. Webhook POST saat ada transaksi baru dari Mayar (terverifikasi Detail API V2)
+    const webhookRes = makeMockRes();
+    await mayarWebhookHandler(
+      {
+        method: 'POST',
+        body: {
+          event: 'payment.received',
+          data: {
+            id: 'EVT-AUD220',
+            mayarInvoiceId: 'INV-MAYAR-AUD220',
+            transactionId: 'TXN-AUD220',
+            amount: 99000,
+            customerName: 'Bapak Ahmad Dani',
+            customerEmail: 'ahmaddani@sekolah.id',
+            licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
+            productName: 'Lisensi Guru Mandiri AsesMerdeka',
+          },
         },
       },
-    },
-    webhookRes
-  );
-  assert.equal(webhookRes.result.statusCode, 200);
-  assert.equal(webhookRes.result.body?.ok, true);
-  assert.equal(webhookRes.result.body?.code, 'ASM-GM26-V9SN-QR2U-136V');
+      webhookRes
+    );
+    assert.equal(webhookRes.result.statusCode, 200);
+    assert.equal(webhookRes.result.body?.ok, true);
+    assert.equal(webhookRes.result.body?.code, 'ASM-GM26-V9SN-QR2U-136V');
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevMayarKey === undefined) {
+      delete process.env.MAYAR_API_KEY;
+    } else {
+      process.env.MAYAR_API_KEY = prevMayarKey;
+    }
+  }
 
   // 3. Cek di Admin Portal: kode sudah terdaftar dengan label pembeli dari Mayar
   const adminListRes1 = makeMockRes();

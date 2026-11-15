@@ -1,5 +1,5 @@
 import type { LicenseTier } from '../types/assessment';
-import { getSavedGeminiKey, getUserQuota } from '../utils/licenseManager';
+import { deductQuota, getSavedGeminiKey, getUserQuota, refundQuota } from '../utils/licenseManager';
 
 const GOOGLE_GEMINI_FALLBACK_ENDPOINT =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
@@ -10,6 +10,7 @@ export interface GeminiCallParams {
   systemInstruction?: string;
   maxOutputTokens?: number;
   temperature?: number;
+  responseSchema?: Record<string, unknown>;
   tier?: LicenseTier;
   geminiApiKey?: string;
 }
@@ -53,13 +54,19 @@ async function callDirectGoogleGemini(
   apiKey: string,
   temperature = 0.4,
   systemInstruction?: string,
-  maxOutputTokens = 4096
+  maxOutputTokens = 6144,
+  tier: LicenseTier = 'guru',
+  responseSchema?: Record<string, unknown>
 ): Promise<any> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  const isProTier = tier === 'pro' || tier === 'sekolah_pro';
+  const endpoint = isProTier
+    ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent'
+    : GOOGLE_GEMINI_FALLBACK_ENDPOINT;
 
   try {
-    const response = await fetch(GOOGLE_GEMINI_FALLBACK_ENDPOINT, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -73,8 +80,9 @@ async function callDirectGoogleGemini(
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature,
-          maxOutputTokens,
+          maxOutputTokens: Math.min(8192, Math.max(512, maxOutputTokens)),
           responseMimeType: 'application/json',
+          ...(responseSchema ? { responseSchema } : {}),
         },
       }),
     });
@@ -98,7 +106,10 @@ async function callVercelServerlessGemini(
   tier: LicenseTier,
   temperature = 0.4,
   systemInstruction?: string,
-  maxOutputTokens = 4096
+  maxOutputTokens = 6144,
+  responseSchema?: Record<string, unknown>,
+  licenseCode?: string,
+  deviceId?: string
 ): Promise<any> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
@@ -120,6 +131,9 @@ async function callVercelServerlessGemini(
       body: JSON.stringify({
         prompt,
         ...(systemInstruction ? { systemInstruction } : {}),
+        ...(responseSchema ? { responseSchema } : {}),
+        ...(licenseCode ? { licenseCode } : {}),
+        ...(deviceId ? { deviceId } : {}),
         tier,
         temperature,
         maxOutputTokens,
@@ -151,7 +165,7 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
   const currentQuota = getUserQuota();
   const userTier: LicenseTier = params.tier || currentQuota.tier || 'guru';
   const customKey = params.geminiApiKey || getSavedGeminiKey();
-  const maxTokens = params.maxOutputTokens ?? 4096;
+  const maxTokens = params.maxOutputTokens ?? 6144;
 
   // 1. Prioritas BYOK Klien (Kunci Kustom Pengguna)
   if (customKey) {
@@ -161,7 +175,9 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
         customKey,
         params.temperature ?? 0.4,
         params.systemInstruction,
-        maxTokens
+        maxTokens,
+        userTier,
+        params.responseSchema
       );
     } catch (err) {
       console.warn('Gagal memanggil direct Gemini dengan BYOK, mencoba /api/gemini:', err);
@@ -175,7 +191,10 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
       userTier,
       params.temperature ?? 0.4,
       params.systemInstruction,
-      maxTokens
+      maxTokens,
+      params.responseSchema,
+      currentQuota.licenseKey || '',
+      currentQuota.deviceId
     );
   } catch (serverlessErr) {
     console.warn('Panggilan ke /api/gemini gagal atau offline:', serverlessErr);
@@ -189,7 +208,9 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
           envKey,
           params.temperature ?? 0.4,
           params.systemInstruction,
-          maxTokens
+          maxTokens,
+          userTier,
+          params.responseSchema
         );
       } catch (directEnvErr) {
         console.warn('Fallback direct dev key juga gagal:', directEnvErr);
@@ -198,5 +219,25 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
 
     // Teruskan error agar pemanggil beralih ke Smart Curriculum Heuristic Offline Engine
     throw serverlessErr;
+  }
+}
+
+/**
+ * Menjalankan operasi generasi AI berkuota secara atomik:
+ * memotong kuota sebelum eksekusi dan otomatis mengembalikan (refund) kuota jika gagal/timeout.
+ */
+export async function executeMeteredAICall<T>(operation: () => Promise<T>): Promise<T> {
+  const deducted = deductQuota();
+  if (!deducted.success) {
+    throw new Error(
+      deducted.message || 'Kuota generasi AI habis atau masa berlaku lisensi telah berakhir.'
+    );
+  }
+
+  try {
+    return await operation();
+  } catch (err) {
+    refundQuota(1);
+    throw err;
   }
 }

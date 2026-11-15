@@ -32,6 +32,7 @@ import {
 import { generateAsesmen, generateRangkumanMateri } from './services/aiGenerator';
 import { getBankSoal, saveToBankSoal, deleteFromBankSoal } from './utils/bankSoalStorage';
 import { saveToBankRangkuman } from './utils/bankRangkumanStorage';
+import { resolveSchoolId } from './utils/storageIdentity';
 import {
   loadAndUpgradeBankSoal,
   loadOrInitRangkuman,
@@ -48,7 +49,17 @@ import {
 import type { SchoolProfile, CustomTPItem } from './utils/schoolProfileStorage';
 import { getKelasHarianData } from './utils/kelasHarianStorage';
 import { getSemesterCurriculumPlan } from './utils/kurikulumCatalog';
-import { pushWorkspaceToCloud, getLastCloudSyncAt } from './utils/cloudSyncManager';
+import {
+  loadLatestLKPDDraft,
+  loadLatestModulAjarDraft,
+} from './utils/perangkatDraftStorage';
+import { runNonDestructiveStorageMigration } from './utils/storageMigration';
+import {
+  pushWorkspaceToCloud,
+  CLOUD_SYNC_STATUS_EVENT,
+  getCloudSyncUiStatus,
+  type HonestCloudStatus,
+} from './utils/cloudSyncManager';
 
 const GeneratorForm = lazy(() =>
   import('./components/GeneratorForm').then((m) => ({ default: m.GeneratorForm }))
@@ -133,6 +144,11 @@ export function App() {
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastFailedGen, setLastFailedGen] = useState<
+    | { kind: 'assessment'; req: GenerationRequest }
+    | { kind: 'rangkuman'; req: RangkumanRequest }
+    | null
+  >(null);
   const [prefillAssessment, setPrefillAssessment] = useState<Partial<GenerationRequest> | null>(null);
   const [prefillRangkuman, setPrefillRangkuman] = useState<Partial<RangkumanRequest> | null>(null);
   const [currentModulAjar, setCurrentModulAjar] = useState<ModulAjarDokumen | null>(null);
@@ -141,13 +157,10 @@ export function App() {
   const [activeSelectedTP, setActiveTP] = useState<CustomTPItem | null>(null);
   const [dismissPromoBar, setDismissPromoBar] = useState(false);
   const [appToast, setAppToast] = useState<string | null>(null);
-  const [storageStatus, setStorageStatus] = useState<WorkspaceStorageStatus>(() => {
-    const q = getUserQuota();
-    if (isLicensed(q.tier) && q.licenseKey && getLastCloudSyncAt()) {
-      return 'synced';
-    }
-    return 'local';
-  });
+  const [, setKelasHarianRev] = useState(0);
+  const [storageStatus, setStorageStatus] = useState<WorkspaceStorageStatus>(() =>
+    getCloudSyncUiStatus()
+  );
   const mobileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const triggerAppToast = (msg: string) => {
@@ -160,19 +173,30 @@ export function App() {
     schoolProfile.mataPelajaranUtama,
     activeFase,
     schoolProfile.kelasUtama,
-    schoolProfile.semester
+    schoolProfile.semester,
+    { schoolId: schoolProfile.schoolId, tahunAjaran: schoolProfile.tahunAjaran }
   );
   const savedTPList = getSavedCustomTPList(
     schoolProfile.mataPelajaranUtama,
     schoolProfile.kelasUtama,
-    schoolProfile.semester
+    schoolProfile.semester,
+    schoolProfile
   );
   const activeTPList: CustomTPItem[] =
     savedTPList && savedTPList.length > 0 ? savedTPList : activePlan.tpList;
   const activeKelasHarian = getKelasHarianData(schoolProfile, activeTPList);
 
   useEffect(() => {
+    runNonDestructiveStorageMigration(schoolProfile);
+    const refreshed = getSchoolProfile();
+    if (refreshed.schoolId && refreshed.schoolId !== schoolProfile.schoolId) {
+      setSchoolProfile(refreshed);
+    }
+  }, []);
+
+  useEffect(() => {
     const handleFocus = () => setQuota(getUserQuota());
+    const handleKelasHarianUpdated = () => setKelasHarianRev((prev) => prev + 1);
     const handleRequireLicense = (e: Event) => {
       const customEvt = e as CustomEvent<{ message?: string }>;
       setErrorMessage(
@@ -183,6 +207,7 @@ export function App() {
     };
 
     window.addEventListener('focus', handleFocus);
+    window.addEventListener('asesmerdeka:kelas-harian-updated', handleKelasHarianUpdated);
     window.addEventListener('asesmerdeka:require-license', handleRequireLicense);
 
     if (bankList.length === 0) {
@@ -194,6 +219,7 @@ export function App() {
 
     return () => {
       window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('asesmerdeka:kelas-harian-updated', handleKelasHarianUpdated);
       window.removeEventListener('asesmerdeka:require-license', handleRequireLicense);
     };
   }, [bankList.length, schoolProfile]);
@@ -297,17 +323,49 @@ export function App() {
     return () => window.removeEventListener('asesmerdeka:license-revoked', handleLicenseRevoked);
   }, []);
 
+  useEffect(() => {
+    const handleCloudStatus = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ status?: HonestCloudStatus }>)?.detail;
+      if (detail?.status) {
+        setStorageStatus(detail.status);
+      } else {
+        setStorageStatus(getCloudSyncUiStatus());
+      }
+    };
+    window.addEventListener(CLOUD_SYNC_STATUS_EVENT, handleCloudStatus);
+    return () => window.removeEventListener(CLOUD_SYNC_STATUS_EVENT, handleCloudStatus);
+  }, []);
+
   // Otomatis sinkronkan perubahan profil kelas/soal ke Cloud (debounced 2.5 detik) jika pengguna memiliki Kode Lisensi aktif
   useEffect(() => {
     if (!isLicensed(quota.tier) || !quota.licenseKey) {
       setStorageStatus('local');
       return;
     }
+    const currentUiStatus = getCloudSyncUiStatus();
+    if (currentUiStatus === 'conflict' || currentUiStatus === 'reverify_required') {
+      setStorageStatus(currentUiStatus);
+      return;
+    }
     setStorageStatus('syncing');
     const timer = setTimeout(() => {
       pushWorkspaceToCloud()
         .then((res) => {
-          setStorageStatus(res.ok ? 'synced' : 'sync_error');
+          if (res.conflict) {
+            setStorageStatus('conflict');
+            triggerAppToast(
+              'Konflik Cloud terdeteksi! Buka menu Lisensi untuk menyelesaikan sebelum menimpa data.'
+            );
+          } else if (res.pinReverificationRequired) {
+            setStorageStatus('reverify_required');
+            triggerAppToast(
+              'Verifikasi ulang PIN Cloud Sync diperlukan. Buka menu Lisensi untuk melanjutkan.'
+            );
+          } else if (res.ok) {
+            setStorageStatus(res.cloudConfigured ? 'synced' : 'unconfigured');
+          } else {
+            setStorageStatus('sync_error');
+          }
         })
         .catch(() => {
           setStorageStatus('sync_error');
@@ -320,7 +378,7 @@ export function App() {
     const refreshedProf = getSchoolProfile();
     setSchoolProfile(refreshedProf);
     setIsClassConfirmed(hasConfirmedClassSetup());
-    setStorageStatus(getLastCloudSyncAt() ? 'synced' : 'local');
+    setStorageStatus(getCloudSyncUiStatus());
     const refreshedBank = getBankSoal();
     if (refreshedBank.length > 0) {
       setBankList(refreshedBank);
@@ -331,6 +389,7 @@ export function App() {
 
   const handleGenerate = async (req: GenerationRequest) => {
     setErrorMessage(null);
+    setLastFailedGen(null);
     const quotaResult = deductQuota();
     if (!quotaResult.success) {
       setErrorMessage(quotaResult.message || 'Kuota pembuatan soal Bapak/Ibu habis.');
@@ -343,12 +402,13 @@ export function App() {
     try {
       const assessment = await generateAsesmen(req);
       setCurrentAssessment(assessment);
-      saveToBankSoal(assessment);
-      setBankList(getBankSoal());
+      saveToBankSoal(assessment, schoolProfile);
+      setBankList(getBankSoal(schoolProfile));
       setActiveTab('worksheet');
     } catch (err: any) {
       const refunded = refundQuota();
       setQuota(refunded);
+      setLastFailedGen({ kind: 'assessment', req });
       setErrorMessage(
         `${err.message || 'Gagal memproses asesmen.'} (Kredit kuota telah dikembalikan secara otomatis ke akun Bapak/Ibu).`
       );
@@ -359,6 +419,7 @@ export function App() {
 
   const handleGenerateRangkuman = async (req: RangkumanRequest) => {
     setErrorMessage(null);
+    setLastFailedGen(null);
     const quotaResult = deductQuota();
     if (!quotaResult.success) {
       setErrorMessage(quotaResult.message || 'Kuota pembuatan rangkuman materi habis.');
@@ -371,11 +432,12 @@ export function App() {
     try {
       const summary = await generateRangkumanMateri(req);
       setCurrentRangkuman(summary);
-      saveToBankRangkuman(summary);
+      saveToBankRangkuman(summary, schoolProfile);
       setActiveTab('rangkuman_view');
     } catch (err: any) {
       const refunded = refundQuota();
       setQuota(refunded);
+      setLastFailedGen({ kind: 'rangkuman', req });
       setErrorMessage(
         `${err.message || 'Gagal merangkum materi.'} (Kredit kuota telah dikembalikan secara otomatis ke akun Bapak/Ibu).`
       );
@@ -437,9 +499,29 @@ export function App() {
       mataPelajaran: profile.mataPelajaranUtama,
       jenjangFase: targetFase,
       kelas: profile.kelasUtama,
+      rombel: profile.rombelAktif,
+      semester: profile.semester,
+      tahunAjaran: profile.tahunAjaran,
+      schoolId: resolveSchoolId(profile),
       tipeAsesmen: 'Formatif (Proses Pembelajaran)',
       materiPokok: tp.materiPokok,
       tujuanPembelajaranInput: `[TP ${tp.kode}] ${tp.tujuanPembelajaran}`,
+      tpId: tp.id,
+      tpKode: tp.kode,
+      subTpIds: tp.subTP?.map((s) => s.id),
+      tpListContext: [
+        {
+          id: tp.id,
+          kode: tp.kode,
+          materiPokok: tp.materiPokok,
+          deskripsi: tp.tujuanPembelajaran,
+          subTP: tp.subTP?.map((s) => ({
+            id: s.id,
+            kode: s.kode,
+            deskripsi: s.kompetensi,
+          })),
+        },
+      ],
       jumlahPG: 5,
       jumlahPGK: 2,
       jumlahUraian: 2,
@@ -466,6 +548,12 @@ export function App() {
       mataPelajaran: profile.mataPelajaranUtama,
       jenjangFase: targetFase,
       kelas: profile.kelasUtama,
+      rombel: profile.rombelAktif,
+      semester: profile.semester,
+      tahunAjaran: profile.tahunAjaran,
+      schoolId: resolveSchoolId(profile),
+      tpId: tp.id,
+      tpKode: tp.kode,
       topik: tp.materiPokok,
       catatanKeinginan: tp.arahanRangkuman,
       gayaBahasa: defaultGaya,
@@ -479,8 +567,28 @@ export function App() {
       mataPelajaran: profile.mataPelajaranUtama,
       jenjangFase: targetFase,
       kelas: profile.kelasUtama,
+      rombel: profile.rombelAktif,
+      semester: profile.semester,
+      tahunAjaran: profile.tahunAjaran,
+      schoolId: resolveSchoolId(profile),
       materiPokok: tp.materiPokok,
       tujuanPembelajaranInput: `[TP ${tp.kode}] ${tp.tujuanPembelajaran}`,
+      tpId: tp.id,
+      tpKode: tp.kode,
+      subTpIds: tp.subTP?.map((s) => s.id),
+      tpListContext: [
+        {
+          id: tp.id,
+          kode: tp.kode,
+          materiPokok: tp.materiPokok,
+          deskripsi: tp.tujuanPembelajaran,
+          subTP: tp.subTP?.map((s) => ({
+            id: s.id,
+            kode: s.kode,
+            deskripsi: s.kompetensi,
+          })),
+        },
+      ],
       sourceRangkuman: undefined,
     });
     setActiveTab('generator');
@@ -493,6 +601,12 @@ export function App() {
       mataPelajaran: profile.mataPelajaranUtama,
       jenjangFase: targetFase,
       kelas: profile.kelasUtama,
+      rombel: profile.rombelAktif,
+      semester: profile.semester,
+      tahunAjaran: profile.tahunAjaran,
+      schoolId: resolveSchoolId(profile),
+      tpId: tp.id,
+      tpKode: tp.kode,
       topik: tp.materiPokok,
       catatanKeinginan: tp.arahanRangkuman,
     });
@@ -502,7 +616,8 @@ export function App() {
 
   const handleOpenModulAjar = (tp: CustomTPItem, profile: SchoolProfile) => {
     setActiveTP(tp);
-    const doc = buildSmartModulAjar(tp, profile);
+    const saved = loadLatestModulAjarDraft(profile, tp);
+    const doc = saved?.doc || buildSmartModulAjar(tp, profile);
     setCurrentModulAjar(doc);
     setActiveTab('modul_ajar');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -511,7 +626,8 @@ export function App() {
   const handleOpenLKPD = (tp: CustomTPItem, profile: SchoolProfile) => {
     setActiveTP(tp);
     setActiveLKPDTP(tp);
-    const doc = buildSmartLKPD(tp, profile);
+    const saved = loadLatestLKPDDraft(profile, tp);
+    const doc = saved?.doc || buildSmartLKPD(tp, profile);
     setCurrentLKPD(doc);
     setActiveTab('lkpd');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -551,7 +667,11 @@ export function App() {
     activeSelectedTP ||
     activeLKPDTP ||
     (currentModulAjar
-      ? activeTPList.find((t) => t.kode === currentModulAjar.tpKode)
+      ? activeTPList.find(
+          (t) =>
+            (currentModulAjar.tpId && t.id === currentModulAjar.tpId) ||
+            t.kode === currentModulAjar.tpKode
+        )
       : undefined) ||
     (currentLKPD
       ? activeTPList.find((t) => t.id === currentLKPD.tpId || t.kode === currentLKPD.tpKode)
@@ -610,8 +730,65 @@ export function App() {
             mobileMenuButtonRef={mobileMenuButtonRef}
           />
 
-        <main className="app-main-container" style={{ flex: 1, padding: '24px 28px 80px', maxWidth: 1240, width: '100%', margin: '0 auto' }}>
-          <AppErrorBanner message={errorMessage} onDismiss={() => setErrorMessage(null)} />
+        <main className="app-main-container" style={{ flex: 1, minWidth: 0, padding: '24px 28px 80px', maxWidth: 1240, width: '100%', margin: '0 auto' }}>
+          <AppErrorBanner
+            message={errorMessage}
+            onDismiss={() => {
+              setErrorMessage(null);
+              setLastFailedGen(null);
+            }}
+          />
+          {errorMessage && lastFailedGen && (
+            <div
+              className="no-print"
+              style={{
+                marginBottom: 16,
+                padding: '12px 16px',
+                borderRadius: 10,
+                background: '#fff7ed',
+                border: '1px solid #fed7aa',
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+              }}
+            >
+              <span style={{ fontSize: 13, color: '#9a3412', fontWeight: 600 }}>
+                Layanan AI gagal/offline. Pilih untuk mencoba AI kembali atau menyusun draf cadangan terstruktur:
+              </span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline"
+                  disabled={isLoading || isLoadingRangkuman}
+                  onClick={() => {
+                    if (lastFailedGen.kind === 'assessment') {
+                      handleGenerate({ ...lastFailedGen.req, allowOfflineFallback: false });
+                    } else {
+                      handleGenerateRangkuman({ ...lastFailedGen.req, allowOfflineFallback: false });
+                    }
+                  }}
+                >
+                  Coba AI Lagi
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  disabled={isLoading || isLoadingRangkuman}
+                  onClick={() => {
+                    if (lastFailedGen.kind === 'assessment') {
+                      handleGenerate({ ...lastFailedGen.req, allowOfflineFallback: true });
+                    } else {
+                      handleGenerateRangkuman({ ...lastFailedGen.req, allowOfflineFallback: true });
+                    }
+                  }}
+                >
+                  Gunakan Draf Cadangan Offline
+                </button>
+              </div>
+            </div>
+          )}
 
           <BackToHubButton
             visible={isViewingDoc}
@@ -643,6 +820,8 @@ export function App() {
                   handleConfirmClassChange(true);
                   setActiveTab(tab as any);
                 }}
+                activeModulAjar={currentModulAjar}
+                activeLKPD={currentLKPD}
               />
             </div>
           )}
@@ -662,6 +841,8 @@ export function App() {
                   kelasHarian={activeKelasHarian}
                   onBackToClassHub={() => setActiveTab('tp_list')}
                   onToast={triggerAppToast}
+                  activeModulAjar={currentModulAjar}
+                  activeLKPD={currentLKPD}
                 />
               </div>
             )}
@@ -682,6 +863,7 @@ export function App() {
               <div className="animate-view-enter" key="bank">
                 <BankSoalView
                   bankList={bankList}
+                  schoolProfile={schoolProfile}
                   onSelectAssessment={handleSelectFromBank}
                   onDeleteAssessment={handleDeleteFromBank}
                   onGoToGenerator={() => setActiveTab('generator')}
@@ -736,6 +918,7 @@ export function App() {
                   customTP={activeTP}
                   onPrint={handlePrint}
                   onBackToClassHub={() => setActiveTab('tp_list')}
+                  onDraftSaved={(doc) => setCurrentModulAjar(doc)}
                 />
               </div>
             )}
@@ -748,6 +931,7 @@ export function App() {
                   customTP={activeTP}
                   onPrint={handlePrint}
                   onBackToClassHub={() => setActiveTab('tp_list')}
+                  onDraftSaved={(doc) => setCurrentLKPD(doc)}
                 />
               </div>
             )}

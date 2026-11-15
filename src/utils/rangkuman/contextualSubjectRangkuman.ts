@@ -23,17 +23,20 @@ export function buildContextualSubjectRangkuman(
   const lowerMapel = req.mataPelajaran.toLowerCase();
   const lowerTopik = rawTopik.toLowerCase();
 
+  const isNonIslamAgama =
+    /kristen|katolik|protestan|hindu|buddha|konghucu|khonghucu/.test(lowerMapel);
   const isPancasila = lowerMapel.includes('pancasila') || lowerMapel.includes('ppkn');
   const isAgama =
-    lowerMapel.includes('agama') ||
-    lowerMapel.includes('pai') ||
-    lowerMapel.includes('quran') ||
-    lowerMapel.includes('hadis') ||
-    lowerMapel.includes('akidah') ||
-    lowerMapel.includes('fikih') ||
-    lowerMapel.includes('kebudayaan islam') ||
-    lowerMapel.includes('ski') ||
-    lowerMapel.includes('arab');
+    !isNonIslamAgama &&
+    (lowerMapel.includes('agama') ||
+      lowerMapel.includes('pai') ||
+      lowerMapel.includes('quran') ||
+      lowerMapel.includes('hadis') ||
+      lowerMapel.includes('akidah') ||
+      lowerMapel.includes('fikih') ||
+      lowerMapel.includes('kebudayaan islam') ||
+      lowerMapel.includes('ski') ||
+      lowerMapel.includes('arab'));
   const isInformatika =
     lowerMapel.includes('informatika') ||
     lowerMapel.includes('komputer');
@@ -598,7 +601,47 @@ export function buildContextualSubjectRangkuman(
         jawaban: 'Alat musik ritmis tidak bernada dan mengatur tempo (misal gendang/tamborin), sedangkan alat musik melodis bernada dan memainkan melodi (misal pianika/rekorder).',
       },
     ];
-  } else if (isEkonomiIPS || isSejarah) {
+  } else if (isSejarah && !isEkonomiIPS) {
+    ringkasanSatuKalimat = `Menelusuri peristiwa sejarah "${rawTopik}" melalui cara berpikir diakronik (kronologis), sinkronik, serta analisis sebab-akibat (kausalitas) dalam ruang dan waktu.`;
+    petaKonsep = [
+      '1. Manusia, Ruang, dan Waktu dalam Sejarah',
+      '2. Berpikir Diakronik (Kronologi) vs Sinkronik',
+      '3. Sumber Sejarah (Primer & Sekunder) serta Heuristik',
+      '4. Kausalitas, Kesinambungan & Perubahan',
+    ];
+    poinUtama = [
+      {
+        judul: '1. Manusia, Ruang, dan Waktu dalam Peristiwa Sejarah',
+        penjelasan:
+          'Sejarah mengkaji aktivitas manusia di masa lampau yang terikat pada ruang geografis tertentu dan berlangsung dalam alur waktu yang berkesinambungan.',
+        poinKunci: [
+          'Berpikir Diakronik (Kronologis): menelusuri rentetan peristiwa secara memanjang dalam waktu dari awal hingga akhir.',
+          'Berpikir Sinkronik: membedah kondisi sosial, politik, dan budaya secara mendalam pada satu kurun waktu tertentu.',
+        ],
+      },
+      {
+        judul: '2. Sumber Sejarah & Analisis Sebab-Akibat (Kausalitas)',
+        penjelasan:
+          'Rekonstruksi sejarah berpijak pada bukti autentik dan penelaahan faktor pendorong maupun dampak jangka panjangnya.',
+        poinKunci: [
+          'Sumber Primer: kesaksian langsung pelaku/saksi mata, arsip asli, prasasti, atau artefak sezaman.',
+          'Sumber Sekunder: buku kajian sejarawan atau penulisan ulang berbasis sumber primer.',
+        ],
+      },
+    ];
+    glosarium = [
+      { istilah: 'Diakronik (Kronologis)', makna: 'Cara berpikir sejarah yang memanjang dalam waktu dan menyempit dalam ruang.' },
+      { istilah: 'Sinkronik', makna: 'Cara berpikir sejarah yang melebar dalam ruang namun fokus pada satu masa tertentu.' },
+      { istilah: 'Kausalitas', makna: 'Hubungan sebab-akibat antarfaktor yang memicu terjadinya peristiwa sejarah.' },
+    ];
+    kuisKilat = [
+      {
+        nomor: 1,
+        pertanyaan: 'Apa perbedaan utama antara berpikir diakronik dan berpikir sinkronik dalam sejarah?',
+        jawaban: 'Diakronik menelusuri urutan peristiwa sepanjang waktu, sedangkan sinkronik menganalisis berbagai aspek masyarakat secara mendalam pada kurun waktu tertentu.',
+      },
+    ];
+  } else if (isEkonomiIPS) {
     ringkasanSatuKalimat = `Menganalisis kronologi peristiwa sejarah, prinsip pemenuhan kebutuhan manusia, skala prioritas, serta dinamika interaksi sosial di masyarakat.`;
     petaKonsep = [
       '1. Konsep Ruang, Waktu, & Kausalitas',
@@ -657,7 +700,49 @@ export function buildContextualSubjectRangkuman(
         jawaban: 'Biaya peluang adalah nilai alternatif terbaik yang dikorbankan saat memilih suatu keputusan. Contohnya: jika memilih uang tabungan untuk membeli buku pelajaran, biaya peluangnya adalah tas baru yang tidak jadi dibeli.',
       },
     ];
-  } else if (isInformatika || isPKK) {
+  } else if (isInformatika && !isPKK) {
+    ringkasanSatuKalimat = `Menerapkan 4 pilar Computational Thinking (dekomposisi, pengenalan pola, abstraksi, algoritma), representasi data, serta etika keamanan digital untuk "${rawTopik}".`;
+    petaKonsep = [
+      '1. 4 Pilar Berpikir Komputasional (CT)',
+      '2. Algoritma, Representasi Data & Struktur Kontrol',
+      '3. Sistem Komputer & Jaringan',
+      '4. Etika Digital & Keamanan Data',
+    ];
+    poinUtama = [
+      {
+        judul: '1. 4 Pilar Berpikir Komputasional (Computational Thinking)',
+        penjelasan:
+          'Berpikir komputasional adalah metode memecahkan masalah besar secara sistematis, terukur, dan dapat dijalankan secara logis.',
+        poinKunci: [
+          'Dekomposisi: memecah masalah kompleks menjadi sub-bagian yang lebih kecil.',
+          'Pengenalan Pola: mencari kesamaan/keteraturan dari data maupun kasus berulang.',
+          'Abstraksi: menyaring informasi inti dan mengabaikan detail yang tidak relevan.',
+          'Algoritma: merancang urutan langkah logis yang tepat dari masukan hingga keluaran.',
+        ],
+      },
+      {
+        judul: '2. Etika Digital & Keamanan Informasi',
+        penjelasan:
+          'Pemanfaatan teknologi informasi menuntut kesadaran menjaga privasi data, verifikasi informasi, serta hak cipta digital.',
+        poinKunci: [
+          'Gunakan autentikasi kuat dan hindari membagikan kredensial akun pribadi.',
+          'Verifikasi keaslian sumber informasi sebelum menyebarkannya di ruang digital.',
+        ],
+      },
+    ];
+    glosarium = [
+      { istilah: 'Dekomposisi', makna: 'Pemecahan masalah kompleks menjadi bagian-bagian kecil agar mudah dikelola.' },
+      { istilah: 'Algoritma', makna: 'Urutan langkah logis yang terbatas dan jelas untuk menyelesaikan persoalan.' },
+      { istilah: 'Abstraksi', makna: 'Penyaringan aspek esensial persoalan dengan mengabaikan detail teknis yang tidak perlu.' },
+    ];
+    kuisKilat = [
+      {
+        nomor: 1,
+        pertanyaan: `Bagaimana penerapan pilar Dekomposisi dan Algoritma pada materi "${rawTopik}"?`,
+        jawaban: 'Dekomposisi memecah tugas menjadi sub-langkah kecil yang jelas, lalu algoritma mengurutkan langkah tersebut hingga menghasilkan solusi yang valid.',
+      },
+    ];
+  } else if (isPKK) {
     ringkasanSatuKalimat = `Menerapkan 4 pilar computational thinking, pemanfaatan teknologi yang aman, serta perancangan kewirausahaan berbasis perhitungan HPP & BEP.`;
     petaKonsep = [
       '1. 4 Pilar Berpikir Komputasional (CT)',
@@ -759,7 +844,7 @@ export function buildContextualSubjectRangkuman(
       '🎯 Pahami contoh kasus dan definisi istilah pada Glosarium agar tidak keliru membedakan konsep.',
     ];
     faktaMenarik = [
-      `Tahukah Kamu? Mengaitkan konsep "${rawTopik}" dengan contoh nyata di lingkungan terbukti memperkuat ingatan memori jangka panjang hingga 2 kali lipat!`,
+      `Catatan Belajar: Menghubungkan konsep "${rawTopik}" dengan contoh nyata di lingkungan membantu siswa memahami alasan dan manfaat materi secara lebih bermakna.`,
     ];
     glosarium = [
       { istilah: rawTopik, makna: `Topik pembelajaran utama pada mata pelajaran ${req.mataPelajaran} Kelas ${req.kelas}.` },
@@ -843,17 +928,18 @@ export function buildRangkumanFromUploadedText(
     .filter((s) => s.length > 20);
 
   const sourceChunks = paragraphs.length >= 2 ? paragraphs : sentences;
+  const totalChunksCount = sourceChunks.length;
+  const maxPoints = Math.min(8, Math.max(2, totalChunksCount));
   const mainPoints: PoinRangkuman[] = [];
-  const maxPoints = Math.min(4, Math.max(2, sourceChunks.length));
 
   for (let i = 0; i < maxPoints; i++) {
     const chunk = sourceChunks[i] || sentences[i] || rawText.slice(0, 250);
+    if (!chunk) continue;
     const chunkSentences = chunk
       .split(/(?<=[.!?])\s+/)
       .map((s) => s.trim())
       .filter((s) => s.length > 10);
 
-    // Buat subjudul yang informatif dari kalimat pertama chunk
     const firstSent = chunkSentences[0] || chunk;
     const words = firstSent.replace(/^[\d.)•*-]+\s*/, '').split(/\s+/);
     const shortHeading =
@@ -865,7 +951,7 @@ export function buildRangkumanFromUploadedText(
       poinKunci:
         chunkSentences.slice(1, 4).length > 0
           ? chunkSentences.slice(1, 4)
-          : [chunk.slice(0, 180)],
+          : [chunk.slice(0, 220)],
     });
   }
 
@@ -873,7 +959,7 @@ export function buildRangkumanFromUploadedText(
   const extractedGlossary: IstilahGlosarium[] = [];
   for (const s of sentences) {
     const match = s.match(/^([A-Za-z0-9\s()-]{3,35})\s+(?:adalah|merupakan|ialah|:)\s+(.{15,140})/i);
-    if (match && extractedGlossary.length < 4) {
+    if (match && extractedGlossary.length < 5) {
       extractedGlossary.push({
         istilah: match[1].trim(),
         makna: match[2].trim(),
@@ -888,42 +974,53 @@ export function buildRangkumanFromUploadedText(
   }
 
   const jenjangLabel = getJenjangLabel(req);
+  const processedChunksCount = mainPoints.length;
+  const wasTruncated = totalChunksCount > processedChunksCount;
 
   return {
     id,
     createdAt,
-    judul: `📑 Rangkuman Materi: ${inferredTitle} (${jenjangLabel} Kelas ${req.kelas}) ${noteTag || ''}`.trim(),
+    judul: `📑 Ekstraksi Materi: ${inferredTitle} (${jenjangLabel} Kelas ${req.kelas}) ${noteTag || ''}`.trim(),
     mataPelajaran: req.mataPelajaran,
     jenjangFase: req.jenjangFase,
     kelas: req.kelas,
     topik: inferredTitle,
     sumberAsal: 'upload',
     gayaBahasa: req.gayaBahasa,
+    namaFile: req.namaFile,
+    draftSource: 'upload_heuristic',
+    usedFallback: true,
+    fallbackReason: wasTruncated
+      ? `Ringkasan disusun dengan ekstraksi heuristik luring (${processedChunksCount} dari ${totalChunksCount} bagian dokumen ditampilkan). Gunakan AI untuk sintesis menyeluruh.`
+      : 'Ringkasan disusun dengan ekstraksi heuristik teks luring (non-AI); silakan tinjau kelengkapannya.',
+    sourceTruncated: wasTruncated,
+    sourceCharacterCount: rawText.length,
+    processedChunksCount,
+    totalChunksCount,
     ringkasanSatuKalimat:
       sentences[0] ||
-      `Rangkuman terstruktur dari materi "${inferredTitle}" untuk memudahkan pemahaman siswa Kelas ${req.kelas}.`,
+      `Ekstraksi poin inti dari dokumen "${inferredTitle}" untuk ${req.mataPelajaran} Kelas ${req.kelas}.`,
     petaKonsep: mainPoints.map((mp) => mp.judul),
     rumusAtauPola: [
       {
-        label: 'Pokok Bahasan Utama Dokumen',
+        label: 'Cuplikan Pembuka Dokumen',
         isi: sentences.slice(0, 2).join(' ') || `Membahas konsep inti ${inferredTitle}.`,
       },
     ],
     poinUtama: mainPoints,
     contohKonkret: {
-      judulContoh: 'Kutipan Inti & Analisis Materi Sumber',
+      judulContoh: '[Dari Sumber] Kutipan Bagian Awal Dokumen Guru',
       teksContoh: (paragraphs.slice(0, 2).join('\n\n') || rawText).slice(0, 650),
       bedahAnalisis: [
-        '✅ Disarikan langsung dari dokumen/catatan materi yang diunggah oleh Bapak/Ibu Guru.',
-        `✅ Disesuaikan untuk pembelajaran ${req.mataPelajaran} Kelas ${req.kelas} (${jenjangLabel}).`,
+        `[Ekstraksi Sumber] Mengambil ${processedChunksCount} dari ${totalChunksCount} bagian paragraf dokumen unggahan.`,
+        `[Penyesuaian Kelas] Konteks disematkan untuk ${req.mataPelajaran} Kelas ${req.kelas} (${jenjangLabel}).`,
       ],
     },
     tipsUjian: [
-      `🎯 Pelajari kembali poin-poin kunci pada setiap bagian "${inferredTitle}" dan pahami definisi istilah pada tabel Glosarium.`,
+      `Pelajari kembali definisi istilah pada tabel Glosarium dan periksa ${wasTruncated ? `${totalChunksCount - processedChunksCount} bagian dokumen lanjutan yang belum tercuplik penuh` : 'bagian penting dokumen sumber'}.`,
     ],
     faktaMenarik: [
-      sentences[sentences.length - 1] ||
-        `Materi ${inferredTitle} merangkum poin-poin esensial yang wajib dikuasai siswa sebelum evaluasi.`,
+      `Sumber dokumen memuat ${totalChunksCount} bagian materi (${rawText.length.toLocaleString('id-ID')} karakter). Tinjau kembali naskah asli apabila terdapat rumus atau ilustrasi grafis.`,
     ],
     glosarium: extractedGlossary,
     kuisKilat: mainPoints.slice(0, 2).map((mp, idx) => ({
@@ -932,6 +1029,6 @@ export function buildRangkumanFromUploadedText(
       jawaban: mp.penjelasan,
     })),
     pesanInspirasi:
-      'Membaca rangkuman secara terstruktur membantu ingatan bertahan jauh lebih lama. Semangat belajar! 🌟',
+      'Membaca ringkasan terstruktur sambil memverifikasi sumber asli membantu pemahaman konsep secara menyeluruh.',
   };
 }

@@ -24,10 +24,10 @@ import { buildSignatureBlockTable } from './docxShared';
  * 3. Lembar Jawaban Siswa (LJK Kertas Ujian)
  * 4. Kunci Jawaban & Rubrik Penskoran Guru + Tanda Tangan
  */
-export async function exportNaskahUjianToDocx(
+export async function buildNaskahUjianDocx(
   naskah: NaskahUjianDokumen,
   userProfile?: SchoolProfile
-): Promise<void> {
+): Promise<Document> {
   const profile = userProfile || getSchoolProfile();
   const children: (Paragraph | Table)[] = [];
 
@@ -139,6 +139,7 @@ export async function exportNaskahUjianToDocx(
             children: [
               new Paragraph({ children: [new TextRun({ text: `Mata Pelajaran\t: `, bold: true, size: 20 }), new TextRun({ text: naskah.mataPelajaran, size: 20 })] }),
               new Paragraph({ children: [new TextRun({ text: `Kelas / Jenjang\t: `, bold: true, size: 20 }), new TextRun({ text: `${naskah.kelas} (${naskah.jenjang})`, size: 20 })] }),
+              new Paragraph({ children: [new TextRun({ text: `Semester\t\t: `, bold: true, size: 20 }), new TextRun({ text: naskah.semester || profile.semester || '-', size: 20 })] }),
               new Paragraph({ children: [new TextRun({ text: `Hari, Tanggal\t: `, bold: true, size: 20 }), new TextRun({ text: `..........................................`, size: 20 })] }),
               new Paragraph({ children: [new TextRun({ text: `Alokasi Waktu\t: `, bold: true, size: 20 }), new TextRun({ text: naskah.alokasiWaktu, size: 20 })] }),
             ],
@@ -179,6 +180,11 @@ export async function exportNaskahUjianToDocx(
   // BAGIAN 3: SOAL PILIHAN GANDA (PG)
   // ==========================================
   if (naskah.soalPG && naskah.soalPG.length > 0) {
+    const hasFiveOptions =
+      naskah.soalPG.some((s) => (s.pilihan?.length || 0) >= 5) ||
+      naskah.jenjang === 'SMA/MA' ||
+      naskah.jenjang === 'SMK';
+    const pgOptionText = hasFiveOptions ? 'A, B, C, D, atau E' : 'A, B, C, atau D';
     children.push(
       new Paragraph({
         spacing: { before: 180, after: 100 },
@@ -191,7 +197,7 @@ export async function exportNaskahUjianToDocx(
             color: '1E3A8A',
           }),
           new TextRun({
-            text: ' — Pilihlah salah satu jawaban yang paling tepat dengan memberi tanda silang (X) pada huruf A, B, C, D, atau E!',
+            text: ` — Pilihlah salah satu jawaban yang paling tepat dengan memberi tanda silang (X) pada huruf ${pgOptionText}!`,
             italics: true,
             size: 20,
             font: 'Calibri',
@@ -524,9 +530,12 @@ export async function exportNaskahUjianToDocx(
     ];
 
     naskah.soalPG.forEach((pg) => {
-      const optionsStr = (profile.jenjang === 'SMA/MA' || profile.jenjang === 'SMK')
-        ? '[ A ]   [ B ]   [ C ]   [ D ]   [ E ]'
-        : '[ A ]   [ B ]   [ C ]   [ D ]';
+      const optionsStr =
+        pg.pilihan && pg.pilihan.length > 0
+          ? pg.pilihan.map((opt) => `[ ${opt.label} ]`).join('   ')
+          : naskah.jenjang === 'SMA/MA' || naskah.jenjang === 'SMK'
+          ? '[ A ]   [ B ]   [ C ]   [ D ]   [ E ]'
+          : '[ A ]   [ B ]   [ C ]   [ D ]';
       rowsPG.push(
         new TableRow({
           children: [
@@ -544,12 +553,48 @@ export async function exportNaskahUjianToDocx(
     children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: rowsPG }));
   }
 
+  // Lembar Jawaban PGK (Pilihan Ganda Kompleks)
+  const hasPGK = Boolean(naskah.soalPGK && naskah.soalPGK.length > 0);
+  if (hasPGK) {
+    children.push(
+      new Paragraph({
+        spacing: { before: 140, after: 60 },
+        children: [new TextRun({ text: 'B. LEMBAR JAWABAN PILIHAN GANDA KOMPLEKS (PGK):', bold: true, size: 20 })],
+      })
+    );
+
+    const rowsPGK: TableRow[] = [
+      new TableRow({
+        children: [
+          new TableCell({ width: { size: 15, type: WidthType.PERCENTAGE }, shading: { fill: 'F1F5F9' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, size: 19 })] })] }),
+          new TableCell({ width: { size: 85, type: WidthType.PERCENTAGE }, shading: { fill: 'F1F5F9' }, children: [new Paragraph({ children: [new TextRun({ text: 'Centang (✓) Benar / Salah Tiap Pernyataan', bold: true, size: 19 })] })] }),
+        ],
+      }),
+      ...naskah.soalPGK.map((pgk) => {
+        const stmtStr = (pgk.pernyataan || [])
+          .map((_, idx) => `(${idx + 1}) [ B ] [ S ]`)
+          .join('    ');
+        return new TableRow({
+          children: [
+            new TableCell({
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(pgk.nomor), bold: true, size: 19 })] })],
+            }),
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: stmtStr || '(1) [ B ] [ S ]', size: 18, font: 'Courier New' })] })],
+            }),
+          ],
+        });
+      }),
+    ];
+    children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: rowsPGK }));
+  }
+
   // Lembar Jawaban Uraian
   if (naskah.soalUraian && naskah.soalUraian.length > 0) {
     children.push(
       new Paragraph({
         spacing: { before: 140, after: 60 },
-        children: [new TextRun({ text: 'B. LEMBAR JAWABAN SOAL URAIAN:', bold: true, size: 20 })],
+        children: [new TextRun({ text: `${hasPGK ? 'C' : 'B'}. LEMBAR JAWABAN SOAL URAIAN:`, bold: true, size: 20 })],
       })
     );
     naskah.soalUraian.forEach((u) => {
@@ -656,11 +701,40 @@ export async function exportNaskahUjianToDocx(
     })
   );
 
+  // Tabel Kisi-Kisi Cakupan TP
+  if (naskah.tpTerliput && naskah.tpTerliput.length > 0) {
+    children.push(
+      new Paragraph({
+        spacing: { before: 60, after: 60 },
+        children: [new TextRun({ text: 'KISI-KISI CAKUPAN TUJUAN PEMBELAJARAN (TP):', bold: true, size: 20 })],
+      })
+    );
+    const rowsTP: TableRow[] = [
+      new TableRow({
+        children: [
+          new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, shading: { fill: '0F172A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kode TP', bold: true, color: 'FFFFFF', size: 19 })] })] }),
+          new TableCell({ width: { size: 64, type: WidthType.PERCENTAGE }, shading: { fill: '0F172A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Materi Pokok / Indikator', bold: true, color: 'FFFFFF', size: 19 })] })] }),
+          new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, shading: { fill: '0F172A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Jumlah Soal', bold: true, color: 'FFFFFF', size: 19 })] })] }),
+        ],
+      }),
+      ...naskah.tpTerliput.map((tpItem) =>
+        new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: tpItem.kode, bold: true, size: 18 })] })] }),
+            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: tpItem.materiPokok, size: 18 })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${tpItem.alokasiSoal} Soal`, size: 18 })] })] }),
+          ],
+        })
+      ),
+    ];
+    children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: rowsTP }));
+  }
+
   // Tabel Kunci Jawaban PG
   if (naskah.kunciPG && naskah.kunciPG.length > 0) {
     children.push(
       new Paragraph({
-        spacing: { before: 80, after: 60 },
+        spacing: { before: 120, after: 60 },
         children: [new TextRun({ text: 'A. KUNCI JAWABAN SOAL PILIHAN GANDA & PEMBAHASAN:', bold: true, size: 20 })],
       })
     );
@@ -668,22 +742,26 @@ export async function exportNaskahUjianToDocx(
     const rowsKunciPG: TableRow[] = [
       new TableRow({
         children: [
-          new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 19 })] })] }),
-          new TableCell({ width: { size: 15, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kunci', bold: true, color: 'FFFFFF', size: 19 })] })] }),
-          new TableCell({ width: { size: 65, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Pembahasan / Rasionalisasi Ilmiah', bold: true, color: 'FFFFFF', size: 19 })] })] }),
-          new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Skor', bold: true, color: 'FFFFFF', size: 19 })] })] }),
+          new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 18 })] })] }),
+          new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kunci', bold: true, color: 'FFFFFF', size: 18 })] })] }),
+          new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Level Kognitif', bold: true, color: 'FFFFFF', size: 18 })] })] }),
+          new TableCell({ width: { size: 54, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Pembahasan / Rasionalisasi Ilmiah', bold: true, color: 'FFFFFF', size: 18 })] })] }),
+          new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Skor', bold: true, color: 'FFFFFF', size: 18 })] })] }),
         ],
       }),
-      ...naskah.kunciPG.map((k) =>
-        new TableRow({
+      ...naskah.kunciPG.map((k) => {
+        const matchedPG = naskah.soalPG?.find((q) => q.nomor === k.nomor);
+        const lvl = k.levelKognitif || matchedPG?.levelKognitif || '-';
+        return new TableRow({
           children: [
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(k.nomor), bold: true, size: 19 })] })] }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: k.kunci, bold: true, size: 20, color: '1E3A8A' })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: k.pembahasan || '-', size: 19 })] })] }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(k.skor), size: 19 })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(k.nomor), bold: true, size: 18 })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: k.kunci, bold: true, size: 19, color: '1E3A8A' })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: lvl, size: 17 })] })] }),
+            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: k.pembahasan || '-', size: 18 })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(k.skor), size: 18 })] })] }),
           ],
-        })
-      ),
+        });
+      }),
     ];
     children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: rowsKunciPG }));
   }
@@ -700,22 +778,26 @@ export async function exportNaskahUjianToDocx(
     const rowsKunciPGK: TableRow[] = [
       new TableRow({
         children: [
-          new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 19 })] })] }),
-          new TableCell({ width: { size: 40, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kunci Validasi (B / S)', bold: true, color: 'FFFFFF', size: 19 })] })] }),
-          new TableCell({ width: { size: 40, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Keterangan', bold: true, color: 'FFFFFF', size: 19 })] })] }),
-          new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Skor', bold: true, color: 'FFFFFF', size: 19 })] })] }),
+          new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 18 })] })] }),
+          new TableCell({ width: { size: 28, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kunci Validasi (B / S)', bold: true, color: 'FFFFFF', size: 18 })] })] }),
+          new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Level Kognitif', bold: true, color: 'FFFFFF', size: 18 })] })] }),
+          new TableCell({ width: { size: 36, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Keterangan', bold: true, color: 'FFFFFF', size: 18 })] })] }),
+          new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Skor', bold: true, color: 'FFFFFF', size: 18 })] })] }),
         ],
       }),
-      ...naskah.kunciPGK.map((k) =>
-        new TableRow({
+      ...naskah.kunciPGK.map((k) => {
+        const matchedPGK = naskah.soalPGK?.find((q) => q.nomor === k.nomor);
+        const lvl = k.levelKognitif || matchedPGK?.levelKognitif || '-';
+        return new TableRow({
           children: [
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(k.nomor), bold: true, size: 19 })] })] }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: k.kunci, bold: true, size: 19 })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: k.pembahasan || '-', size: 19 })] })] }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(k.skor), size: 19 })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(k.nomor), bold: true, size: 18 })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: k.kunci, bold: true, size: 18 })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: lvl, size: 17 })] })] }),
+            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: k.pembahasan || '-', size: 18 })] })] }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(k.skor), size: 18 })] })] }),
           ],
-        })
-      ),
+        });
+      }),
     ];
     children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: rowsKunciPGK }));
   }
@@ -730,15 +812,43 @@ export async function exportNaskahUjianToDocx(
     );
 
     naskah.rubrikUraian.forEach((rub) => {
+      const matchedUraian = naskah.soalUraian?.find((u) => u.nomor === rub.nomor);
+      const contohJawab = rub.contohJawaban || matchedUraian?.contohJawaban;
+      const pedoman = rub.pedomanPenskoran || matchedUraian?.pedomanPenskoran;
+
       children.push(
         new Paragraph({
-          spacing: { before: 60, after: 30 },
+          spacing: { before: 80, after: 30 },
           children: [
             new TextRun({ text: `Butir Soal Nomor ${rub.nomor}: `, bold: true, size: 19 }),
             new TextRun({ text: `${rub.soalRingkas} (Skor Maksimal = ${rub.skorMaksimal})`, italics: true, size: 19 }),
           ],
         })
       );
+
+      if (contohJawab) {
+        children.push(
+          new Paragraph({
+            spacing: { after: 30 },
+            children: [
+              new TextRun({ text: 'Contoh Jawaban / Kunci Uraian: ', bold: true, size: 18, color: '065F46' }),
+              new TextRun({ text: contohJawab, size: 18, color: '1E293B' }),
+            ],
+          })
+        );
+      }
+
+      if (pedoman) {
+        children.push(
+          new Paragraph({
+            spacing: { after: 40 },
+            children: [
+              new TextRun({ text: 'Pedoman Penskoran: ', bold: true, size: 18, color: '1E3A8A' }),
+              new TextRun({ text: pedoman, size: 18, color: '334155' }),
+            ],
+          })
+        );
+      }
 
       const rowsRub: TableRow[] = [
         new TableRow({
@@ -787,8 +897,8 @@ export async function exportNaskahUjianToDocx(
     );
   }
 
-  // Buat file Document & SaveAs
-  const doc = new Document({
+  // Kembalikan Document
+  return new Document({
     sections: [
       {
         properties: {
@@ -805,7 +915,13 @@ export async function exportNaskahUjianToDocx(
       },
     ],
   });
+}
 
+export async function exportNaskahUjianToDocx(
+  naskah: NaskahUjianDokumen,
+  userProfile?: SchoolProfile
+): Promise<void> {
+  const doc = await buildNaskahUjianDocx(naskah, userProfile);
   const blob = await Packer.toBlob(doc);
   const cleanMapel = (naskah.mataPelajaran || 'Mapel').replace(/[^a-zA-Z0-9]/g, '_');
   const cleanKelas = (naskah.kelas || 'Semua').replace(/[^a-zA-Z0-9]/g, '_');

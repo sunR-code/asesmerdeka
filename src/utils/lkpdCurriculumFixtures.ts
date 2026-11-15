@@ -7,6 +7,7 @@ import {
   resolveSubjectApproachRule,
   cleanTopicHeading,
   adaptPresetExtras,
+  buildDefaultStudentProductAndCriteria,
 } from './lkpdSubjectBlueprints';
 import type { CuratedLKPDContent } from './lkpdSubjectBlueprints';
 export type { CuratedLKPDContent };
@@ -365,7 +366,10 @@ function buildMathOtherCuratedFixture(
   }
 
   // SD Kelas 1-2 Penjumlahan & Pengurangan benda konkret <= 20
-  if (grade.gradeBand === 'sd_awal') {
+  if (
+    grade.gradeBand === 'sd_awal' &&
+    /(bilangan|penjumlahan|pengurangan|cacah|20|satuan|mengukur|hitung)/i.test(lower)
+  ) {
     const stimulusText =
       'Di pojok baca kelas 1, di keranjang biru ada 8 buku cerita. Ibu guru menaruh 5 buku cerita lagi ke keranjang biru. Lalu 4 buku cerita dipinjam oleh temanmu untuk dibaca. Hitung berapa buku cerita di keranjang biru sekarang!';
     return {
@@ -886,7 +890,7 @@ function buildMathOtherCuratedFixture(
   }
 
   // Fallback Matematika SD Atas & SMA konkret yang terhitung (Pecahan / Barisan Aritmetika)
-  if (bucketIsSDAtas(grade.gradeBand)) {
+  if (bucketIsSDAtas(grade.gradeBand) && /(pecahan|desimal|persen)/i.test(lower)) {
     const stimulusText =
       'Toko roti membuat sebuah kue loyang berbentuk persegi panjang dan memotongnya menjadi 8 bagian sama besar. Pada pagi hari terjual 3 potong kue, lalu pada siang hari terjual 2/4 loyang kue jenis yang sama. Berapa total bagian kue yang telah terjual dan berapa sisa kue yang belum terjual?';
     return {
@@ -987,7 +991,7 @@ function buildMathOtherCuratedFixture(
     };
   }
 
-  if (isSMA) {
+  if (isSMA && /(barisan|deret|aritmetika|geometri)/i.test(lower)) {
     const stimulusText =
       'Untuk membeli peralatan praktik pribadi, Raka menabung Rp50.000 pada minggu pertama. Setiap minggu berikutnya ia menabung bertambah tetap Rp15.000 dibanding minggu sebelumnya (minggu ke-2 Rp65.000, minggu ke-3 Rp80.000, dan seterusnya). Tentukan besar tabungan Raka pada minggu ke-8 dan jumlah seluruh uang tabungannya setelah genap 8 minggu!';
     return {
@@ -1382,15 +1386,26 @@ function buildSainsCuratedFixture(
     };
   }
 
-  // Sains lainnya (Fotosintesis / Wujud Zat SD, Kalor/Zat SMP, Kimia/Biologi SMA, Projek IPAS SMK) dengan tabel data pengamatan riil sesuai jenjang
+  // Sains lainnya (Wujud Zat SD, Asam-Basa Kimia, Transpor Membran/Osmosis Biologi) sesuai topik terkait
   const isSD = grade.gradeBand === 'sd_awal' || grade.gradeBand === 'sd_atas';
+  const matchesCuratedSainsSD =
+    isSD && /(wujud|zat|kalor|mencair|membeku|menguap|panas|suhu|es)/i.test(lower);
+  const matchesCuratedKimia =
+    /(asam|basa|lakmus|ph|indikator|larutan)/i.test(lower);
+  const matchesCuratedBiologi =
+    /(sel|membran|transpor|osmosis|difusi|organel)/i.test(lower);
+
+  if (!matchesCuratedSainsSD && !matchesCuratedKimia && !matchesCuratedBiologi) {
+    return null;
+  }
+
   const stimulusText = isSD
     ? 'Lani menaruh 2 sendok es batu di dua gelas plastik yang sama besar. Gelas A ditaruh di meja ruang kelas yang teduh, sedangkan Gelas B ditaruh di halaman sekolah yang terkena sinar matahari langsung. Setelah 5 menit, es di Gelas B sudah mencair seluruhnya sedangkan di Gelas A masih tersisa separuh. Bagaimana energi panas matahari memengaruhi kecepatan perubahan wujud es?'
-    : lower.includes('kimia') || lower.includes('asam')
+    : matchesCuratedKimia
     ? 'Sebanyak tiga sampel cairan rumah tangga bening (Larutan X, Y, Z) diuji menggunakan kertas lakmus merah dan lakmus biru di meja praktik. Larutan X mengubah lakmus biru menjadi merah; Larutan Y mengubah lakmus merah menjadi biru; Larutan Z tidak mengubah warna kedua kertas lakmus. Tentukan sifat keasaman ketiga larutan berdasarkan data perubahan warna tersebut!'
     : 'Kelompok pengamat merendam dua potongan kentang segar dengan panjang awal tepat 4,0 cm selama 30 menit ke dalam dua gelas berbeda: Gelas A berisi air tawar murni, Gelas B berisi larutan garam 10%. Setelah 30 menit, panjang kentang di Gelas A bertambah menjadi 4,3 cm (keras/turgid), sedangkan di Gelas B menyusut menjadi 3,6 cm (lunak/lembek). Jelaskan arah perpindahan air pada kedua gelas berdasarkan data panjang awal vs akhir!';
 
-  const expData = lower.includes('kimia') || lower.includes('asam')
+  const expData = matchesCuratedKimia
     ? {
         tools: ['Kertas lakmus merah dan lakmus biru', 'Pelat tetes porselen dan pipet tetes plastik', '3 gelas sampel label X, Y, Z', 'Sarung tangan lateks & kacamata pelindung (APD lab)'],
         hipotesis: 'Larutan bersifat asam akan memerahkan lakmus biru, sedangkan larutan basa membirukan lakmus merah.',
@@ -1452,7 +1467,7 @@ function buildSainsCuratedFixture(
     stimulusKasus: {
       judul: isSD
         ? 'Mengamati Perubahan Wujud Es di Dua Tempat Berbeda'
-        : lower.includes('kimia') || lower.includes('asam')
+        : matchesCuratedKimia
         ? 'Data Uji Kertas Lakmus Tiga Sampel Cairan'
         : 'Pengamatan Panjang Potongan Kentang dalam Dua Larutan',
       teks: stimulusText,
@@ -1512,7 +1527,7 @@ function buildSainsCuratedFixture(
           : 'Jelaskan mekanisme ilmiah yang menyebabkan perbedaan pengamatan pada data di atas!',
         panduanJawabanSingkat: isSD
           ? 'Air tidak hilang, hanya berubah wujud dari es (padat) menjadi air (cair) karena menyerap kalor.'
-          : lower.includes('kimia')
+          : matchesCuratedKimia
           ? 'Larutan X melepas ion H+ (asam, memerahkan lakmus biru), Y melepas OH- (basa, membirukan merah), Z netral.'
           : 'Osmosis: air masuk ke sel kentang pada air tawar (+0,3 cm), sedangkan air keluar menuju larutan garam pekat (-0,4 cm).',
       },
@@ -1623,6 +1638,12 @@ export function buildCuratedOrAdaptiveLKPDContent(
 
   const extras = adaptPresetExtras(presetType, cleanMateri, adaptiveStimulusText);
 
+  const studentMeta = buildDefaultStudentProductAndCriteria(
+    presetType,
+    cleanMateri,
+    undefined
+  );
+
   return {
     isCuratedFixture: false,
     subJudulTopik: ctxText ? `${cleanMateri}: ${ctxText}` : cleanMateri,
@@ -1700,6 +1721,8 @@ export function buildCuratedOrAdaptiveLKPDContent(
         panduanJawabanSingkat: 'Siswa menunjukkan alur langkah kerja dan memeriksa kesesuaiannya terhadap syarat data stimulus.',
       },
     ],
+    produkHasilBelajar: studentMeta.produkHasilBelajar,
+    kriteriaPenilaianSiswa: studentMeta.kriteriaPenilaianSiswa,
     dukunganTambahan: jenjangProf.scaffoldingNote,
     pengayaan: {
       instruksi: 'Pengayaan terkait TP:',
@@ -1768,10 +1791,17 @@ export function buildLKPDDokumenFromCurated(
   tpSourceHash?: string
 ): LKPDDokumen {
   const jenjangFase = jenjangToDefaultFase(profile.jenjang, profile.kelasUtama);
+  const studentMeta = buildDefaultStudentProductAndCriteria(
+    presetType,
+    tp.materiPokok,
+    content.panduanGuru?.rubrikPenilaian
+  );
   return {
     id: `lkpd-${tp.id}-${Date.now().toString(36)}`,
     tpId: tp.id,
     presetType,
+    draftSource: 'template',
+    schoolId: profile.schoolId,
     konteksAktual: konteksAktual?.trim() || undefined,
     judul: content.subJudulTopik,
     pendekatanKegiatan: content.pendekatanKegiatan,
@@ -1814,6 +1844,11 @@ export function buildLKPDDokumenFromCurated(
     langkahAktivitas: content.langkahAktivitas,
     pemeriksaanHasil: content.pemeriksaanHasil,
     pertanyaanAnalisis: content.pertanyaanAnalisis,
+    produkHasilBelajar: content.produkHasilBelajar || studentMeta.produkHasilBelajar,
+    kriteriaPenilaianSiswa:
+      content.kriteriaPenilaianSiswa && content.kriteriaPenilaianSiswa.length > 0
+        ? content.kriteriaPenilaianSiswa
+        : studentMeta.kriteriaPenilaianSiswa,
     dukunganTambahan: content.dukunganTambahan,
     pengayaan: content.pengayaan,
     kesimpulanRefleksi: content.kesimpulanRefleksi,

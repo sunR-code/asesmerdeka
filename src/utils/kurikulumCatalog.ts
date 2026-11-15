@@ -2,6 +2,8 @@ import type { JenjangFase } from '../types/assessment';
 import type { CustomTPItem } from './schoolProfileStorage';
 import { getRichCurriculumTopics } from '../data/kurikulumTopicBank';
 import { resolveCPReferenceMetadata } from '../data/kurikulumMerdekaCP';
+import { createImmutableDefaultTPId } from './storageIdentity';
+import { resolveDefaultSubjectJPConfig } from './jpConfigStorage';
 
 export type JenjangKategori = 'SD/MI' | 'SMP/MTs' | 'SMA/MA' | 'SMK';
 
@@ -197,15 +199,18 @@ export function getSemesterCurriculumPlan(
   mataPelajaran: string,
   jenjangFase: JenjangFase,
   kelas: string,
-  semester: string = '1 (Ganjil)'
+  semester: string = '1 (Ganjil)',
+  context?: { schoolId?: string; tahunAjaran?: string }
 ): SemesterCurriculumPlan {
   const richTopics = getRichCurriculumTopics(mataPelajaran, jenjangFase, kelas);
   const isSem2 = semester.startsWith('2') || semester.toLowerCase().includes('genap');
 
-  // Urutan penempatan topik semester (rancangan ATP aplikasi, dapat diubah guru)
-  const ordered = isSem2 && richTopics.length >= 4
-    ? [richTopics[2], richTopics[3], richTopics[0], richTopics[1], ...richTopics.slice(4)]
-    : richTopics;
+  // Gunakan topik lanjutan jika tersedia (>4 topik); bila bank fase berisi 3-4 topik inti,
+  // pertahankan topik spiral yang sama tanpa memutar urutan secara artifisial atau mengarang topik baru.
+  const ordered =
+    isSem2 && richTopics.length > 4
+      ? [...richTopics.slice(4), ...richTopics]
+      : richTopics;
 
   const uniqueTopics: typeof richTopics = [];
   const seen = new Set<string>();
@@ -219,25 +224,62 @@ export function getSemesterCurriculumPlan(
   }
 
   const cleanKelas = kelas.replace(/[^0-9]/g, '') || '8';
+  const jenjangCategory = detectKategoriFromFase(jenjangFase, mataPelajaran);
+  const defaultJpCfg = resolveDefaultSubjectJPConfig({
+    jenjang: jenjangCategory,
+    kelasUtama: cleanKelas,
+    mataPelajaranUtama: mataPelajaran,
+  });
+  const jpPerWeek = Math.max(2, defaultJpCfg.jpPerMinggu);
+  const totalCount = Math.max(1, uniqueTopics.length);
+
+  const defaultWeekWindows: Array<[number, number]> =
+    totalCount <= 3
+      ? [
+          [2, 8],
+          [9, 15],
+          [16, 22],
+        ]
+      : [
+          [2, 7],
+          [8, 13],
+          [14, 18],
+          [19, 23],
+        ];
 
   const tpList: CustomTPItem[] = uniqueTopics.map((item, idx) => {
     const nomorTP = isSem2 ? idx + 5 : idx + 1;
     const kode = `${cleanKelas}.${nomorTP}`;
-    const mingguMulai = idx * 4 + 1;
-    const mingguSelesai = (idx + 1) * 4;
+    const [mingguMulai, mingguSelesai] = defaultWeekWindows[idx] || [idx * 5 + 2, (idx + 1) * 5 + 1];
+    const weekSpanMultiplier = idx === 1 || idx === 2 ? 4 : 3;
+    const alokasiJP = jpPerWeek * weekSpanMultiplier;
     const refCP = resolveCPReferenceMetadata(mataPelajaran, jenjangFase, item.elemen);
+    const immutableTpId = createImmutableDefaultTPId({
+      schoolId: context?.schoolId,
+      tahunAjaran: context?.tahunAjaran,
+      jenjangFase,
+      kelas: cleanKelas,
+      semester,
+      mataPelajaran,
+      topicKey: `${item.topik}::${nomorTP}`,
+    });
+
+    const spiralCompetencySuffix =
+      isSem2 && richTopics.length <= 4
+        ? ' (Pendalaman spiral Semester Genap: penguatan pemodelan & transfer konteks kompleks)'
+        : '';
 
     return {
-      id: `tp-${cleanKelas}-${nomorTP}`,
+      id: immutableTpId,
       kode,
       elemen: item.elemen,
       materiPokok: item.topik,
       tujuanPembelajaran: item.tujuanPembelajaran,
       arahanRangkuman: item.arahanRangkuman,
-      alokasiJP: idx === 1 || idx === 2 ? 16 : 12,
+      alokasiJP,
       mingguMulai,
       mingguSelesai,
-      kompetensiInti: item.kompetensiInti,
+      kompetensiInti: `${item.kompetensiInti || ''}${spiralCompetencySuffix}`.trim(),
       lingkupMateri: item.topik,
       prasyarat: item.prasyarat,
       buktiKetercapaian: item.buktiKetercapaian,
@@ -245,7 +287,7 @@ export function getSemesterCurriculumPlan(
       statusReview: 'draft',
       referensiCP: refCP,
       subTP: item.subTP.map((sub) => ({
-        id: `subtp-${cleanKelas}-${nomorTP}-${sub.kodeSuffix.toLowerCase()}`,
+        id: `${immutableTpId}__sub_${sub.kodeSuffix.toLowerCase()}`,
         kode: `${kode}.${sub.kodeSuffix}`,
         kompetensi: sub.kompetensi,
         fokusMateri: sub.fokusMateri,

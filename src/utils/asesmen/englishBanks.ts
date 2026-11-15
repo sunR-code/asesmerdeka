@@ -251,9 +251,9 @@ The town features picturesque hills overlooking crystal-clear turquoise waters a
       },
       {
         stimulus: `Read the following sentence from the text!
-"One of its most iconic spots is Padar Island, where visitors can hike to the summit to witness a spectacular panoramic view of three uniquely curved bays..."`,
+"One of its most iconic spots is Padar Island, where visitors can hike to the summit to witness a *spectacular* panoramic view of three uniquely curved bays..."`,
         pertanyaan:
-          'The bold/underlined word "spectacular" in the sentence above is closest in meaning to ....',
+          'The word "spectacular" marked with asterisks (*) in the sentence above is closest in meaning to ....',
         opsi5: [
           'Ordinary and common',
           'Narrow and crowded',
@@ -791,8 +791,8 @@ Once upon a time, on the north coast of Sumatra, lived a poor widow and her only
       },
       {
         stimulus: `Pay attention to the pronoun reference in the sentence below!
-"On the second day, we conducted a digital literacy workshop for the village youth, teaching them how to photograph local agricultural products..."`,
-        pertanyaan: 'The underlined pronoun "them" in the sentence above refers to ....',
+"On the second day, we conducted a digital literacy workshop for the village youth, teaching *them* how to photograph local agricultural products..."`,
+        pertanyaan: 'The pronoun "them" marked with asterisks (*) in the sentence above refers to ....',
         opsi5: [
           'The eleventh-grade teachers',
           'The pine and avocado seedlings',

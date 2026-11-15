@@ -13,11 +13,14 @@ import {
   FileDown
 } from 'lucide-react';
 import type { AsesmenDokumen } from '../types/assessment';
+import type { SchoolProfile } from '../utils/schoolProfileStorage';
 import { downloadJsonAssessment } from '../utils/bankSoalStorage';
 import { exportToDocx } from '../utils/docxExporter';
+import { requireActiveLicenseForAction } from '../utils/licenseManager';
 
 interface BankSoalViewProps {
   bankList: AsesmenDokumen[];
+  schoolProfile?: SchoolProfile;
   onSelectAssessment: (doc: AsesmenDokumen, targetTab: 'worksheet' | 'teacher_guide') => void;
   onDeleteAssessment: (id: string) => void;
   onGoToGenerator: () => void;
@@ -25,12 +28,14 @@ interface BankSoalViewProps {
 
 export const BankSoalView: React.FC<BankSoalViewProps> = ({
   bankList,
+  schoolProfile,
   onSelectAssessment,
   onDeleteAssessment,
   onGoToGenerator,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'formatif' | 'sumatif'>('all');
+  const [filterSource, setFilterSource] = useState<'all' | 'ai' | 'fallback'>('all');
 
   const filteredList = bankList.filter((item) => {
     const matchesSearch = 
@@ -41,11 +46,17 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
 
     if (!matchesSearch) return false;
 
-    if (filterType === 'formatif') {
-      return item.tipeAsesmen.toLowerCase().includes('formatif');
+    if (filterType === 'formatif' && !item.tipeAsesmen.toLowerCase().includes('formatif')) {
+      return false;
     }
-    if (filterType === 'sumatif') {
-      return item.tipeAsesmen.toLowerCase().includes('sumatif');
+    if (filterType === 'sumatif' && !item.tipeAsesmen.toLowerCase().includes('sumatif')) {
+      return false;
+    }
+    if (filterSource === 'ai' && (item.usedFallback || item.generationSource === 'adaptive_fallback')) {
+      return false;
+    }
+    if (filterSource === 'fallback' && !item.usedFallback && item.generationSource !== 'adaptive_fallback') {
+      return false;
     }
     return true;
   });
@@ -64,13 +75,18 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
         gap: 16
       }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
             <span className="badge badge-indigo">
               <FolderOpen size={12} /> Bank Dokumen Guru
             </span>
             <span className="badge badge-emerald">
               {bankList.length} Asesmen Tersimpan
             </span>
+            {schoolProfile && (
+              <span className="badge" style={{ background: '#f1f5f9', color: '#334155', fontSize: 11 }}>
+                Ruang Lingkup: {schoolProfile.mataPelajaranUtama} • Kelas {schoolProfile.kelasUtama} • {schoolProfile.semester}
+              </span>
+            )}
           </div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-main)' }}>
             Bank Asesmen & Arsip Kurikulum Merdeka
@@ -112,7 +128,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
         </div>
 
         {/* Filter Pills */}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             onClick={() => setFilterType('all')}
             className={`btn btn-sm ${filterType === 'all' ? 'btn-primary' : 'btn-outline'}`}
@@ -130,6 +146,13 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
             className={`btn btn-sm ${filterType === 'sumatif' ? 'btn-primary' : 'btn-outline'}`}
           >
             Sumatif
+          </button>
+          <button
+            onClick={() => setFilterSource(filterSource === 'fallback' ? 'all' : 'fallback')}
+            className={`btn btn-sm ${filterSource === 'fallback' ? 'btn-primary' : 'btn-outline'}`}
+            title="Tampilkan asesmen yang memakai templat cadangan untuk ditinjau"
+          >
+            Perlu Tinjau / Cadangan
           </button>
         </div>
       </div>
@@ -155,7 +178,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
       ) : (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))',
           gap: 18
         }}>
           {filteredList.map((doc) => {
@@ -210,7 +233,7 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
                     Materi: {doc.materiPokok}
                   </p>
 
-                  {/* Question Composition Tags */}
+                  {/* Question Composition Tags & Provenance */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
                     {countPG > 0 && (
                       <span style={{ fontSize: 11, background: '#f1f5f9', border: '1px solid #e2e8f0', padding: '2px 8px', borderRadius: 4, color: 'var(--text-muted)', fontWeight: 600 }}>
@@ -232,6 +255,21 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
                         Rubrik KKTP
                       </span>
                     )}
+                    {doc.isSimulated && (
+                      <span style={{ fontSize: 11, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+                        SIMULASI
+                      </span>
+                    )}
+                    {(doc.usedFallback || doc.generationSource === 'adaptive_fallback') && (
+                      <span style={{ fontSize: 11, background: '#ffedd5', color: '#9a3412', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
+                        Draf Cadangan
+                      </span>
+                    )}
+                    {(doc.qualitySummary?.cognitiveMismatchCount || 0) > 0 && (
+                      <span style={{ fontSize: 11, background: '#fef2f2', color: '#b91c1c', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
+                        {doc.qualitySummary?.cognitiveMismatchCount} Perlu Tinjau Kognitif
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -240,11 +278,12 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
                   paddingTop: 12,
                   borderTop: '1px solid var(--border-subtle)',
                   display: 'flex',
+                  flexWrap: 'wrap',
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   gap: 8
                 }}>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <button
                       onClick={() => onSelectAssessment(doc, 'worksheet')}
                       className="btn btn-sm btn-primary"
@@ -265,7 +304,10 @@ export const BankSoalView: React.FC<BankSoalViewProps> = ({
 
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
-                      onClick={() => exportToDocx(doc, true)}
+                      onClick={() => {
+                        if (!requireActiveLicenseForAction('mengekspor Asesmen ke Word (.docx)')) return;
+                        exportToDocx(doc, true);
+                      }}
                       className="btn btn-sm btn-outline"
                       style={{ padding: '6px 8px', color: '#2563eb' }}
                       title="Unduh File Word (.docx) Lengkap"

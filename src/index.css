@@ -52,6 +52,12 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 body {
   font-family: var(--font-family);
   background-color: var(--bg-page);
@@ -359,6 +365,8 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   position: relative;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .v21-bento-card-gradient {
@@ -434,7 +442,10 @@ body {
 
 /* Calm Workspace Table System */
 .ws-table-wrap {
+  width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   max-width: 100%;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -945,8 +956,35 @@ body {
 
   /* Document sheets & cards on mobile screen */
   .print-sheet {
-    padding: 18px 14px !important;
+    padding: 16px 14px !important;
     border-radius: 12px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: visible !important;
+  }
+
+  .print-table-scroll,
+  .ws-table-wrap {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .doc-identity-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .doc-identity-grid > * {
+    min-width: 0 !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .doc-signature-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 20px !important;
   }
 
   .glass-panel {
@@ -982,9 +1020,13 @@ body {
   }
 
   .modal-content {
+    width: 100% !important;
+    max-width: calc(100vw - 20px) !important;
     padding: 18px 16px !important;
     max-height: 90dvh;
     overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box !important;
     border-radius: 14px !important;
   }
 
@@ -993,7 +1035,7 @@ body {
     max-width: 100%;
   }
 
-  .v21-bento-card table,
+  .v21-bento-card table:not(.ws-table),
   .print-sheet table {
     display: block;
     width: 100%;
@@ -1043,8 +1085,17 @@ body {
     overflow: visible !important;
   }
 
+  .print-table-scroll,
+  .ws-table-wrap {
+    overflow: visible !important;
+  }
+
   .doc-identity-grid {
     grid-template-columns: 1.2fr 1fr !important;
+  }
+
+  .doc-signature-grid {
+    grid-template-columns: 1fr 1fr !important;
   }
 
   .lkpd-inline-textarea, .lkpd-inline-input {

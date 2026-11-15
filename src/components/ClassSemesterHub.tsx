@@ -10,6 +10,12 @@ import {
   resetCustomTPList,
   markSavedLKPDDraftsNeedsReview,
 } from '../utils/schoolProfileStorage';
+import { createCustomImmutableTPId } from '../utils/storageIdentity';
+import {
+  getPendingAmbiguousLegacyDrafts,
+  getPendingLegacyRosterConflicts,
+} from '../utils/storageMigration';
+import { MigrationConflictNoticeBanner } from './MigrationConflictNoticeBanner';
 import { tabContentVariants } from '../utils/motionPresets';
 import { getSemesterCurriculumPlan } from '../utils/kurikulumCatalog';
 import { PresensiTab } from './harian/PresensiTab';
@@ -33,9 +39,12 @@ import {
 import {
   getKelasHarianData,
   saveKelasHarianData,
+  createSeparateDemoDataset,
+  isKelasHarianSimulated,
 } from '../utils/kelasHarianStorage';
 import { pushWorkspaceToCloud } from '../utils/cloudSyncManager';
 import type { KelasHarianData } from '../types/kelasHarian';
+import type { LKPDDokumen, ModulAjarDokumen } from '../types/perangkatAjar';
 
 export type PerangkatSubTabType =
   | 'tp_list'
@@ -66,6 +75,8 @@ interface ClassSemesterHubProps {
   activeSubTab?: PerangkatSubTabType;
   onSelectSubTab?: (tab: PerangkatSubTabType) => void;
   onOpenClassModal?: () => void;
+  activeModulAjar?: ModulAjarDokumen | null;
+  activeLKPD?: LKPDDokumen | null;
 }
 
 export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
@@ -85,6 +96,8 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
   onConfirmChange,
   activeSubTab,
   onSelectSubTab: _onSelectSubTab,
+  activeModulAjar,
+  activeLKPD,
 }) => {
   const [isClassConfirmed, setIsClassConfirmed] = useState<boolean>(initialConfirmed);
   const [activeMainMode, setActiveMainMode] = useState<'persiapan' | 'harian' | 'supervisi'>('persiapan');
@@ -106,7 +119,8 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     schoolProfile.mataPelajaranUtama,
     currentFase,
     schoolProfile.kelasUtama,
-    schoolProfile.semester
+    schoolProfile.semester,
+    { schoolId: schoolProfile.schoolId, tahunAjaran: schoolProfile.tahunAjaran }
   );
 
   const [tpList, setTpList] = useState<CustomTPItem[]>(defaultPlan.tpList);
@@ -114,16 +128,20 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
   const [kelasHarian, setKelasHarian] = useState<KelasHarianData>(() =>
     getKelasHarianData(schoolProfile, defaultPlan.tpList)
   );
+  const [demoPreviewData, setDemoPreviewData] = useState<KelasHarianData | null>(null);
+  const [migrationRefreshTick, setMigrationRefreshTick] = useState(0);
 
   useEffect(() => {
     setIsClassConfirmed(initialConfirmed);
   }, [initialConfirmed]);
 
   useEffect(() => {
+    setDemoPreviewData(null);
     const savedCustom = getSavedCustomTPList(
       schoolProfile.mataPelajaranUtama,
       schoolProfile.kelasUtama,
-      schoolProfile.semester
+      schoolProfile.semester,
+      schoolProfile
     );
     if (savedCustom && savedCustom.length > 0) {
       setTpList(savedCustom);
@@ -133,7 +151,8 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
         schoolProfile.mataPelajaranUtama,
         jenjangToDefaultFase(schoolProfile.jenjang, schoolProfile.kelasUtama),
         schoolProfile.kelasUtama,
-        schoolProfile.semester
+        schoolProfile.semester,
+        { schoolId: schoolProfile.schoolId, tahunAjaran: schoolProfile.tahunAjaran }
       );
       setTpList(plan.tpList);
       setIsCustomTP(false);
@@ -141,6 +160,8 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     setEditingTPId(null);
     setDraftTP(null);
   }, [
+    schoolProfile.schoolId,
+    schoolProfile.tahunAjaran,
     schoolProfile.jenjang,
     schoolProfile.kelasUtama,
     schoolProfile.mataPelajaranUtama,
@@ -150,7 +171,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
   useEffect(() => {
     const data = getKelasHarianData(schoolProfile, tpList);
     setKelasHarian(data);
-  }, [schoolProfile, tpList]);
+  }, [schoolProfile, tpList, migrationRefreshTick]);
 
   useEffect(() => {
     if (['tp_list', 'atp', 'prota', 'promes'].includes(perangkatSubTab)) {
@@ -163,10 +184,27 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
   }, [perangkatSubTab]);
 
   const handleUpdateKelasHarian = (updated: KelasHarianData) => {
+    if (demoPreviewData !== null && isKelasHarianSimulated(updated)) {
+      setDemoPreviewData(updated);
+      return;
+    }
+    setDemoPreviewData(null);
     setKelasHarian(updated);
     saveKelasHarianData(schoolProfile, updated);
     pushWorkspaceToCloud().catch(() => {});
   };
+
+  const handleOpenSeparateDemoPreview = () => {
+    setDemoPreviewData(createSeparateDemoDataset(schoolProfile, tpList));
+  };
+
+  const handleExitDemoPreview = () => {
+    setDemoPreviewData(null);
+    triggerToast('Kembali ke data kelas asli Anda.');
+  };
+
+  const displayedKelasHarian = demoPreviewData ?? kelasHarian;
+  const isSeparateDemoPreview = demoPreviewData !== null;
 
   const triggerToast = (msg: string) => {
     setToastMsg(msg);
@@ -212,9 +250,14 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       schoolProfile.mataPelajaranUtama,
       schoolProfile.kelasUtama,
       schoolProfile.semester,
-      nextList
+      nextList,
+      schoolProfile
     );
-    const affectedLkpdCount = markSavedLKPDDraftsNeedsReview(draftTP.id, normalizedTP);
+    const affectedLkpdCount = markSavedLKPDDraftsNeedsReview(
+      draftTP.id,
+      normalizedTP,
+      schoolProfile
+    );
     setIsCustomTP(true);
     setEditingTPId(null);
     setDraftTP(null);
@@ -238,7 +281,8 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       schoolProfile.mataPelajaranUtama,
       schoolProfile.kelasUtama,
       schoolProfile.semester,
-      nextList
+      nextList,
+      schoolProfile
     );
     setIsCustomTP(true);
     triggerToast(
@@ -253,7 +297,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     const isSem2 = schoolProfile.semester.startsWith('2');
     const kodeNomor = isSem2 ? nextIdx + 4 : nextIdx;
     const newTP: CustomTPItem = {
-      id: `tp-custom-${Date.now().toString(36)}`,
+      id: createCustomImmutableTPId(schoolProfile),
       kode: `${schoolProfile.kelasUtama}.${kodeNomor}`,
       elemen: 'Pemahaman & Aplikasi Kontekstual',
       materiPokok: `Topik Materi Baru ${nextIdx}`,
@@ -269,11 +313,25 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       schoolProfile.mataPelajaranUtama,
       schoolProfile.kelasUtama,
       schoolProfile.semester,
-      nextList
+      nextList,
+      schoolProfile
     );
     setIsCustomTP(true);
     setEditingTPId(newTP.id);
     setDraftTP({ ...newTP });
+  };
+
+  const handleBulkUpdateTPList = (nextList: CustomTPItem[]) => {
+    setTpList(nextList);
+    saveCustomTPList(
+      schoolProfile.mataPelajaranUtama,
+      schoolProfile.kelasUtama,
+      schoolProfile.semester,
+      nextList,
+      schoolProfile
+    );
+    setIsCustomTP(true);
+    pushWorkspaceToCloud().catch(() => {});
   };
 
   const handleDeleteTP = (id: string, kode: string) => {
@@ -287,7 +345,8 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       schoolProfile.mataPelajaranUtama,
       schoolProfile.kelasUtama,
       schoolProfile.semester,
-      nextList
+      nextList,
+      schoolProfile
     );
     setIsCustomTP(true);
     triggerToast(`TP ${kode} dihapus.`);
@@ -297,19 +356,24 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     resetCustomTPList(
       schoolProfile.mataPelajaranUtama,
       schoolProfile.kelasUtama,
-      schoolProfile.semester
+      schoolProfile.semester,
+      schoolProfile
     );
     const freshPlan = getSemesterCurriculumPlan(
       schoolProfile.mataPelajaranUtama,
       currentFase,
       schoolProfile.kelasUtama,
-      schoolProfile.semester
+      schoolProfile.semester,
+      { schoolId: schoolProfile.schoolId, tahunAjaran: schoolProfile.tahunAjaran }
     );
     setTpList(freshPlan.tpList);
     setIsCustomTP(false);
     setEditingTPId(null);
     triggerToast('Daftar materi dikembalikan ke standar Kurikulum Merdeka.');
   };
+
+  const pendingAmbiguousDrafts = getPendingAmbiguousLegacyDrafts();
+  const pendingRosterConflicts = getPendingLegacyRosterConflicts();
 
   return (
     <div style={{ maxWidth: 1080, margin: '4px auto 24px', padding: '0 2px' }}>
@@ -377,6 +441,15 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
             }}
           />
 
+          <MigrationConflictNoticeBanner
+            schoolProfile={schoolProfile}
+            tpList={tpList}
+            ambiguousDrafts={pendingAmbiguousDrafts}
+            rosterConflicts={pendingRosterConflicts}
+            onResolved={() => setMigrationRefreshTick((n) => n + 1)}
+            onToast={triggerToast}
+          />
+
           <div
             className="v21-bento-card hub-main-bento-card"
             style={{
@@ -435,21 +508,34 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
               )}
 
               {perangkatSubTab === 'prota' && (
-                <ProtaSubTab tpList={tpList} schoolProfile={schoolProfile} onToast={triggerToast} />
+                <ProtaSubTab
+                  tpList={tpList}
+                  schoolProfile={schoolProfile}
+                  onUpdateTPList={handleBulkUpdateTPList}
+                  onToast={triggerToast}
+                />
               )}
 
               {perangkatSubTab === 'promes' && (
-                <PromesSubTab tpList={tpList} schoolProfile={schoolProfile} onToast={triggerToast} />
+                <PromesSubTab
+                  tpList={tpList}
+                  schoolProfile={schoolProfile}
+                  onUpdateTPList={handleBulkUpdateTPList}
+                  onToast={triggerToast}
+                />
               )}
 
               {perangkatSubTab === 'presensi' && (
                 <div key="presensi">
                   <PresensiTab
                     schoolProfile={schoolProfile}
-                    kelasHarian={kelasHarian}
+                    kelasHarian={displayedKelasHarian}
                     tpList={tpList}
                     onUpdateKelasHarian={handleUpdateKelasHarian}
                     onToast={triggerToast}
+                    isSeparateDemoPreview={isSeparateDemoPreview}
+                    onOpenSeparateDemoPreview={handleOpenSeparateDemoPreview}
+                    onExitDemoPreview={handleExitDemoPreview}
                   />
                 </div>
               )}
@@ -458,10 +544,13 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
                 <div key="jurnal">
                   <JurnalMengajarTab
                     schoolProfile={schoolProfile}
-                    kelasHarian={kelasHarian}
+                    kelasHarian={displayedKelasHarian}
                     tpList={tpList}
                     onUpdateKelasHarian={handleUpdateKelasHarian}
                     onToast={triggerToast}
+                    isSeparateDemoPreview={isSeparateDemoPreview}
+                    onOpenSeparateDemoPreview={handleOpenSeparateDemoPreview}
+                    onExitDemoPreview={handleExitDemoPreview}
                   />
                 </div>
               )}
@@ -470,10 +559,13 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
                 <div key="nilai">
                   <BukuNilaiTab
                     schoolProfile={schoolProfile}
-                    kelasHarian={kelasHarian}
+                    kelasHarian={displayedKelasHarian}
                     tpList={tpList}
                     onUpdateKelasHarian={handleUpdateKelasHarian}
                     onToast={triggerToast}
+                    isSeparateDemoPreview={isSeparateDemoPreview}
+                    onOpenSeparateDemoPreview={handleOpenSeparateDemoPreview}
+                    onExitDemoPreview={handleExitDemoPreview}
                   />
                 </div>
               )}
@@ -482,10 +574,13 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
                 <div key="rapor">
                   <AutoDeskripsiRaporTab
                     schoolProfile={schoolProfile}
-                    kelasHarian={kelasHarian}
+                    kelasHarian={displayedKelasHarian}
                     tpList={tpList}
                     onUpdateKelasHarian={handleUpdateKelasHarian}
                     onToast={triggerToast}
+                    isSeparateDemoPreview={isSeparateDemoPreview}
+                    onOpenSeparateDemoPreview={handleOpenSeparateDemoPreview}
+                    onExitDemoPreview={handleExitDemoPreview}
                   />
                 </div>
               )}
@@ -496,9 +591,11 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
                     <PaketSupervisiDashboard
                       schoolProfile={schoolProfile}
                       tpList={tpList}
-                      kelasHarian={kelasHarian}
+                      kelasHarian={displayedKelasHarian}
                       onBackToClassHub={() => setPerangkatSubTab('tp_list')}
                       onToast={triggerToast}
+                      activeModulAjar={activeModulAjar}
+                      activeLKPD={activeLKPD}
                     />
                   </Suspense>
                 </div>

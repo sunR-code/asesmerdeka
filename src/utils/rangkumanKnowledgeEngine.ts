@@ -25,11 +25,31 @@ export function buildSmartCurriculumRangkuman(
     year: 'numeric',
   });
 
+  const stampContext = (doc: RangkumanDokumen): RangkumanDokumen => {
+    const withStyle = applyGayaBahasaToRangkuman(doc, req);
+    return {
+      ...withStyle,
+      tpId: withStyle.tpId || req.tpId,
+      tpKode: withStyle.tpKode || req.tpKode,
+      subTpId: withStyle.subTpId || req.subTpId,
+      subTP: withStyle.subTP || req.subTP,
+      tujuanPembelajaran: withStyle.tujuanPembelajaran || req.tujuanPembelajaran,
+      prasyarat: withStyle.prasyarat || req.prasyarat,
+      buktiKetercapaian: withStyle.buktiKetercapaian || req.buktiKetercapaian,
+      schoolId: withStyle.schoolId || req.schoolId,
+      tahunAjaran: withStyle.tahunAjaran || req.tahunAjaran,
+      semester: withStyle.semester || req.semester,
+      namaFile: withStyle.namaFile || req.namaFile,
+      draftSource: withStyle.draftSource || (req.modeInput === 'upload' ? 'upload_heuristic' : 'template'),
+      usedFallback: withStyle.usedFallback ?? true,
+      fallbackReason:
+        withStyle.fallbackReason ||
+        'Disusun menggunakan kerangka templat luring (non-AI); harap tinjau kesesuaian isi dengan konteks TP.',
+    };
+  };
+
   if (req.modeInput === 'upload' && req.teksUpload && req.teksUpload.trim().length > 20) {
-    return applyGayaBahasaToRangkuman(
-      buildRangkumanFromUploadedText(req, id, createdAt, noteTag),
-      req
-    );
+    return stampContext(buildRangkumanFromUploadedText(req, id, createdAt, noteTag));
   }
 
   const rawTopik = cleanTopicTitle(req.topik || 'Materi Pokok Kurikulum Merdeka');
@@ -46,10 +66,7 @@ export function buildSmartCurriculumRangkuman(
     lowerTopik.includes('exposition') ||
     lowerTopik.includes('application letter')
   ) {
-    return applyGayaBahasaToRangkuman(
-      buildEnglishTopicRangkuman(req, rawTopik, lowerTopik, id, createdAt, noteTag),
-      req
-    );
+    return stampContext(buildEnglishTopicRangkuman(req, rawTopik, lowerTopik, id, createdAt, noteTag));
   }
 
   // 2. DETEKSI MATEMATIKA (SD vs SMP vs SMA/SMK dengan Contoh Soal Terhitung Nyata)
@@ -67,18 +84,12 @@ export function buildSmartCurriculumRangkuman(
     lowerTopik.includes('peluang') ||
     lowerTopik.includes('statistika')
   ) {
-    return applyGayaBahasaToRangkuman(
-      buildMathTopicRangkuman(req, rawTopik, lowerTopik, id, createdAt, noteTag),
-      req
-    );
+    return stampContext(buildMathTopicRangkuman(req, rawTopik, lowerTopik, id, createdAt, noteTag));
   }
 
   // 3. DETEKSI BAHASA INDONESIA
   if (lowerMapel.includes('indonesia')) {
-    return applyGayaBahasaToRangkuman(
-      buildIndonesianTopicRangkuman(req, rawTopik, lowerTopik, id, createdAt, noteTag),
-      req
-    );
+    return stampContext(buildIndonesianTopicRangkuman(req, rawTopik, lowerTopik, id, createdAt, noteTag));
   }
 
   // 4. DETEKSI IPA / IPAS / FISIKA / KIMIA / BIOLOGI / PROJEK IPAS
@@ -93,15 +104,9 @@ export function buildSmartCurriculumRangkuman(
     lowerTopik.includes('energi') ||
     lowerTopik.includes('hukum newton')
   ) {
-    return applyGayaBahasaToRangkuman(
-      buildScienceTopicRangkuman(req, rawTopik, lowerTopik, id, createdAt, noteTag),
-      req
-    );
+    return stampContext(buildScienceTopicRangkuman(req, rawTopik, lowerTopik, id, createdAt, noteTag));
   }
 
   // 5. DETEKSI MATA PELAJARAN LAINNYA (IPS, Ekonomi, Sejarah, Pancasila, PAI/Madrasah, Informatika/PKK, PJOK, Seni Budaya)
-  return applyGayaBahasaToRangkuman(
-    buildContextualSubjectRangkuman(req, rawTopik, id, createdAt, noteTag),
-    req
-  );
+  return stampContext(buildContextualSubjectRangkuman(req, rawTopik, id, createdAt, noteTag));
 }

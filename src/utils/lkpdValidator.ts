@@ -4,7 +4,11 @@ import type {
   LKPDValidationStatus,
 } from '../types/perangkatAjar';
 import type { CustomTPItem, SchoolProfile } from './schoolProfileStorage';
-import { verifySPLDVDokumenConsistency } from './lkpdMathVerifier';
+import {
+  verifySPLDVDokumenConsistency,
+  verifyRightTriangleSides,
+  verifyDescriptiveStats,
+} from './lkpdMathVerifier';
 import {
   resolveSubjectFamily,
   resolveSubjectApproachRule,
@@ -127,6 +131,34 @@ export function validateLKPDDokumen(
   if (!Array.isArray(doc.pertanyaanAnalisis) || doc.pertanyaanAnalisis.length === 0) {
     issues.push('Pertanyaan evaluasi/analisis masih kosong.');
   }
+  if (!Array.isArray(doc.petunjukPengerjaan) || doc.petunjukPengerjaan.length === 0) {
+    issues.push('Petunjuk pengerjaan LKPD untuk peserta didik masih kosong.');
+  }
+  if (!Array.isArray(doc.kesimpulanRefleksi) || doc.kesimpulanRefleksi.length === 0) {
+    issues.push('Bagian kesimpulan dan refleksi peserta didik masih kosong.');
+  }
+  if (!doc.produkHasilBelajar?.trim()) {
+    warnings.push('Deskripsi produk atau hasil belajar yang dikumpulkan siswa sebaiknya dicantumkan.');
+  }
+  if (!Array.isArray(doc.kriteriaPenilaianSiswa) || doc.kriteriaPenilaianSiswa.length === 0) {
+    warnings.push('Kriteria penilaian/keberhasilan ramah siswa sebaiknya dicantumkan di lembar kerja.');
+  }
+
+  const keysCount = doc.panduanGuru?.kunciDanContohJawaban?.length ?? 0;
+  const qCount = doc.pertanyaanAnalisis?.length ?? 0;
+  if (qCount > 0 && keysCount < qCount) {
+    issues.push(
+      `Panduan guru belum lengkap: jumlah kunci/contoh jawaban (${keysCount}) lebih sedikit daripada pertanyaan analisis (${qCount}).`
+    );
+  }
+  const rubrikCount = doc.panduanGuru?.rubrikPenilaian?.length ?? 0;
+  if (rubrikCount === 0) {
+    issues.push('Rubrik penilaian pada panduan guru masih kosong.');
+  } else if (rubrikCount < 3) {
+    warnings.push(
+      `Rubrik penilaian guru baru memiliki ${rubrikCount} kriteria; disarankan minimal 3 kriteria (ketepatan data, proses/penalaran, dan kesimpulan).`
+    );
+  }
 
   // 2. Cek frasa generik lintas materi (anti-slop) & deteksi pemotongan
   const allChecks = [
@@ -177,6 +209,10 @@ export function validateLKPDDokumen(
     if (matchedCount === 0) {
       issues.push(
         `Isi LKPD belum merujuk langsung pada istilah kunci materi "${materiRef || doc.judul}".`
+      );
+    } else if (keywords.length >= 3 && matchedCount === 1) {
+      warnings.push(
+        `Keterkaitan istilah kunci TP masih tipis (hanya 1 dari ${keywords.length} kata kunci yang muncul di isi LKPD).`
       );
     }
   }
@@ -237,6 +273,59 @@ export function validateLKPDDokumen(
       issues.push(...mathCheck.issues);
     } else if (mathCheck.note) {
       mathVerificationNote = mathCheck.note;
+    }
+  }
+
+  // Pemeriksaan numerik Pythagoras (tripel/persamaan eksplisit a² + b² = c²)
+  if (family === 'matematika' && /pythagoras|hipotenusa|siku-siku/i.test(`${tp?.materiPokok || ''} ${doc.judul}`)) {
+    const teacherSerialized = [
+      stimulusText,
+      ...(doc.panduanGuru?.kunciDanContohJawaban || []).map((k) => `${k.jawabanInti} ${k.langkahPenyelesaian.join(' ')}`),
+    ].join('\n');
+    const pythMatch = teacherSerialized.match(
+      /(\d+(?:[.,]\d+)?)\s*(?:\^2|²)\s*\+\s*(\d+(?:[.,]\d+)?)\s*(?:\^2|²)\s*=\s*(\d+(?:[.,]\d+)?)\s*(?:\^2|²)/
+    );
+    if (pythMatch) {
+      const a = Number(pythMatch[1].replace(',', '.'));
+      const b = Number(pythMatch[2].replace(',', '.'));
+      const c = Number(pythMatch[3].replace(',', '.'));
+      if (Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c)) {
+        if (!verifyRightTriangleSides(a, b, c)) {
+          issues.push(
+            `Klaim persamaan Pythagoras ${a}² + ${b}² = ${c}² pada LKPD tidak konsisten secara matematis.`
+          );
+        } else {
+          mathVerificationNote = `Verifikasi tripel Pythagoras ${a}, ${b}, ${c} konsisten (${a * a} + ${b * b} = ${c * c}).`;
+        }
+      }
+    }
+  }
+
+  // Pemeriksaan numerik Statistika Deskriptif (jika stimulus memuat daftar nilai eksplisit [..])
+  if (family === 'matematika' && /mean|rata-rata|median|pemusatan data/i.test(`${tp?.materiPokok || ''} ${doc.judul}`)) {
+    const bracketData = stimulusText.match(/\[(\s*\d+(?:\s*,\s*\d+){3,}\s*)\]/);
+    if (bracketData) {
+      const nums = bracketData[1]
+        .split(',')
+        .map((n) => Number(n.trim()))
+        .filter((n) => Number.isFinite(n));
+      if (nums.length >= 4) {
+        const stats = verifyDescriptiveStats(nums);
+        const teacherStatsText = (doc.panduanGuru?.kunciDanContohJawaban || [])
+          .map((k) => `${k.jawabanInti} ${k.langkahPenyelesaian.join(' ')}`)
+          .join(' ');
+        const medianClaim = teacherStatsText.match(/median\s*(?:=|adalah|:)?\s*(\d+(?:[.,]\d+)?)/i);
+        if (medianClaim) {
+          const claimed = Number(medianClaim[1].replace(',', '.'));
+          if (Math.abs(claimed - stats.median) > 0.05) {
+            issues.push(
+              `Klaim median (${claimed}) pada panduan guru tidak sesuai dengan data (${stats.median}).`
+            );
+          } else {
+            mathVerificationNote = `Verifikasi statistik deskriptif (n=${nums.length}, median=${stats.median}) konsisten.`;
+          }
+        }
+      }
     }
   }
 
@@ -326,6 +415,14 @@ export function normalizeStoredLKPDDraft(
       Array.isArray(saved.kesimpulanRefleksi) && saved.kesimpulanRefleksi.length > 0
         ? saved.kesimpulanRefleksi
         : freshReference.kesimpulanRefleksi,
+    produkHasilBelajar:
+      typeof saved.produkHasilBelajar === 'string' && saved.produkHasilBelajar.trim()
+        ? saved.produkHasilBelajar
+        : freshReference.produkHasilBelajar,
+    kriteriaPenilaianSiswa:
+      Array.isArray(saved.kriteriaPenilaianSiswa) && saved.kriteriaPenilaianSiswa.length > 0
+        ? saved.kriteriaPenilaianSiswa
+        : freshReference.kriteriaPenilaianSiswa,
     panduanGuru: saved.panduanGuru || freshReference.panduanGuru,
     needsReview: Boolean(saved.needsReview || hashChanged),
   };

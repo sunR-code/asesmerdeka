@@ -42,10 +42,34 @@ export interface RangkumanDokumen {
   mataPelajaran: string;
   jenjangFase: JenjangFase;
   kelas: string;
+  rombel?: string;
   topik: string;
   sumberAsal: 'upload' | 'keinginan_user';
   gayaBahasa: GayaRangkuman;
-  
+
+  // Relasi Kurikulum & Isolasi Scope
+  tpId?: string;
+  tpKode?: string;
+  subTpId?: string;
+  subTP?: string[];
+  tujuanPembelajaran?: string;
+  prasyarat?: string;
+  buktiKetercapaian?: string[];
+  schoolId?: string;
+  tahunAjaran?: string;
+  semester?: string;
+
+  // Provenance & Kejujuran Sumber
+  draftSource?: 'ai_generated' | 'template' | 'upload_heuristic' | 'user_edited' | 'sample_demo';
+  usedFallback?: boolean;
+  fallbackReason?: string;
+  isSimulated?: boolean;
+  namaFile?: string;
+  sourceTruncated?: boolean;
+  sourceCharacterCount?: number;
+  processedChunksCount?: number;
+  totalChunksCount?: number;
+
   // Konten Rangkuman Menarik & Mendalam
   ringkasanSatuKalimat: string;
   petaKonsep: string[];
@@ -68,7 +92,19 @@ export interface RangkumanRequest {
   mataPelajaran: string;
   jenjangFase: JenjangFase;
   kelas: string;
+  rombel?: string;
   gayaBahasa: GayaRangkuman;
   geminiApiKey?: string;
+  tpId?: string;
+  tpKode?: string;
+  subTpId?: string;
+  subTP?: string[];
+  tujuanPembelajaran?: string;
+  prasyarat?: string;
+  buktiKetercapaian?: string[];
+  schoolId?: string;
+  tahunAjaran?: string;
+  semester?: string;
+  allowOfflineFallback?: boolean;
 }
 

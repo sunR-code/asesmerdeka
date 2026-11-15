@@ -51,6 +51,8 @@ export function applyGayaBahasaToRangkuman(
   req: RangkumanRequest
 ): RangkumanDokumen {
   const gaya = req.gayaBahasa;
+  const isSD = isSDGrade(req);
+
   if (gaya === 'Struktur Ringkas & Poin Kunci (Infografis)') {
     doc.poinUtama = doc.poinUtama.map((p) => ({
       ...p,
@@ -58,7 +60,7 @@ export function applyGayaBahasaToRangkuman(
     }));
   } else if (gaya === 'Tanya-Jawab & Rumus Praktis') {
     doc.poinUtama = doc.poinUtama.map((p, idx) => {
-      const cleanHeading = p.judul.replace(/^\d+\.\s*/, '');
+      const cleanHeading = p.judul.replace(/^(\d+\.\s*)+/, '').trim();
       const asQuestion = cleanHeading.endsWith('?')
         ? `${idx + 1}. ${cleanHeading}`
         : `${idx + 1}. Bagaimana Konsep & Cara Kerja ${cleanHeading}?`;
@@ -67,12 +69,19 @@ export function applyGayaBahasaToRangkuman(
         judul: asQuestion,
       };
     });
+  } else if (gaya === 'Analitis & Mendalam (Cocok SMA/SMK)') {
+    doc.poinUtama = doc.poinUtama.map((p) => ({
+      ...p,
+      penjelasan: `${p.penjelasan} [Pendalaman Analitis: telaah syarat keberlakuan, hubungan antarvariabel/konsep, serta implikasi penerapannya dalam kasus nyata.]`,
+    }));
   } else if (gaya === 'Ceria & Analogi Sehari-hari (Cocok SD/SMP)') {
     doc.poinUtama = doc.poinUtama.map((p) => ({
       ...p,
       analogi:
         p.analogi ||
-        `Bayangkan konsep ini seperti aktivitas seru yang kita temukan sehari-hari di rumah atau sekolah!`,
+        (isSD
+          ? 'Bayangkan konsep ini seperti aktivitas seru yang sering kita temui bersama teman atau keluarga di rumah!'
+          : 'Analogi praktis: kaitkan konsep ini dengan alur kerja atau situasi sehari-hari agar lebih cepat dipahami.'),
     }));
   }
   return doc;

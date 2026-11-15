@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
@@ -9,19 +11,20 @@ function devApiPlugin(): Plugin {
       server.middlewares.use(async (req, res, next) => {
         const urlPath = (req.url || '').split('?')[0];
         const apiModules: Record<string, string> = {
-          '/api/activate-license': './api/activate-license.js',
-          '/api/gemini': './api/gemini.js',
-          '/api/cloud-sync': './api/cloud-sync.js',
-          '/api/admin-portal': './api/admin-portal.js',
-          '/api/feedback-reports': './api/feedback-reports.js',
-          '/api/mayar-webhook': './api/mayar-webhook.js',
+          '/api/activate-license': 'api/activate-license.js',
+          '/api/gemini': 'api/gemini.js',
+          '/api/cloud-sync': 'api/cloud-sync.js',
+          '/api/admin-portal': 'api/admin-portal.js',
+          '/api/feedback-reports': 'api/feedback-reports.js',
+          '/api/mayar-webhook': 'api/mayar-webhook.js',
         };
 
         const modulePath = apiModules[urlPath];
         if (modulePath) {
           try {
+            const resolvedModuleUrl = pathToFileURL(path.resolve(process.cwd(), modulePath)).href;
             // @ts-ignore -- dev server dynamic import
-            const { default: handler } = await import(/* @vite-ignore */ modulePath);
+            const { default: handler } = await import(/* @vite-ignore */ resolvedModuleUrl);
             let body = '';
             req.on('data', (chunk) => {
               body += chunk;

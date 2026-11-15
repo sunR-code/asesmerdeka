@@ -34,10 +34,17 @@ import type { CustomTPItem, SchoolProfile } from '../utils/schoolProfileStorage'
 import { getSchoolProfile, computeTPContentHash } from '../utils/schoolProfileStorage';
 import { buildSmartLKPD } from '../utils/perangkatAjarEngine';
 import { generateContextualLKPDWithAI } from '../utils/lkpdAiService';
-import { normalizeStoredLKPDDraft } from '../utils/lkpdValidator';
 import { cleanTopicHeading } from '../utils/lkpdSubjectBlueprints';
+import {
+  deleteLKPDDraft,
+  loadLKPDDraft,
+  saveLKPDDraft,
+} from '../utils/perangkatDraftStorage';
+import { buildAcademicContextKey } from './modulAjarHelpers';
 import { exportLKPDToDocx } from '../utils/docxExporter';
 import { exportElementToImage } from '../utils/imageExporter';
+import { requireActiveLicenseForAction } from '../utils/licenseManager';
+import { validateLKPDDokumen } from '../utils/lkpdValidator';
 
 export interface LKPDViewerProps {
   lkpd: LKPDDokumen;
@@ -45,6 +52,7 @@ export interface LKPDViewerProps {
   customTP?: CustomTPItem;
   onPrint: () => void;
   onBackToClassHub: () => void;
+  onDraftSaved?: (doc: LKPDDokumen) => void;
 }
 
 interface AutoExpandingTextareaProps
@@ -137,29 +145,31 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   customTP,
   onPrint,
   onBackToClassHub,
+  onDraftSaved,
 }) => {
   const activeProfile = schoolProfile || getSchoolProfile();
 
-  const tpKey = lkpd.tpId || lkpd.tpKode || customTP?.id || 'tp-1';
+  const tpKey = lkpd.tpId || customTP?.id || lkpd.tpKode || 'tp-1';
   const initialPreset: LKPDPresetType = lkpd.presetType || 'kasus';
 
   const expectedTPHash = customTP ? computeTPContentHash(customTP) : undefined;
+  const academicContextKey = buildAcademicContextKey(activeProfile);
 
-  // Current working LKPD and active preset with lazy restoration + safe schema migration
+  // Current working LKPD and active preset with lazy restoration + isolated v2/safe-legacy lookup
   const [currentDoc, setCurrentDoc] = useState<LKPDDokumen>(() => {
-    try {
-      const key = `lkpd_${tpKey}_${initialPreset}`;
-      const saved = localStorage.getItem(key);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object') {
-          return normalizeStoredLKPDDraft(parsed, lkpd, expectedTPHash);
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return lkpd;
+    const tpLookup: CustomTPItem = customTP || {
+      id: tpKey,
+      kode: lkpd.tpKode || 'TP-1',
+      elemen: lkpd.elemen || '',
+      materiPokok: lkpd.materiPokok || '',
+      tujuanPembelajaran: lkpd.tujuanPembelajaran || '',
+      arahanRangkuman: '',
+      alokasiJP: 2,
+      mingguMulai: 1,
+      mingguSelesai: 2,
+    };
+    const restored = loadLKPDDraft(activeProfile, tpLookup, initialPreset, lkpd);
+    return restored || lkpd;
   });
 
   const [currentPreset, setCurrentPreset] = useState<LKPDPresetType>(
@@ -169,7 +179,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
     () => currentDoc.konteksAktual || lkpd.konteksAktual || ''
   );
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<string>('Tersimpan otomatis');
+  const [saveStatus, setSaveStatus] = useState<'Tersimpan' | 'Menyimpan...' | 'Gagal menyimpan'>('Tersimpan');
   const [showTeacherGuide, setShowTeacherGuide] = useState<boolean>(false);
 
   const [copied, setCopied] = useState(false);
@@ -191,94 +201,155 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
     mingguSelesai: 2,
   };
 
+  const isDirtyRef = useRef(false);
+  const questionSeqRef = useRef(1);
+  const latestSaveContextRef = useRef<{
+    doc: LKPDDokumen;
+    profile: SchoolProfile;
+    tp: CustomTPItem;
+    preset: LKPDPresetType;
+  }>({
+    doc: currentDoc,
+    profile: activeProfile,
+    tp: effectiveTP,
+    preset: currentPreset,
+  });
+
+  useEffect(() => {
+    latestSaveContextRef.current = {
+      doc: currentDoc,
+      profile: activeProfile,
+      tp: effectiveTP,
+      preset: currentPreset,
+    };
+  });
+
+  const flushLKPDSaveNow = (
+    overrideDoc?: LKPDDokumen,
+    overrideSource?: 'user_edited' | 'ai_generated' | 'template'
+  ) => {
+    if (!overrideDoc && !isDirtyRef.current) return;
+    const ctx = latestSaveContextRef.current;
+    const targetDoc = overrideDoc || ctx.doc;
+    const res = saveLKPDDraft(
+      ctx.profile,
+      ctx.tp,
+      overrideDoc?.presetType || ctx.preset,
+      targetDoc,
+      overrideSource || targetDoc.draftSource || 'user_edited'
+    );
+    isDirtyRef.current = false;
+    if (res.ok) {
+      setSaveStatus('Tersimpan');
+      onDraftSaved?.(res.doc);
+    } else {
+      setSaveStatus('Gagal menyimpan');
+    }
+  };
+
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 2800);
   };
 
-  // Synchronize if prop lkpd changes to a different TP while mounted
-  const prevTpRef = useRef(tpKey);
+  // Synchronize if prop lkpd or academic context changes while mounted
+  const prevSyncKeyRef = useRef(`${tpKey}::${academicContextKey}`);
   useEffect(() => {
-    if (prevTpRef.current !== tpKey) {
-      prevTpRef.current = tpKey;
-      try {
-        const key = `lkpd_${tpKey}_${lkpd.presetType || 'kasus'}`;
-        const saved = localStorage.getItem(key);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed && typeof parsed === 'object') {
-            const migrated = normalizeStoredLKPDDraft(parsed, lkpd, expectedTPHash);
-            setCurrentDoc(migrated);
-            setCurrentPreset(migrated.presetType || lkpd.presetType || 'kasus');
-            setKonteksInput(migrated.konteksAktual || lkpd.konteksAktual || '');
-            return;
-          }
-        }
-      } catch {
-        // ignore
+    const nextSyncKey = `${tpKey}::${academicContextKey}`;
+    if (prevSyncKeyRef.current !== nextSyncKey) {
+      if (isDirtyRef.current) {
+        flushLKPDSaveNow();
+      }
+      prevSyncKeyRef.current = nextSyncKey;
+      const presetTarget = lkpd.presetType || 'kasus';
+      const restored = loadLKPDDraft(activeProfile, effectiveTP, presetTarget, lkpd);
+      if (restored) {
+        setCurrentDoc(restored);
+        setCurrentPreset(restored.presetType || presetTarget);
+        setKonteksInput(restored.konteksAktual || lkpd.konteksAktual || '');
+        isDirtyRef.current = false;
+        setSaveStatus('Tersimpan');
+        return;
       }
       setCurrentDoc(lkpd);
-      setCurrentPreset(lkpd.presetType || 'kasus');
+      setCurrentPreset(presetTarget);
       setKonteksInput(lkpd.konteksAktual || '');
+      isDirtyRef.current = false;
+      setSaveStatus('Tersimpan');
     }
-  }, [tpKey, lkpd, expectedTPHash]);
+  }, [tpKey, academicContextKey, lkpd, expectedTPHash]);
 
-  // Auto-save debounce (400ms) with key lkpd_${tpId}_${presetType}
+  // Flush synchronously on pagehide / beforeunload / visibility hidden / component unmount
   useEffect(() => {
-    setSaveStatus('Menyimpan perubahan...');
-    const timer = setTimeout(() => {
-      try {
-        const key = `lkpd_${tpId}_${currentPreset}`;
-        localStorage.setItem(key, JSON.stringify(currentDoc));
-        setSaveStatus('Tersimpan otomatis');
-      } catch {
-        setSaveStatus('Tersimpan lokal');
+    const handleExitFlush = () => flushLKPDSaveNow();
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        flushLKPDSaveNow();
       }
-    }, 400);
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', handleExitFlush);
+      window.addEventListener('beforeunload', handleExitFlush);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibility);
+    }
+    return () => {
+      flushLKPDSaveNow();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', handleExitFlush);
+        window.removeEventListener('beforeunload', handleExitFlush);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibility);
+      }
+    };
+  }, []);
+
+  // Debounced auto-save (300ms) hanya bila guru benar-benar mengubah draf
+  const hasMountedOnceRef = useRef(false);
+  useEffect(() => {
+    if (!hasMountedOnceRef.current) {
+      hasMountedOnceRef.current = true;
+      return;
+    }
+    isDirtyRef.current = true;
+    setSaveStatus('Menyimpan...');
+    const timer = setTimeout(() => {
+      flushLKPDSaveNow();
+    }, 300);
 
     return () => clearTimeout(timer);
-  }, [currentDoc, tpId, currentPreset]);
+  }, [currentDoc]);
 
-  // Switch Archetype Preset
+  // Switch Archetype Preset (flush preset lama dulu agar terisolasi per preset)
   const handleSwitchPreset = (presetId: LKPDPresetType) => {
     if (presetId === currentPreset) return;
 
-    // Synchronously flush pending currentDoc before switching
-    try {
-      const currentKey = `lkpd_${tpId}_${currentPreset}`;
-      localStorage.setItem(currentKey, JSON.stringify(currentDoc));
-    } catch {
-      // ignore
-    }
-
+    flushLKPDSaveNow();
     setCurrentPreset(presetId);
 
     const freshReference = buildSmartLKPD(effectiveTP, activeProfile, presetId, konteksInput);
-    const storageKey = `lkpd_${tpId}_${presetId}`;
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object') {
-          const migrated = normalizeStoredLKPDDraft(parsed, freshReference, expectedTPHash);
-          setCurrentDoc(migrated);
-          setKonteksInput(migrated.konteksAktual || konteksInput);
-          showToast(`Draft preset "${presetId}" berhasil dimuat.`);
-          return;
-        }
-      }
-    } catch {
-      // ignore
+    const restored = loadLKPDDraft(activeProfile, effectiveTP, presetId, freshReference);
+    if (restored) {
+      setCurrentDoc(restored);
+      setKonteksInput(restored.konteksAktual || konteksInput);
+      isDirtyRef.current = false;
+      setSaveStatus('Tersimpan');
+      showToast(`Draft preset "${presetId}" berhasil dimuat.`);
+      return;
     }
 
     setCurrentDoc(freshReference);
+    isDirtyRef.current = false;
+    setSaveStatus('Tersimpan');
     showToast(`Preset "${presetId}" aktif.`);
   };
 
   const handleApplyUpdatedTPMetadata = () => {
     if (!customTP) return;
-    setCurrentDoc((prev) => ({
-      ...prev,
+    const nextDoc: LKPDDokumen = {
+      ...currentDoc,
       tpKode: customTP.kode,
       elemen: customTP.elemen,
       materiPokok: customTP.materiPokok,
@@ -288,10 +359,13 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
         kode: s.kode,
         kompetensi: s.kompetensi,
       })),
-      prasyaratMateri: customTP.prasyarat || prev.prasyaratMateri,
+      prasyaratMateri: customTP.prasyarat || currentDoc.prasyaratMateri,
       tpSourceHash: computeTPContentHash(customTP),
       needsReview: false,
-    }));
+      draftSource: 'user_edited',
+    };
+    setCurrentDoc(nextDoc);
+    flushLKPDSaveNow(nextDoc, 'user_edited');
     showToast('Metadata TP & Sub-TP diselaraskan ke draf ini tanpa menimpa editan isi Anda.');
   };
 
@@ -304,20 +378,19 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
       if (!ok) return;
     }
 
-    try {
-      const key = `lkpd_${tpId}_${currentPreset}`;
-      localStorage.removeItem(key);
-    } catch {
-      // ignore
-    }
-
+    deleteLKPDDraft(activeProfile, tpId, currentDoc.tpKode, currentPreset);
+    isDirtyRef.current = false;
     const fresh = buildSmartLKPD(effectiveTP, activeProfile, currentPreset, konteksInput);
     setCurrentDoc(fresh);
+    setSaveStatus('Tersimpan');
     showToast('Draf preset berhasil direset ke draf awal bawaan');
   };
 
   // AI Re-generation
   const handleRegenerateAI = async () => {
+    if (!requireActiveLicenseForAction('membuat LKPD kontekstual dengan AI')) {
+      return;
+    }
     setIsGeneratingAI(true);
     showToast('⚡ Menghubungi AI Gemini untuk menyusun LKPD kontekstual...');
     try {
@@ -327,7 +400,15 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
         currentPreset,
         konteksInput
       );
-      setCurrentDoc(result.lkpd);
+      const sourceKind = result.usedFallback ? 'template' : 'ai_generated';
+      const nextDoc: LKPDDokumen = {
+        ...result.lkpd,
+        tpId: effectiveTP.id,
+        presetType: currentPreset,
+        draftSource: sourceKind,
+      };
+      setCurrentDoc(nextDoc);
+      flushLKPDSaveNow(nextDoc, sourceKind);
       if (result.usedFallback) {
         showToast(
           result.errorMsg
@@ -345,6 +426,9 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   };
 
   const handleCopyText = () => {
+    if (!requireActiveLicenseForAction('menyalin teks LKPD')) {
+      return;
+    }
     let text = `LEMBAR KERJA PESERTA DIDIK (LKPD): ${currentDoc.judul || currentDoc.materiPokok}\n`;
     text += `Preset: ${currentPreset.toUpperCase()} | Konteks: ${currentDoc.konteksAktual || '-'}\n`;
     text += `Mata Pelajaran: ${currentDoc.mataPelajaran} | Kelas: ${currentDoc.kelas} (${currentDoc.jenjangFase})\n\n`;
@@ -383,6 +467,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   };
 
   const handleExportImage = async () => {
+    if (!requireActiveLicenseForAction('mengunduh gambar LKPD')) return;
     if (!sheetRef.current) return;
     setIsExportingImage(true);
     showToast('📸 Menyiapkan gambar LKPD resolusi tinggi...');
@@ -420,6 +505,15 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   };
 
   const handleExportDocxClick = async (teacherEdition = false) => {
+    if (
+      !requireActiveLicenseForAction(
+        teacherEdition
+          ? 'mengunduh file Word Panduan Guru LKPD'
+          : 'mengunduh file Word LKPD Siswa'
+      )
+    ) {
+      return;
+    }
     try {
       const ok = await exportLKPDToDocx(currentDoc, activeProfile, teacherEdition);
       if (ok) {
@@ -434,13 +528,44 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
     }
   };
 
+  const updateCurrentDocWithDirty = (
+    updater: (prev: LKPDDokumen) => LKPDDokumen
+  ) => {
+    setCurrentDoc((prev) => {
+      const updatedRaw = updater(prev);
+      const sourceMode =
+        updatedRaw.draftSource === 'ai_generated'
+          ? 'ai'
+          : prev.catatanValidasi?.isCuratedFixture
+            ? 'curated'
+            : prev.catatanValidasi?.usedFallback
+              ? 'adaptive_fallback'
+              : 'draft';
+      const revalidated = validateLKPDDokumen(updatedRaw, effectiveTP, activeProfile, {
+        sourceMode,
+      });
+      const next: LKPDDokumen = {
+        ...updatedRaw,
+        catatanValidasi: revalidated,
+      };
+      isDirtyRef.current = true;
+      latestSaveContextRef.current = {
+        doc: next,
+        profile: activeProfile,
+        tp: effectiveTP,
+        preset: currentPreset,
+      };
+      return next;
+    });
+  };
+
   // Mutators for inline editing
   const updateDoc = (partial: Partial<LKPDDokumen>) => {
-    setCurrentDoc((prev) => ({ ...prev, ...partial }));
+    updateCurrentDocWithDirty((prev) => ({ ...prev, ...partial }));
   };
 
   const updateStimulus = (field: 'judul' | 'teks' | 'pertanyaanAwal', val: string) => {
-    setCurrentDoc((prev) => ({
+    updateCurrentDocWithDirty((prev) => ({
       ...prev,
       stimulusKasus: {
         ...prev.stimulusKasus,
@@ -452,15 +577,16 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   // Question mutators
   const addQuestion = () => {
     const nextNomor = currentDoc.pertanyaanAnalisis.length + 1;
+    questionSeqRef.current += 1;
     const newItem: LKPDPertanyaanItem = {
-      id: `q-${Date.now()}`,
+      id: `q-${nextNomor}-${questionSeqRef.current}`,
       nomor: nextNomor,
       pertanyaan: `Pertanyaan analisis baru ke-${nextNomor}`,
       tingkatKognitif: 'Menengah',
       panduanJawabanSingkat: 'Panduan jawaban atau rubrik untuk guru...',
       petunjukPengerjaan: 'Diskusikan bersama kelompok.',
     };
-    setCurrentDoc((prev) => ({
+    updateCurrentDocWithDirty((prev) => ({
       ...prev,
       pertanyaanAnalisis: [...prev.pertanyaanAnalisis, newItem],
     }));
@@ -471,20 +597,20 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
     const updated = currentDoc.pertanyaanAnalisis
       .filter((_, idx) => idx !== index)
       .map((item, idx) => ({ ...item, nomor: idx + 1 }));
-    setCurrentDoc((prev) => ({ ...prev, pertanyaanAnalisis: updated }));
+    updateCurrentDocWithDirty((prev) => ({ ...prev, pertanyaanAnalisis: updated }));
     showToast('Pertanyaan dihapus.');
   };
 
   const updateQuestion = (index: number, partial: Partial<LKPDPertanyaanItem>) => {
     const updated = [...currentDoc.pertanyaanAnalisis];
     updated[index] = { ...updated[index], ...partial };
-    setCurrentDoc((prev) => ({ ...prev, pertanyaanAnalisis: updated }));
+    updateCurrentDocWithDirty((prev) => ({ ...prev, pertanyaanAnalisis: updated }));
   };
 
   // Step mutators
   const addStep = () => {
     const nextLangkah = currentDoc.langkahAktivitas.length + 1;
-    setCurrentDoc((prev) => ({
+    updateCurrentDocWithDirty((prev) => ({
       ...prev,
       langkahAktivitas: [
         ...prev.langkahAktivitas,
@@ -502,18 +628,18 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
     const updated = currentDoc.langkahAktivitas
       .filter((_, idx) => idx !== index)
       .map((item, idx) => ({ ...item, langkahKe: idx + 1 }));
-    setCurrentDoc((prev) => ({ ...prev, langkahAktivitas: updated }));
+    updateCurrentDocWithDirty((prev) => ({ ...prev, langkahAktivitas: updated }));
   };
 
   const updateStepInstruksi = (index: number, val: string) => {
     const updated = [...currentDoc.langkahAktivitas];
     updated[index] = { ...updated[index], instruksi: val };
-    setCurrentDoc((prev) => ({ ...prev, langkahAktivitas: updated }));
+    updateCurrentDocWithDirty((prev) => ({ ...prev, langkahAktivitas: updated }));
   };
 
   // Reflection mutators
   const addReflection = () => {
-    setCurrentDoc((prev) => ({
+    updateCurrentDocWithDirty((prev) => ({
       ...prev,
       kesimpulanRefleksi: [
         ...prev.kesimpulanRefleksi,
@@ -523,7 +649,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   };
 
   const deleteReflection = (index: number) => {
-    setCurrentDoc((prev) => ({
+    updateCurrentDocWithDirty((prev) => ({
       ...prev,
       kesimpulanRefleksi: prev.kesimpulanRefleksi.filter((_, i) => i !== index),
     }));
@@ -532,12 +658,12 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
   const updateReflection = (index: number, val: string) => {
     const updated = [...currentDoc.kesimpulanRefleksi];
     updated[index] = val;
-    setCurrentDoc((prev) => ({ ...prev, kesimpulanRefleksi: updated }));
+    updateCurrentDocWithDirty((prev) => ({ ...prev, kesimpulanRefleksi: updated }));
   };
 
   // Eksperimen mutators
   const updateEksperimen = (partial: Partial<LKPDEksperimenData>) => {
-    setCurrentDoc((prev) => ({
+    updateCurrentDocWithDirty((prev) => ({
       ...prev,
       eksperimenData: {
         ...(prev.eksperimenData || {
@@ -552,7 +678,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
 
   // Diferensiasi mutators
   const updateDiferensiasi = (partial: Partial<LKPDDiferensiasiData>) => {
-    setCurrentDoc((prev) => ({
+    updateCurrentDocWithDirty((prev) => ({
       ...prev,
       diferensiasiData: {
         ...(prev.diferensiasiData || {
@@ -567,7 +693,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
 
   // Proyek mutators
   const updateProyek = (partial: Partial<LKPDProyekData>) => {
-    setCurrentDoc((prev) => ({
+    updateCurrentDocWithDirty((prev) => ({
       ...prev,
       proyekData: {
         ...(prev.proyekData || {
@@ -624,7 +750,10 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button
-              onClick={onBackToClassHub}
+              onClick={() => {
+                flushLKPDSaveNow();
+                onBackToClassHub();
+              }}
               className="btn btn-sm btn-outline"
               style={{ borderColor: '#cbd5e1', background: '#f8fafc', fontWeight: 700 }}
             >
@@ -647,9 +776,10 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
               ✨ Smart LKPD Preset Studio
             </span>
             <span
+              role="status"
               style={{
                 fontSize: 12,
-                color: '#059669',
+                color: saveStatus === 'Gagal menyimpan' ? '#dc2626' : '#059669',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 5,
@@ -784,6 +914,44 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
           </div>
         </div>
 
+        {(currentDoc.catatanValidasi?.issues?.length ||
+          currentDoc.catatanValidasi?.warnings?.length) ? (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: '10px 14px',
+              borderRadius: 10,
+              background: currentDoc.catatanValidasi?.issues?.length ? '#fef2f2' : '#fffbeb',
+              border: currentDoc.catatanValidasi?.issues?.length
+                ? '1px solid #fecaca'
+                : '1px solid #fde68a',
+              fontSize: 12,
+              color: currentDoc.catatanValidasi?.issues?.length ? '#991b1b' : '#92400e',
+            }}
+          >
+            {currentDoc.catatanValidasi?.issues?.length ? (
+              <div style={{ marginBottom: currentDoc.catatanValidasi?.warnings?.length ? 6 : 0 }}>
+                <strong>Temuan Validasi Akademik LKPD:</strong>
+                <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+                  {currentDoc.catatanValidasi.issues.map((iss, idx) => (
+                    <li key={idx}>{iss}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {currentDoc.catatanValidasi?.warnings?.length ? (
+              <div>
+                <strong>Catatan Tinjauan Guru:</strong>
+                <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+                  {currentDoc.catatanValidasi.warnings.map((wrn, idx) => (
+                    <li key={idx}>{wrn}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {currentDoc.needsReview && customTP && (
           <div
             style={{
@@ -842,7 +1010,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr auto',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
             gap: 10,
             alignItems: 'center',
             background: '#f8fafc',
@@ -930,7 +1098,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
           background: '#ffffff',
           color: '#1e293b',
           borderRadius: 'var(--radius-lg)',
-          padding: '40px 48px',
+          padding: 'clamp(18px, 4vw, 40px) clamp(14px, 4vw, 48px)',
           boxShadow: 'var(--shadow-lg)',
           minHeight: 800,
         }}
@@ -956,14 +1124,14 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
           <h1 style={{ fontSize: 18, fontWeight: 800, color: '#0d9488', margin: '4px 0 2px' }}>
             LEMBAR KERJA PESERTA DIDIK (LKPD)
           </h1>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#334155', display: 'flex', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', maxWidth: '100%', gap: 6 }}>
             <span>TOPIK:</span>
             <input
               type="text"
               value={cleanTopicHeading(currentDoc.judul || currentDoc.materiPokok)}
               onChange={(e) => updateDoc({ judul: e.target.value })}
               className="lkpd-inline-input"
-              style={{ fontWeight: 800, textAlign: 'center', maxWidth: 480, color: '#0f172a' }}
+              style={{ fontWeight: 800, textAlign: 'center', maxWidth: 'min(480px, 100%)', color: '#0f172a' }}
               title="Klik untuk mengedit judul/topik LKPD"
             />
           </div>
@@ -991,7 +1159,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
             fontSize: 12.5,
           }}
         >
-          <div>
+          <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
             <div style={{ marginBottom: 4 }}>
               <strong>Mata Pelajaran:</strong> {currentDoc.mataPelajaran}
             </div>
@@ -1005,17 +1173,17 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
               <strong>Tujuan Belajar:</strong> {currentDoc.tujuanPembelajaran}
             </div>
           </div>
-          <div>
+          <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
             {currentDoc.modeKerja === 'Individu' ? (
               <>
                 <div style={{ marginBottom: 4 }}>
-                  <strong>Nama Siswa:</strong> ........................................................
+                  <strong>Nama Siswa:</strong> ..............................
                 </div>
                 <div style={{ marginBottom: 4 }}>
-                  <strong>Nomor Absen / NIS:</strong> ...........................................
+                  <strong>Nomor Absen / NIS:</strong> ........................
                 </div>
                 <div style={{ marginBottom: 2, color: '#475569', fontSize: 12 }}>
-                  <strong>Tanggal:</strong> .............................................................
+                  <strong>Tanggal:</strong> ..............................
                 </div>
               </>
             ) : currentDoc.modeKerja === 'Berpasangan' ? (
@@ -1024,24 +1192,24 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                   <strong>Mode Kerja:</strong> Berpasangan (2 Siswa)
                 </div>
                 <div style={{ color: '#475569', fontSize: 12, marginBottom: 2 }}>
-                  1. ............................................................................
+                  1. ..............................
                 </div>
                 <div style={{ color: '#475569', fontSize: 12 }}>
-                  2. ............................................................................
+                  2. ..............................
                 </div>
               </>
             ) : (
               <>
                 <div style={{ marginBottom: 4 }}>
-                  <strong>Nama Kelompok:</strong> ....................................................
+                  <strong>Nama Kelompok:</strong> ..............................
                 </div>
                 <div style={{ marginBottom: 2 }}>
                   <strong>Anggota Kelompok:</strong>
                 </div>
-                <div style={{ color: '#475569', fontSize: 12 }}>1. ............................................................................</div>
-                <div style={{ color: '#475569', fontSize: 12 }}>2. ............................................................................</div>
-                <div style={{ color: '#475569', fontSize: 12 }}>3. ............................................................................</div>
-                <div style={{ color: '#475569', fontSize: 12 }}>4. ............................................................................</div>
+                <div style={{ color: '#475569', fontSize: 12 }}>1. ..............................</div>
+                <div style={{ color: '#475569', fontSize: 12 }}>2. ..............................</div>
+                <div style={{ color: '#475569', fontSize: 12 }}>3. ..............................</div>
+                <div style={{ color: '#475569', fontSize: 12 }}>4. ..............................</div>
               </>
             )}
           </div>
@@ -1618,7 +1786,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
             </h3>
 
             {/* Tujuan & Linimasa */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 16 }}>
               <div>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a', display: 'block', marginBottom: 4 }}>
                   Tujuan Produk Akhir Proyek:
@@ -1647,7 +1815,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
 
             {/* Peran Anggota Tim */}
             <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>Struktur & Tanggung Jawab Peran:</span>
                 <button
                   onClick={() => {
@@ -1662,6 +1830,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                 </button>
               </div>
 
+              <div className="print-table-scroll" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: '#ffffff' }}>
                 <thead>
                   <tr style={{ background: '#f1f5f9' }}>
@@ -1714,11 +1883,12 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
 
             {/* Rubrik Karya */}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>Rubrik Penilaian Karya Proyek:</span>
                 <button
                   onClick={() => {
@@ -1733,6 +1903,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                 </button>
               </div>
 
+              <div className="print-table-scroll" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: '#ffffff' }}>
                 <thead>
                   <tr style={{ background: '#f1f5f9' }}>
@@ -1785,6 +1956,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
         )}
@@ -2034,6 +2206,90 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
           </div>
         )}
 
+        {/* Produk Hasil Belajar & Kriteria Penilaian Siswa (Student Facing) */}
+        <div
+          style={{
+            marginBottom: 20,
+            padding: '12px 16px',
+            borderRadius: 10,
+            background: '#f0fdfa',
+            border: '1px solid #99f6e4',
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#0f766e', marginBottom: 6 }}>
+            Target Produk Hasil Belajar & Kriteria Keberhasilan Siswa
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#115e59', marginBottom: 2 }}>
+              Tagihan / Produk Akhir Siswa:
+            </div>
+            <AutoExpandingTextarea
+              rows={1}
+              value={currentDoc.produkHasilBelajar || ''}
+              onChange={(e) => updateDoc({ produkHasilBelajar: e.target.value })}
+              className="lkpd-inline-textarea"
+              style={{
+                fontSize: 12.5,
+                color: '#134e4a',
+                background: '#ffffff',
+                padding: '6px 10px',
+                borderRadius: 6,
+                border: '1px solid #ccfbf1',
+              }}
+              placeholder="Tuliskan produk/tagihan hasil kerja siswa (misal: Lembar jawaban lengkap dengan langkah pengerjaan, poster grafik, atau laporan observasi)..."
+            />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#115e59' }}>
+                Kriteria Penilaian (Terlihat oleh Siswa):
+              </span>
+              <button
+                onClick={() =>
+                  updateDoc({
+                    kriteriaPenilaianSiswa: [
+                      ...(currentDoc.kriteriaPenilaianSiswa || []),
+                      'Kriteria penilaian baru...',
+                    ],
+                  })
+                }
+                className="no-print lkpd-btn-add"
+                style={{ fontSize: 11, padding: '2px 8px' }}
+              >
+                <Plus size={12} /> Tambah Kriteria
+              </button>
+            </div>
+            {(currentDoc.kriteriaPenilaianSiswa || []).map((krItem, kIdx) => (
+              <div key={kIdx} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <input
+                  type="text"
+                  value={krItem}
+                  onChange={(e) => {
+                    const updated = [...(currentDoc.kriteriaPenilaianSiswa || [])];
+                    updated[kIdx] = e.target.value;
+                    updateDoc({ kriteriaPenilaianSiswa: updated });
+                  }}
+                  className="lkpd-inline-input"
+                  style={{ fontSize: 12, color: '#134e4a', background: '#ffffff', flex: 1 }}
+                />
+                {(currentDoc.kriteriaPenilaianSiswa?.length || 0) > 1 && (
+                  <button
+                    onClick={() => {
+                      const updated = (currentDoc.kriteriaPenilaianSiswa || []).filter((_, i) => i !== kIdx);
+                      updateDoc({ kriteriaPenilaianSiswa: updated });
+                    }}
+                    className="no-print lkpd-btn-icon-danger"
+                    style={{ width: 20, height: 20 }}
+                    title="Hapus kriteria"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* IV. KESIMPULAN & REFLEKSI MANDIRI */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '2px solid #ccfbf1', paddingBottom: 4, marginBottom: 10 }}>
@@ -2131,7 +2387,8 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                 <div style={{ fontSize: 12.5, fontWeight: 800, color: '#78350f', marginBottom: 6 }}>
                   3. Keselarasan TP / Sub-TP ke Tugas
                 </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, background: '#ffffff' }}>
+                <div className="print-table-scroll" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse', fontSize: 11.5, background: '#ffffff' }}>
                   <thead>
                     <tr style={{ background: '#fef3c7' }}>
                       <th style={{ border: '1px solid #fcd34d', padding: '5px 8px', textAlign: 'left' }}>Sub-TP</th>
@@ -2149,6 +2406,7 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
 
@@ -2157,7 +2415,8 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                 <div style={{ fontSize: 12.5, fontWeight: 800, color: '#78350f', marginBottom: 6 }}>
                   4. Rubrik Penilaian Berbasis Bukti Kinerja
                 </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, background: '#ffffff' }}>
+                <div className="print-table-scroll" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <table style={{ width: '100%', minWidth: 540, borderCollapse: 'collapse', fontSize: 11, background: '#ffffff' }}>
                   <thead>
                     <tr style={{ background: '#fef3c7' }}>
                       <th style={{ border: '1px solid #fcd34d', padding: '5px 6px', textAlign: 'left' }}>Aspek</th>
@@ -2179,13 +2438,14 @@ export const LKPDViewer: React.FC<LKPDViewerProps> = ({
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
           </div>
         )}
 
         {/* Footer Dokumen */}
-        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 10, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#94a3b8' }}>
+        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 10, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, fontSize: 11, color: '#94a3b8' }}>
           <div>{currentDoc.namaSekolah || activeProfile.namaSekolah} • {currentDoc.elemen || 'Kurikulum Aktif'}</div>
           <div>Lembar Kerja Peserta Didik • {currentDoc.tpKode || 'TP'}</div>
         </div>

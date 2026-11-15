@@ -1,4 +1,5 @@
 import type { GenerationRequest, LevelKognitif } from '../../types/assessment';
+import { repairBalancedPGOptions } from '../assessmentQualityEngine';
 
 export interface PGTemplate {
   stimulus: string;
@@ -61,34 +62,20 @@ export function isSMARequest(req: GenerationRequest): boolean {
 }
 
 /**
- * Menyesuaikan label Level Kognitif dengan pilihan guru pada form (LOTS / MOTS / HOTS / Campuran)
+ * Menjaga integritas level kognitif asli templat (tidak menimpa paksa label HOTS/LOTS secara kosmetik).
+ * Perbedaan antara defaultLevel dan requestedLevel ditandai oleh cognitiveLevelEngine agar jujur bagi guru.
  */
 export function formatCognitiveLevel(
   defaultLevel: string,
-  requestedLevel: LevelKognitif,
-  index: number
+  _requestedLevel: LevelKognitif,
+  _index: number
 ): string {
-  if (requestedLevel === 'LOTS (C1-C2)') {
-    return index % 2 === 0
-      ? 'C1 (Mengingat Konsep Dasar)'
-      : 'C2 (Memahami Makna & Informasi)';
-  }
-  if (requestedLevel === 'MOTS (C3)') {
-    return 'C3 (Menerapkan Kaidah / Konsep)';
-  }
-  if (requestedLevel === 'HOTS (C4-C6)') {
-    if (defaultLevel.startsWith('C4') || defaultLevel.startsWith('C5') || defaultLevel.startsWith('C6')) {
-      return defaultLevel;
-    }
-    return index % 2 === 0
-      ? 'C4 (Menganalisis Informasi & Penalaran)'
-      : 'C5 (Mengevaluasi Kebenaran Konsep)';
-  }
   return defaultLevel;
 }
 
 /**
- * Menyeimbangkan distribusi kunci jawaban (A, B, C, D, [E]) agar tidak monoton di B/C saja
+ * Menyeimbangkan distribusi kunci jawaban (A, B, C, D, [E]) tanpa menghilangkan opsi benar
+ * ketika jenjang SD/SMP memakai 4 opsi, sekaligus memperbarui rujukan huruf di pembahasan.
  */
 export function balanceOptionAndKey(
   tpl: PGTemplate,
@@ -99,43 +86,5 @@ export function balanceOptionAndKey(
   kunci: 'A' | 'B' | 'C' | 'D' | 'E';
   pembahasan: string;
 } {
-  const letterToIndex: Record<string, number> = { A: 0, B: 1, C: 2, D: 3, E: 4 };
-  const origKeyIdx = letterToIndex[tpl.kunci] ?? 1;
-  const rawOptions = [...tpl.opsi5];
-
-  // Pastikan opsi yang tersedia minimal sepanjang optionLetters
-  while (rawOptions.length < optionLetters.length) {
-    rawOptions.push(`Pernyataan pelengkap ${rawOptions.length + 1}`);
-  }
-
-  const correctText = rawOptions[origKeyIdx] ?? rawOptions[0];
-  const safeTargetIdx = targetIndex % optionLetters.length;
-  const targetLetter = optionLetters[safeTargetIdx];
-
-  // Bangun array opsi sesuai jumlah optionLetters (4 untuk SD/SMP, 5 untuk SMA/SMK)
-  const trimmedOptions = rawOptions.slice(0, optionLetters.length);
-  if (origKeyIdx >= optionLetters.length) {
-    // Jika kunci asli ada di E padahal jenjang SD/SMP (4 opsi), masukkan jawaban benar ke safeTargetIdx
-    trimmedOptions[safeTargetIdx] = correctText;
-  } else if (origKeyIdx !== safeTargetIdx) {
-    // Tukar posisi jawaban benar dari origKeyIdx ke safeTargetIdx
-    const temp = trimmedOptions[safeTargetIdx];
-    trimmedOptions[safeTargetIdx] = trimmedOptions[origKeyIdx];
-    trimmedOptions[origKeyIdx] = temp;
-  }
-
-  // Perbarui referensi "(Pilihan X)" atau "adalah X" di akhir pembahasan agar konsisten dengan kunci baru
-  const updatedPembahasan = tpl.pembahasan
-    .replace(/\(Pilihan\s+[A-E]\)/g, `(Pilihan ${targetLetter})`)
-    .replace(/adalah\s+pilihan\s+[A-E]\b/gi, `adalah pilihan ${targetLetter}`)
-    .replace(/jawaban\s+yang\s+tepat\s+adalah\s+[A-E]\b/gi, `jawaban yang tepat adalah ${targetLetter}`);
-
-  return {
-    pilihan: optionLetters.map((label, idx) => ({
-      label,
-      teks: trimmedOptions[idx],
-    })),
-    kunci: targetLetter,
-    pembahasan: `${updatedPembahasan} [Kunci: ${targetLetter}]`,
-  };
+  return repairBalancedPGOptions(tpl, optionLetters, targetIndex);
 }

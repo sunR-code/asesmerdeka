@@ -1,14 +1,18 @@
-import type { AsesmenDokumen, GenerationRequest } from '../types/assessment';
+import type { AsesmenDokumen, GenerationRequest, JenjangFase } from '../types/assessment';
 import type { RangkumanDokumen } from '../types/summary';
 import type { SchoolProfile } from './schoolProfileStorage';
 import { getBankSoal, saveToBankSoal } from './bankSoalStorage';
-import { getBankRangkuman, saveToBankRangkuman, createInitialSampleRangkuman } from './bankRangkumanStorage';
+import {
+  getBankRangkuman,
+  saveToBankRangkuman,
+  createInitialSampleRangkuman,
+} from './bankRangkumanStorage';
 import { buildSmartCurriculumRangkuman } from './rangkumanKnowledgeEngine';
 import { buildSmartCurriculumAsesmen } from './asesmenKnowledgeEngine';
-import { generateAsesmen } from '../services/aiGenerator';
+import { deriveDefaultFase } from './storageIdentity';
 
-export function loadAndUpgradeBankSoal(): AsesmenDokumen[] {
-  const rawBank = getBankSoal();
+export function loadAndUpgradeBankSoal(profile?: SchoolProfile): AsesmenDokumen[] {
+  const rawBank = getBankSoal(profile);
   return rawBank.map((doc) => {
     const firstQ = doc.soalList[0];
     const isOldPlaceholder =
@@ -23,6 +27,9 @@ export function loadAndUpgradeBankSoal(): AsesmenDokumen[] {
         mataPelajaran: doc.mataPelajaran,
         jenjangFase: doc.jenjangFase,
         kelas: doc.kelas,
+        semester: doc.semester,
+        tahunAjaran: doc.tahunAjaran,
+        schoolId: doc.schoolId,
         tipeAsesmen: doc.tipeAsesmen,
         materiPokok: doc.materiPokok,
         tujuanPembelajaranInput: doc.tujuanPembelajaran[0] || '',
@@ -36,15 +43,16 @@ export function loadAndUpgradeBankSoal(): AsesmenDokumen[] {
         namaGuru: doc.namaPenyusun,
       });
       rebuilt.id = doc.id;
-      saveToBankSoal(rebuilt);
+      rebuilt.isSimulated = doc.isSimulated;
+      saveToBankSoal(rebuilt, profile);
       return rebuilt;
     }
     return doc;
   });
 }
 
-export function loadOrInitRangkuman(): RangkumanDokumen {
-  const savedRangkumanList = getBankRangkuman();
+export function loadOrInitRangkuman(profile?: SchoolProfile): RangkumanDokumen {
+  const savedRangkumanList = getBankRangkuman(profile);
   if (savedRangkumanList.length > 0) {
     const latest = savedRangkumanList[0];
     if (!latest.rumusAtauPola || !latest.contohKonkret) {
@@ -55,39 +63,83 @@ export function loadOrInitRangkuman(): RangkumanDokumen {
         jenjangFase: latest.jenjangFase,
         kelas: latest.kelas,
         gayaBahasa: latest.gayaBahasa,
+        schoolId: latest.schoolId,
+        tahunAjaran: latest.tahunAjaran,
+        semester: latest.semester,
+        tpId: latest.tpId,
+        tpKode: latest.tpKode,
       });
-      saveToBankRangkuman(upgraded);
+      upgraded.id = latest.id;
+      upgraded.isSimulated = latest.isSimulated;
+      saveToBankRangkuman(upgraded, profile);
       return upgraded;
     }
     return latest;
   }
 
-  const initialSample = createInitialSampleRangkuman();
-  saveToBankRangkuman(initialSample);
-  return initialSample;
+  // Jangan menyuntikkan contoh IPAS SD ke ruang penyimpanan kelas/mapel lain secara diam-diam.
+  // Kembalikan pratinjau contoh simulasi in-memory sesuai profil aktif jika tersedia,
+  // atau contoh simulasi berlabel isSimulated: true.
+  if (profile && profile.mataPelajaranUtama && profile.kelasUtama) {
+    const fase = deriveDefaultFase(profile.jenjang, profile.kelasUtama) as JenjangFase;
+    const previewDoc = buildSmartCurriculumRangkuman({
+      modeInput: 'keinginan_user',
+      topik: `Pengantar Materi ${profile.mataPelajaranUtama}`,
+      mataPelajaran: profile.mataPelajaranUtama,
+      jenjangFase: fase,
+      kelas: profile.kelasUtama,
+      gayaBahasa: profile.jenjang === 'SD/MI'
+        ? 'Ceria & Analogi Sehari-hari (Cocok SD/SMP)'
+        : 'Struktur Ringkas & Poin Kunci (Infografis)',
+      schoolId: profile.schoolId,
+      tahunAjaran: profile.tahunAjaran,
+      semester: profile.semester,
+    });
+    return {
+      ...previewDoc,
+      id: 'RNG-PREVIEW-SIMULASI',
+      draftSource: 'sample_demo',
+      isSimulated: true,
+    };
+  }
+
+  return createInitialSampleRangkuman();
 }
 
-export async function createDefaultInitialAssessment(savedProfile: SchoolProfile): Promise<AsesmenDokumen> {
+export async function createDefaultInitialAssessment(
+  savedProfile: SchoolProfile
+): Promise<AsesmenDokumen> {
+  const fase = deriveDefaultFase(savedProfile.jenjang, savedProfile.kelasUtama) as JenjangFase;
+  const mapel = savedProfile.mataPelajaranUtama || 'Matematika';
+  const kelas = savedProfile.kelasUtama || '8';
   const defaultRequest: GenerationRequest = {
-    mataPelajaran: 'Matematika',
-    jenjangFase: 'Fase D (Kelas 7-9 SMP)',
-    kelas: '8',
-    tipeAsesmen: 'Sumatif (Tengah Semester / STS)',
-    materiPokok: 'Sistem Persamaan Linear Dua Variabel (SPLDV)',
+    mataPelajaran: mapel,
+    jenjangFase: fase,
+    kelas,
+    semester: savedProfile.semester,
+    tahunAjaran: savedProfile.tahunAjaran,
+    schoolId: savedProfile.schoolId,
+    tipeAsesmen: 'Formatif (Proses Pembelajaran)',
+    materiPokok: `Materi Inti ${mapel} Kelas ${kelas}`,
     tujuanPembelajaranInput:
-      'Peserta didik dapat menyelesaikan masalah kontekstual yang berkaitan dengan sistem persamaan linear dua variabel.',
+      `Peserta didik mampu memahami dan menerapkan konsep inti ${mapel} pada konteks sehari-hari.`,
     jumlahPG: 3,
     jumlahPGK: 1,
     jumlahUraian: 1,
     levelKognitif: 'Campuran Berimbang',
     sertakanRubrik: true,
-    alokasiWaktu: '80 Menit',
+    alokasiWaktu: '40 Menit',
     namaSekolah: savedProfile.namaSekolah,
     namaGuru: savedProfile.namaGuru,
   };
 
-  const doc = await generateAsesmen(defaultRequest);
-  saveToBankSoal(doc);
-  return doc;
+  // Gunakan penyusun luring berlabel simulasi/sampel (tidak memanggil API AI secara otomatis saat boot)
+  const doc = buildSmartCurriculumAsesmen(defaultRequest);
+  return {
+    ...doc,
+    id: `ASM-SAMPLE-${(savedProfile.schoolId || 'local').slice(-6)}`,
+    judul: `${doc.judul} (Contoh Simulasi)`,
+    generationSource: 'sample_demo',
+    isSimulated: true,
+  };
 }
-

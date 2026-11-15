@@ -177,6 +177,12 @@ export const RangkumanGenerator: React.FC<RangkumanGeneratorProps> = ({
       mataPelajaran,
       jenjangFase,
       kelas,
+      rombel: schoolProfile?.rombelAktif,
+      semester: schoolProfile?.semester,
+      tahunAjaran: schoolProfile?.tahunAjaran,
+      schoolId: schoolProfile?.schoolId,
+      tpId: prefillData?.tpId,
+      tpKode: prefillData?.tpKode,
       gayaBahasa,
     });
   };
@@ -581,7 +587,7 @@ export const RangkumanGenerator: React.FC<RangkumanGeneratorProps> = ({
               <input
                 type="file"
                 id="fileMateri"
-                accept=".txt,.md,.doc,.docx,.pdf"
+                accept=".txt,.md,.csv,.json"
                 onChange={handleFileUpload}
                 style={{ display: 'none' }}
               />
@@ -599,7 +605,7 @@ export const RangkumanGenerator: React.FC<RangkumanGeneratorProps> = ({
                   <Upload size={22} color="#0d9488" />
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
-                  {uploadedFileName ? `File Terpilih: ${uploadedFileName}` : 'Klik untuk Unggah File Materi (.txt, .md)'}
+                  {uploadedFileName ? `File Terpilih: ${uploadedFileName}` : 'Klik untuk Unggah File Materi (.txt, .md, .csv, .json)'}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                   Atau Bapak/Ibu juga dapat langsung menempelkan teks materi di kotak bawah

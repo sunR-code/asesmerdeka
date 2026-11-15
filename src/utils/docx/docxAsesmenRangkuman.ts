@@ -17,7 +17,10 @@ import type { RangkumanDokumen } from '../../types/summary';
 import { getSchoolProfile } from '../schoolProfileStorage';
 import { buildSignatureBlockTable } from './docxShared';
 
-export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubric = true): Promise<void> {
+export async function buildAssessmentDocx(
+  assessment: AsesmenDokumen,
+  includeKeyAndRubric = true
+): Promise<Document> {
   const profile = getSchoolProfile();
   const children: (Paragraph | Table)[] = [];
 
@@ -90,7 +93,7 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
       spacing: { after: 180 },
       children: [
         new TextRun({
-          text: `TAHUN AJARAN ${assessment.tahunAjaran || profile.tahunAjaran} • SEMESTER ${profile.semester.toUpperCase()} • KURIKULUM MERDEKA`,
+          text: `TAHUN AJARAN ${assessment.tahunAjaran || profile.tahunAjaran} • SEMESTER ${(assessment.semester || profile.semester).toUpperCase()} • KURIKULUM MERDEKA`,
           size: 20, // 10pt
           color: '555555',
           font: 'Calibri',
@@ -100,6 +103,9 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
   );
 
   // 2. Tabel Identitas Siswa & Mata Pelajaran
+  const kelasRombelDisplay = assessment.kelas
+    ? `${assessment.kelas}${assessment.rombel ? ` (${assessment.rombel})` : ''}`
+    : profile.rombelAktif || '-';
   children.push(
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
@@ -116,7 +122,7 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
               },
               children: [
                 new Paragraph({ children: [new TextRun({ text: `Mata Pelajaran : ${assessment.mataPelajaran}`, bold: true, size: 20 })] }),
-                new Paragraph({ children: [new TextRun({ text: `Kelas / Rombel : ${profile.rombelAktif || assessment.kelas} (${assessment.jenjangFase})`, size: 20 })] }),
+                new Paragraph({ children: [new TextRun({ text: `Kelas / Rombel : ${kelasRombelDisplay} (${assessment.jenjangFase})`, size: 20 })] }),
                 new Paragraph({ children: [new TextRun({ text: `Alokasi Waktu : ${assessment.alokasiWaktu}`, size: 20 })] }),
               ],
             }),
@@ -167,11 +173,12 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
     })
   );
 
-  assessment.soalList.forEach((soal) => {
+  assessment.soalList.forEach((soal, soalIdx) => {
     // Stimulus (jika ada)
     if (soal.stimulus) {
       children.push(
         new Paragraph({
+          keepNext: true,
           spacing: { before: 80, after: 60 },
           children: [
             new TextRun({
@@ -195,6 +202,7 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
     // Pertanyaan
     children.push(
       new Paragraph({
+        keepNext: true,
         spacing: { before: 40, after: 60 },
         children: [
           new TextRun({
@@ -208,9 +216,10 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
 
     // Opsi PG
     if (soal.tipe === 'pilihan_ganda') {
-      soal.pilihan.forEach((opt) => {
+      soal.pilihan.forEach((opt, optIdx) => {
         children.push(
           new Paragraph({
+            keepNext: optIdx < soal.pilihan.length - 1,
             indent: { left: 360 },
             spacing: { after: 30 },
             children: [
@@ -224,6 +233,8 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
       // Tabel Benar / Salah AKM
       const tableRows = [
         new TableRow({
+          tableHeader: true,
+          cantSplit: true,
           children: [
             new TableCell({
               width: { size: 75, type: WidthType.PERCENTAGE },
@@ -244,6 +255,7 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
       soal.pernyataan.forEach((p) => {
         tableRows.push(
           new TableRow({
+            cantSplit: true,
             children: [
               new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: p.teks, size: 19 })] })] }),
               new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '[  ]', size: 19 })] })] }),
@@ -274,7 +286,9 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
       );
     }
 
-    children.push(new Paragraph({ spacing: { after: 100 } }));
+    if (soalIdx < assessment.soalList.length - 1) {
+      children.push(new Paragraph({ spacing: { after: 100 } }));
+    }
   });
 
   // 5. Bagian Kunci Jawaban & Rubrik KKTP (Jika diaktifkan)
@@ -303,7 +317,7 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
             children: [
               new TextRun({ text: `No. ${soal.nomor} — Kunci: `, bold: true, size: 20 }),
               new TextRun({ text: soal.kunci, bold: true, color: '15803D', size: 21 }),
-              new TextRun({ text: ` | Tingkat: ${soal.levelKognitif}`, size: 19, color: '555555' }),
+              new TextRun({ text: ` | Tingkat: ${soal.levelKognitif} | Skor: ${soal.skor || 1}`, size: 19, color: '555555' }),
             ],
           }),
           new Paragraph({
@@ -319,8 +333,9 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
           new Paragraph({
             spacing: { before: 40, after: 20 },
             children: [
-              new TextRun({ text: `No. ${soal.nomor} (AKM) — Kunci: `, bold: true, size: 20 }),
+              new TextRun({ text: `No. ${soal.nomor} (PGK/AKM) — Kunci: `, bold: true, size: 20 }),
               new TextRun({ text: kunciAKM, bold: true, color: '15803D', size: 20 }),
+              new TextRun({ text: ` | Tingkat: ${soal.levelKognitif} | Skor: ${soal.skor || 2}`, size: 19, color: '555555' }),
             ],
           }),
           new Paragraph({
@@ -335,7 +350,8 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
           new Paragraph({
             spacing: { before: 40, after: 20 },
             children: [
-              new TextRun({ text: `No. ${soal.nomor} (Uraian) — Pedoman Penskoran:`, bold: true, size: 20 }),
+              new TextRun({ text: `No. ${soal.nomor} (Uraian) — Pedoman Penskoran`, bold: true, size: 20 }),
+              new TextRun({ text: ` | Tingkat: ${soal.levelKognitif} | Skor Maks: ${soal.skorMaksimal || 4}`, size: 19, color: '555555' }),
             ],
           }),
           new Paragraph({
@@ -351,10 +367,11 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
     });
 
     // Tabel Rubrik KKTP
-    if (assessment.rubrikKKTP.length > 0) {
+    if (assessment.sertakanRubrik !== false && assessment.rubrikKKTP.length > 0) {
       children.push(
         new Paragraph({
           pageBreakBefore: true,
+          keepNext: true,
           heading: HeadingLevel.HEADING_2,
           spacing: { before: 120, after: 80 },
           children: [
@@ -369,6 +386,8 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
 
       const rubricRows = [
         new TableRow({
+          tableHeader: true,
+          cantSplit: true,
           children: [
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'Tujuan Pembelajaran', bold: true, size: 19 })] })] }),
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'Perlu Bimbingan (0-60)', bold: true, size: 18 })] })] }),
@@ -382,6 +401,7 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
       assessment.rubrikKKTP.forEach((r) => {
         rubricRows.push(
           new TableRow({
+            cantSplit: true,
             children: [
               new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.tujuanPembelajaran, bold: true, size: 18 }), new TextRun({ text: `\nBukti: ${r.buktiKetercapaian}`, size: 17 })] })] }),
               new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.perluBimbingan, size: 17 })] })] }),
@@ -408,7 +428,7 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
   }
 
   // Buat Document docx
-  const doc = new Document({
+  return new Document({
     sections: [
       {
         properties: {},
@@ -416,16 +436,22 @@ export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubr
       },
     ],
   });
+}
 
+export async function exportToDocx(assessment: AsesmenDokumen, includeKeyAndRubric = true): Promise<void> {
+  const doc = await buildAssessmentDocx(assessment, includeKeyAndRubric);
   const blob = await Packer.toBlob(doc);
   const cleanFilename = assessment.judul.replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Asesmen_Kurikulum_Merdeka';
   saveAs(blob, `${cleanFilename}.docx`);
 }
 
 /**
- * Ekspor Rangkuman Materi ke Microsoft Word (.docx)
+ * Bangun Document Rangkuman Materi (.docx)
  */
-export async function exportRangkumanToDocx(rangkuman: RangkumanDokumen): Promise<void> {
+export async function buildRangkumanDocx(
+  rangkuman: RangkumanDokumen,
+  includeKuisJawaban = true
+): Promise<Document> {
   const profile = getSchoolProfile();
   const children: (Paragraph | Table)[] = [];
 
@@ -511,7 +537,7 @@ export async function exportRangkumanToDocx(rangkuman: RangkumanDokumen): Promis
       spacing: { after: 180 },
       children: [
         new TextRun({
-          text: `${rangkuman.mataPelajaran} • ${rangkuman.jenjangFase} • Kelas ${profile.rombelAktif || rangkuman.kelas} • TA ${profile.tahunAjaran}`,
+          text: `${rangkuman.mataPelajaran} • ${rangkuman.jenjangFase} • Kelas ${rangkuman.kelas ? `${rangkuman.kelas}${rangkuman.rombel ? ` (${rangkuman.rombel})` : ''}` : profile.rombelAktif || '-'} • ${rangkuman.semester || profile.semester} • TA ${rangkuman.tahunAjaran || profile.tahunAjaran}`,
           size: 20,
           color: '555555',
           font: 'Calibri',
@@ -541,9 +567,10 @@ export async function exportRangkumanToDocx(rangkuman: RangkumanDokumen): Promis
       })
     );
     rangkuman.petaKonsep.forEach((pk, i) => {
+      const cleaned = pk.replace(/^\d+\s*[.):-]\s*/, '').trim();
       children.push(
         new Paragraph({
-          children: [new TextRun({ text: `${i + 1}. ${pk}`, size: 20 })],
+          children: [new TextRun({ text: `${i + 1}. ${cleaned}`, size: 20 })],
           spacing: { after: 30 },
         })
       );
@@ -585,10 +612,11 @@ export async function exportRangkumanToDocx(rangkuman: RangkumanDokumen): Promis
   );
 
   rangkuman.poinUtama.forEach((p, idx) => {
+    const cleanJudul = (p.judul || '').replace(/^\d+\s*[.):-]\s*/, '').trim();
     children.push(
       new Paragraph({
         spacing: { before: 80, after: 40 },
-        children: [new TextRun({ text: `${idx + 1}. ${p.judul}`, bold: true, size: 21 })],
+        children: [new TextRun({ text: `${idx + 1}. ${cleanJudul}`, bold: true, size: 21 })],
       }),
       new Paragraph({
         spacing: { after: 40 },
@@ -684,9 +712,10 @@ export async function exportRangkumanToDocx(rangkuman: RangkumanDokumen): Promis
       })
     );
     rangkuman.faktaMenarik.forEach((fm) => {
+      const cleanedFakta = fm.replace(/^[🌟✨💡📌🔹•-]\s*/u, '').trim();
       children.push(
         new Paragraph({
-          children: [new TextRun({ text: `🌟 ${fm}`, italics: true, size: 19 })],
+          children: [new TextRun({ text: `🌟 ${cleanedFakta}`, italics: true, size: 19 })],
           spacing: { after: 40 },
         })
       );
@@ -734,7 +763,16 @@ export async function exportRangkumanToDocx(rangkuman: RangkumanDokumen): Promis
         }),
         new Paragraph({
           spacing: { after: 50 },
-          children: [new TextRun({ text: `Jawaban: ${k.jawaban}`, italics: true, size: 18, color: '059669' })],
+          children: [
+            new TextRun({
+              text: includeKuisJawaban
+                ? `Jawaban: ${k.jawaban}`
+                : 'Jawaban Siswa: ........................................................................',
+              italics: true,
+              size: 18,
+              color: includeKuisJawaban ? '059669' : '64748B',
+            }),
+          ],
         })
       );
     });
@@ -763,10 +801,16 @@ export async function exportRangkumanToDocx(rangkuman: RangkumanDokumen): Promis
     children.push(buildSignatureBlockTable(profile));
   }
 
-  const doc = new Document({
+  return new Document({
     sections: [{ properties: {}, children }],
   });
+}
 
+export async function exportRangkumanToDocx(
+  rangkuman: RangkumanDokumen,
+  includeKuisJawaban = true
+): Promise<void> {
+  const doc = await buildRangkumanDocx(rangkuman, includeKuisJawaban);
   const blob = await Packer.toBlob(doc);
   const cleanFilename = rangkuman.judul.replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Rangkuman_Materi';
   saveAs(blob, `${cleanFilename}.docx`);

@@ -18,6 +18,8 @@ import {
   getLicenseSeatStatus,
   normalizeLicenseCodeInput,
   revokeLicenseToPreviewMode,
+  manageLocalSchoolTeacherSeat,
+  evaluateLicenseLifecycleState,
 } from './licenseManager';
 
 export const STORAGE_KEY_ADMIN_SESSION_PIN = 'asesmerdeka_admin_session_pin_v1';
@@ -173,7 +175,7 @@ export async function verifyAdminSession(
       return { ok: true, message: data.message || 'Autentikasi Admin berhasil.' };
     }
 
-    if (res.status === 403 || (data && data.ok === false)) {
+    if (res.status === 403 || res.status === 429 || (data && data.ok === false)) {
       return {
         ok: false,
         message: data?.message || 'PIN Admin tidak valid atau tidak memiliki hak akses.',
@@ -277,13 +279,25 @@ function fetchOfflineAdminLicenses(
     const seatStatus = getLicenseSeatStatus(item.code);
     const devices = seatStatus.devices?.length ? seatStatus.devices : item.devices || [];
     const maxSeats = seatStatus.maxSeats || item.maxSeats || 1;
-    const usedSeats = devices.length;
+    const teacherSeats = seatStatus.teacherSeats || item.teacherSeats;
+    const usedSeats =
+      typeof seatStatus.activeTeacherCount === 'number'
+        ? seatStatus.activeTeacherCount
+        : seatStatus.usedSeats || devices.length;
+    const lifecycleState = evaluateLicenseLifecycleState({
+      ...item,
+      devices,
+      usedSeats,
+      teacherSeats,
+    });
     const status: AdminLicenseStatus = usedSeats > 0 ? 'aktif' : 'belum_aktif';
     return {
       ...item,
       maxSeats,
       devices,
+      ...(teacherSeats ? { teacherSeats, activeTeacherCount: usedSeats, maxDevicesPerTeacher: 2 } : {}),
       usedSeats,
+      lifecycleState,
       status,
     };
   });
@@ -337,7 +351,15 @@ export async function fetchAdminLicenses(
       };
     }
 
-    if (res.status === 403) {
+    if (
+      res.status === 400 ||
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 404 ||
+      res.status === 409 ||
+      res.status === 429 ||
+      (data && data.ok === false)
+    ) {
       return {
         ok: false,
         licenses: [],
@@ -397,6 +419,8 @@ function createOfflineAdminLicense(
       usedSeats: 0,
       devices: [],
       status: 'belum_aktif',
+      lifecycleState: 'paid',
+      ...(payload.expiresAt ? { expiresAt: payload.expiresAt } : {}),
     };
     created.push(item);
   }
@@ -466,7 +490,15 @@ export async function createAdminLicense(
       };
     }
 
-    if (res.status === 403) {
+    if (
+      res.status === 400 ||
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 404 ||
+      res.status === 409 ||
+      res.status === 429 ||
+      (data && data.ok === false)
+    ) {
       return {
         ok: false,
         created: [],
@@ -518,6 +550,21 @@ function resetLocalLicenseSeats(cleanCode: string): void {
   }
 }
 
+function maybeRevokeActiveLocalLicense(cleanCode: string, reason: 'unbound' | 'revoked'): void {
+  try {
+    const storage = getLocalStorage();
+    const rawQuota = storage?.getItem('asesmerdeka_user_quota');
+    if (rawQuota) {
+      const quota = JSON.parse(rawQuota);
+      if (normalizeLicenseCodeInput(quota?.licenseKey || '') === cleanCode) {
+        revokeLicenseToPreviewMode({ reason, licenseKey: cleanCode });
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function resetOfflineLicenseSeats(
   cleanPin: string,
   cleanCode: string
@@ -529,6 +576,7 @@ function resetOfflineLicenseSeats(
     };
   }
 
+  maybeRevokeActiveLocalLicense(cleanCode, 'unbound');
   resetLocalLicenseSeats(cleanCode);
   return {
     ok: true,
@@ -553,20 +601,6 @@ export async function resetAdminLicenseSeats(
     return { ok: false, message: 'Kode lisensi wajib diisi.' };
   }
 
-  // Jika lisensi yang di-reset kursinya adalah lisensi yang sedang dipakai di perangkat browser ini:
-  try {
-    const storage = getLocalStorage();
-    const rawQuota = storage?.getItem('asesmerdeka_user_quota');
-    if (rawQuota) {
-      const quota = JSON.parse(rawQuota);
-      if (normalizeLicenseCodeInput(quota?.licenseKey || '') === cleanCode) {
-        revokeLicenseToPreviewMode();
-      }
-    }
-  } catch {
-    // ignore
-  }
-
   try {
     const res = await fetch('/api/admin-portal', {
       method: 'POST',
@@ -584,6 +618,7 @@ export async function resetAdminLicenseSeats(
     const data = await res.json().catch(() => null);
 
     if (res.ok && data?.ok) {
+      maybeRevokeActiveLocalLicense(cleanCode, 'unbound');
       resetLocalLicenseSeats(cleanCode);
       return {
         ok: true,
@@ -591,7 +626,15 @@ export async function resetAdminLicenseSeats(
       };
     }
 
-    if (res.status === 403) {
+    if (
+      res.status === 400 ||
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 404 ||
+      res.status === 409 ||
+      res.status === 429 ||
+      (data && data.ok === false)
+    ) {
       return {
         ok: false,
         message: data?.message || 'PIN Admin tidak valid atau tidak memiliki hak akses.',
@@ -638,6 +681,7 @@ function deleteOfflineLicense(
     };
   }
 
+  maybeRevokeActiveLocalLicense(cleanCode, 'revoked');
   deleteLocalLicense(cleanCode);
   return {
     ok: true,
@@ -662,20 +706,6 @@ export async function deleteAdminLicense(
     return { ok: false, message: 'Kode lisensi wajib diisi.' };
   }
 
-  // Jika lisensi yang di-reset kursinya adalah lisensi yang sedang dipakai di perangkat browser ini:
-  try {
-    const storage = getLocalStorage();
-    const rawQuota = storage?.getItem('asesmerdeka_user_quota');
-    if (rawQuota) {
-      const quota = JSON.parse(rawQuota);
-      if (normalizeLicenseCodeInput(quota?.licenseKey || '') === cleanCode) {
-        revokeLicenseToPreviewMode();
-      }
-    }
-  } catch {
-    // ignore
-  }
-
   try {
     const res = await fetch('/api/admin-portal', {
       method: 'POST',
@@ -693,6 +723,7 @@ export async function deleteAdminLicense(
     const data = await res.json().catch(() => null);
 
     if (res.ok && data?.ok) {
+      maybeRevokeActiveLocalLicense(cleanCode, 'revoked');
       deleteLocalLicense(cleanCode);
       return {
         ok: true,
@@ -700,7 +731,15 @@ export async function deleteAdminLicense(
       };
     }
 
-    if (res.status === 403) {
+    if (
+      res.status === 400 ||
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 404 ||
+      res.status === 409 ||
+      res.status === 429 ||
+      (data && data.ok === false)
+    ) {
       return {
         ok: false,
         message: data?.message || 'PIN Admin tidak valid atau tidak memiliki hak akses.',
@@ -711,4 +750,152 @@ export async function deleteAdminLicense(
   } catch {
     return deleteOfflineLicense(cleanPin, cleanCode);
   }
+}
+
+export async function manageSchoolTeacherSeatAdmin(
+  pin: string,
+  code: string,
+  teacherKey: string,
+  seatAction: 'disable' | 'enable' | 'reset_devices'
+): Promise<{ ok: boolean; usedSeats?: number; maxSeats?: number; message: string }> {
+  const cleanPin = (pin || '').trim();
+  const cleanCode = normalizeLicenseCodeInput(code);
+  const cleanTeacher = (teacherKey || '').trim();
+
+  if (!cleanPin) return { ok: false, message: 'PIN Admin wajib diisi.' };
+  if (!cleanCode || !cleanTeacher) {
+    return { ok: false, message: 'Kode lisensi dan identitas guru wajib diisi.' };
+  }
+
+  const serverAction =
+    seatAction === 'disable'
+      ? 'disable_teacher_seat'
+      : seatAction === 'enable'
+      ? 'enable_teacher_seat'
+      : 'reset_teacher_devices';
+
+  try {
+    const res = await fetch('/api/admin-portal', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-pin': cleanPin,
+      },
+      body: JSON.stringify({
+        action: serverAction,
+        adminPin: cleanPin,
+        licenseCode: cleanCode,
+        teacherKey: cleanTeacher,
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.ok) {
+      manageLocalSchoolTeacherSeat(cleanCode, cleanTeacher, seatAction);
+      return {
+        ok: true,
+        usedSeats: data.usedSeats,
+        maxSeats: data.maxSeats,
+        message: data.message,
+      };
+    }
+    if (
+      res.status === 400 ||
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 404 ||
+      res.status === 409 ||
+      res.status === 429 ||
+      (data && data.ok === false)
+    ) {
+      return {
+        ok: false,
+        message: data?.message || 'PIN Admin tidak valid.',
+      };
+    }
+  } catch {
+    // fallback ke mode lokal di bawah
+  }
+
+  if (!verifyAdminKeygenPin(cleanPin)) {
+    return { ok: false, message: 'PIN Admin tidak valid.' };
+  }
+  return manageLocalSchoolTeacherSeat(cleanCode, cleanTeacher, seatAction);
+}
+
+export async function renewAdminLicense(
+  pin: string,
+  code: string,
+  expiresAt?: string
+): Promise<{ ok: boolean; expiresAt?: string; message: string }> {
+  const cleanPin = (pin || '').trim();
+  const cleanCode = normalizeLicenseCodeInput(code);
+  if (!cleanPin) return { ok: false, message: 'PIN Admin wajib diisi.' };
+  if (!cleanCode) return { ok: false, message: 'Kode lisensi wajib diisi.' };
+
+  const targetExpiry =
+    expiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const res = await fetch('/api/admin-portal', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-pin': cleanPin,
+      },
+      body: JSON.stringify({
+        action: 'renew_license',
+        adminPin: cleanPin,
+        licenseCode: cleanCode,
+        expiresAt: targetExpiry,
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.ok) {
+      const list = getStoredAdminLicenses();
+      const item = list.find((l) => l.code === cleanCode);
+      if (item) {
+        item.expiresAt = data.expiresAt || targetExpiry;
+        item.renewedAt = new Date().toISOString();
+        item.lifecycleState = item.usedSeats > 0 ? 'active' : 'paid';
+        saveStoredAdminLicenses(list);
+      }
+      return {
+        ok: true,
+        expiresAt: data.expiresAt || targetExpiry,
+        message: data.message || 'Masa berlaku lisensi berhasil diperpanjang.',
+      };
+    }
+    if (
+      res.status === 400 ||
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 404 ||
+      res.status === 409 ||
+      res.status === 429 ||
+      (data && data.ok === false)
+    ) {
+      return { ok: false, message: data?.message || 'PIN Admin tidak valid.' };
+    }
+  } catch {
+    // fallback lokal
+  }
+
+  if (!verifyAdminKeygenPin(cleanPin)) {
+    return { ok: false, message: 'PIN Admin tidak valid.' };
+  }
+  const list = getStoredAdminLicenses();
+  const item = list.find((l) => l.code === cleanCode);
+  if (item) {
+    item.expiresAt = targetExpiry;
+    item.renewedAt = new Date().toISOString();
+    item.lifecycleState = item.usedSeats > 0 ? 'active' : 'paid';
+    saveStoredAdminLicenses(list);
+  }
+  return {
+    ok: true,
+    expiresAt: targetExpiry,
+    message: `Masa berlaku lisensi ${cleanCode} diperpanjang (mode offline).`,
+  };
 }

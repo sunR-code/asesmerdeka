@@ -26,6 +26,8 @@ import {
   createAdminLicense,
   resetAdminLicenseSeats,
   deleteAdminLicense,
+  manageSchoolTeacherSeatAdmin,
+  renewAdminLicense,
 } from '../../utils/adminService';
 
 export interface AdminLicenseTabProps {
@@ -72,6 +74,8 @@ export const AdminLicenseTab: React.FC<AdminLicenseTabProps> = ({ adminPin }) =>
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [resetConfirmLicense, setResetConfirmLicense] = useState<AdminLicenseItem | null>(null);
   const [deleteConfirmLicense, setDeleteConfirmLicense] = useState<AdminLicenseItem | null>(null);
+  const [manageSeatsLicense, setManageSeatsLicense] = useState<AdminLicenseItem | null>(null);
+  const [renewingCode, setRenewingCode] = useState<string | null>(null);
   const [isActionLoading, setIsActionLoading] = useState(false);
 
   // Load licenses on mount or pin change
@@ -198,6 +202,52 @@ export const AdminLicenseTab: React.FC<AdminLicenseTabProps> = ({ adminPin }) =>
       });
     } finally {
       setIsActionLoading(false);
+    }
+  };
+
+  // Manage School Teacher Seat (disable / enable / reset_devices)
+  const handleManageTeacherSeat = async (
+    licenseCode: string,
+    teacherKey: string,
+    seatAction: 'disable' | 'enable' | 'reset_devices'
+  ) => {
+    setIsActionLoading(true);
+    setActionNotice(null);
+    try {
+      const res = await manageSchoolTeacherSeatAdmin(adminPin, licenseCode, teacherKey, seatAction);
+      setActionNotice({ text: res.message, isError: !res.ok });
+      if (res.ok) {
+        await loadLicenses();
+        setManageSeatsLicense((prev) => {
+          if (!prev || prev.code !== licenseCode) return prev;
+          const nextSeats = { ...(prev.teacherSeats || {}) };
+          const target = nextSeats[teacherKey];
+          if (target) {
+            if (seatAction === 'disable') nextSeats[teacherKey] = { ...target, status: 'disabled' };
+            if (seatAction === 'enable') nextSeats[teacherKey] = { ...target, status: 'active' };
+            if (seatAction === 'reset_devices') nextSeats[teacherKey] = { ...target, devices: [] };
+          }
+          return { ...prev, teacherSeats: nextSeats };
+        });
+      }
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  // Renew License (+1 Tahun)
+  const handleRenewLicense = async (item: AdminLicenseItem) => {
+    setRenewingCode(item.code);
+    setActionNotice(null);
+    try {
+      const nextYearIso = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+      const res = await renewAdminLicense(adminPin, item.code, nextYearIso);
+      setActionNotice({ text: res.message, isError: !res.ok });
+      if (res.ok) {
+        await loadLicenses();
+      }
+    } finally {
+      setRenewingCode(null);
     }
   };
 
@@ -1073,7 +1123,7 @@ export const AdminLicenseTab: React.FC<AdminLicenseTabProps> = ({ adminPin }) =>
 
                       {/* 4. Kuota Kursi */}
                       <td style={{ padding: '12px 16px', verticalAlign: 'middle' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
                           <span
                             style={{
                               fontSize: 11,
@@ -1084,8 +1134,40 @@ export const AdminLicenseTab: React.FC<AdminLicenseTabProps> = ({ adminPin }) =>
                               color: isUnused ? '#92400e' : isFullyBound ? '#991b1b' : '#065f46',
                             }}
                           >
-                            {used} / {item.maxSeats} Kursi
+                            {item.planType === 'sekolah' || item.planType === 'sekolah_pro'
+                              ? `${item.activeTeacherCount ?? used} / ${item.maxSeats} Guru`
+                              : `${used} / ${item.maxSeats} Kursi`}
                           </span>
+                          {(item.lifecycleState && item.lifecycleState !== 'active') || item.expiresAt ? (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                padding: '1px 6px',
+                                borderRadius: 6,
+                                background:
+                                  item.lifecycleState === 'expired' || item.lifecycleState === 'revoked'
+                                    ? '#fee2e2'
+                                    : item.lifecycleState === 'suspended'
+                                    ? '#fef3c7'
+                                    : '#eff6ff',
+                                color:
+                                  item.lifecycleState === 'expired' || item.lifecycleState === 'revoked'
+                                    ? '#991b1b'
+                                    : item.lifecycleState === 'suspended'
+                                    ? '#92400e'
+                                    : '#1d4ed8',
+                              }}
+                            >
+                              {item.lifecycleState === 'expired'
+                                ? 'Kedaluwarsa'
+                                : item.lifecycleState === 'revoked'
+                                ? 'Dicabut'
+                                : item.lifecycleState === 'suspended'
+                                ? 'Ditangguhkan'
+                                : `Aktif${item.expiresAt ? ` s.d. ${new Date(item.expiresAt).toLocaleDateString('id-ID')}` : ''}`}
+                            </span>
+                          ) : null}
                         </div>
                       </td>
 
@@ -1128,9 +1210,44 @@ export const AdminLicenseTab: React.FC<AdminLicenseTabProps> = ({ adminPin }) =>
                         </span>
                       </td>
 
-                      {/* 7. Aksi (Reset Seats, Delete) */}
+                      {/* 7. Aksi (Kelola Kursi Guru, Perpanjang, Reset Seats, Delete) */}
                       <td style={{ padding: '12px 16px', verticalAlign: 'middle', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
+                          {(item.planType === 'sekolah' || item.planType === 'sekolah_pro') && (
+                            <button
+                              type="button"
+                              onClick={() => setManageSeatsLicense(item)}
+                              title="Kelola Kursi Guru (Maks. 25 Guru × 2 Perangkat)"
+                              className="btn btn-outline btn-sm"
+                              style={{
+                                padding: '5px 8px',
+                                fontSize: 11,
+                                color: '#0f766e',
+                                borderColor: '#99f6e4',
+                                background: '#f0fdfa',
+                              }}
+                            >
+                              Kursi Guru
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            disabled={renewingCode === item.code}
+                            onClick={() => handleRenewLicense(item)}
+                            title="Perpanjang Masa Aktif (+1 Tahun)"
+                            className="btn btn-outline btn-sm"
+                            style={{
+                              padding: '5px 8px',
+                              fontSize: 11,
+                              color: '#1d4ed8',
+                              borderColor: '#bfdbfe',
+                              background: '#eff6ff',
+                            }}
+                          >
+                            {renewingCode === item.code ? '...' : 'Perpanjang'}
+                          </button>
+
                           {/* Reset Kunci Perangkat */}
                           <button
                             type="button"
@@ -1383,6 +1500,137 @@ export const AdminLicenseTab: React.FC<AdminLicenseTabProps> = ({ adminPin }) =>
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Kelola Kursi Guru Sekolah (25 Guru × Maks. 2 Perangkat/Guru) */}
+      {manageSeatsLicense && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="modal-overlay"
+          onClick={() => !isActionLoading && setManageSeatsLicense(null)}
+        >
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: 'min(580px, calc(100vw - 24px))',
+              width: '100%',
+              maxHeight: '88vh',
+              overflowY: 'auto',
+              padding: '22px',
+              borderRadius: 'var(--radius-lg)',
+              background: '#ffffff',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+              boxShadow: 'var(--shadow-lg)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div>
+                <h3 style={{ fontSize: 15.5, fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                  Kelola Kursi Guru Sekolah ({manageSeatsLicense.code})
+                </h3>
+                <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
+                  {manageSeatsLicense.label} • Kuota Maks. {manageSeatsLicense.maxSeats} Guru (Maks.{' '}
+                  {manageSeatsLicense.maxDevicesPerTeacher || 2} Perangkat per Guru)
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setManageSeatsLicense(null)}
+              >
+                Tutup
+              </button>
+            </div>
+
+            {manageSeatsLicense.teacherSeats &&
+            Object.keys(manageSeatsLicense.teacherSeats).length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {Object.values(manageSeatsLicense.teacherSeats).map((seat) => (
+                  <div
+                    key={seat.teacherKey}
+                    style={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 8,
+                      padding: '10px 12px',
+                      background: seat.status === 'disabled' ? '#fef2f2' : '#f8fafc',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 800, color: '#0f172a' }}>
+                        {seat.teacherLabel || seat.teacherKey}{' '}
+                        <span
+                          style={{
+                            fontSize: 10,
+                            padding: '1px 6px',
+                            borderRadius: 99,
+                            background: seat.status === 'disabled' ? '#fee2e2' : '#d1fae5',
+                            color: seat.status === 'disabled' ? '#991b1b' : '#065f46',
+                          }}
+                        >
+                          {seat.status === 'disabled' ? 'Nonaktif' : 'Aktif'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#475569' }}>
+                        Perangkat: {seat.devices.length}/{seat.maxDevices || 2}{' '}
+                        {seat.devices.length > 0 ? `(${seat.devices.join(', ')})` : ''}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        disabled={isActionLoading}
+                        className="btn btn-outline btn-sm"
+                        style={{ fontSize: 11 }}
+                        onClick={() =>
+                          handleManageTeacherSeat(
+                            manageSeatsLicense.code,
+                            seat.teacherKey,
+                            'reset_devices'
+                          )
+                        }
+                      >
+                        Reset Perangkat
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isActionLoading}
+                        className="btn btn-outline btn-sm"
+                        style={{
+                          fontSize: 11,
+                          color: seat.status === 'disabled' ? '#059669' : '#dc2626',
+                          borderColor: seat.status === 'disabled' ? '#a7f3d0' : '#fecaca',
+                        }}
+                        onClick={() =>
+                          handleManageTeacherSeat(
+                            manageSeatsLicense.code,
+                            seat.teacherKey,
+                            seat.status === 'disabled' ? 'enable' : 'disable'
+                          )
+                        }
+                      >
+                        {seat.status === 'disabled' ? 'Aktifkan Kursi' : 'Nonaktifkan Kursi'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: '#64748b', padding: '12px 0' }}>
+                Belum ada guru yang mendaftarkan PIN/NIP pada lisensi sekolah ini. Setiap guru yang melakukan aktivasi dengan PIN/NIP pribadi akan otomatis menempati 1 kursi guru (hingga {manageSeatsLicense.maxSeats} guru, maks. 2 perangkat per guru).
+              </div>
+            )}
           </div>
         </div>
       )}

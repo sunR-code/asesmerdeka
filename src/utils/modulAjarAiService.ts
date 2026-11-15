@@ -116,13 +116,26 @@ export function buildModulAjarGeminiPrompt(
   const modelDef = MODUL_AJAR_MODELS.find((m) => m.id === model) || MODUL_AJAR_MODELS[0];
   const jenjangFase = jenjangToDefaultFase(profile.jenjang, profile.kelasUtama);
   const alokasiJP = Number(tp.alokasiJP) || 8;
+  const jumlahPertemuan = 2;
+  const menitPerJP = profile.jenjang.includes('SD') ? 35 : profile.jenjang.includes('SMP') ? 40 : 45;
+  const menitPerPertemuan = Math.round((alokasiJP * menitPerJP) / jumlahPertemuan);
+  const subTPText =
+    tp.subTP && tp.subTP.length > 0
+      ? tp.subTP.map((s) => `  - ${s.kode}: ${s.kompetensi} (${s.buktiKetercapaian})`).join('\n')
+      : `  - ${tp.kode}: ${tp.tujuanPembelajaran}`;
+  const prasyaratText =
+    tp.prasyarat && tp.prasyarat.length > 0 ? tp.prasyarat.join('; ') : 'Pemahaman pengantar elemen ' + tp.elemen;
+  const buktiText =
+    tp.buktiKetercapaian && tp.buktiKetercapaian.length > 0
+      ? tp.buktiKetercapaian.join('; ')
+      : tp.kompetensiInti || tp.tujuanPembelajaran;
   const konteks =
     konteksLokal && konteksLokal.trim().length > 0
       ? konteksLokal.trim()
       : `Penerapan nyata materi ${tp.materiPokok} dalam lingkungan kehidupan sehari-hari peserta didik`;
 
   return `
-Anda adalah Guru Penggerak Teladan Nasional, Dewan Pakar Kurikulum Merdeka Kemendikbudristek RI, dan Perancang Modul Ajar Terbaik di Indonesia.
+Anda adalah Guru Penggerak Teladan Nasional, Pakar Kurikulum Merdeka, dan Perancang Modul Ajar Terbaik di Indonesia.
 Tugas Anda: Susun dokumen Modul Ajar (RPP Plus Kurikulum Merdeka) yang MENDALAM, SANGAT OPERASIONAL, BERMUTU TINGGI, dan MENGANGKAT KONTEKS LOKAL.
 
 IDENTITAS & PROFIL PEMBELAJARAN:
@@ -130,8 +143,14 @@ IDENTITAS & PROFIL PEMBELAJARAN:
 - Jenjang & Kelas: ${profile.jenjang || 'SMP'} / Fase ${jenjangFase} - Kelas ${profile.kelasUtama || '8'} (${profile.rombelAktif || 'Rombel Utama'})
 - Mata Pelajaran: ${profile.mataPelajaranUtama || 'Mata Pelajaran Utama'}
 - Topik / Materi Pokok: ${tp.materiPokok}
+- Kode & Elemen TP: ${tp.kode} (${tp.elemen})
 - Capaian / Tujuan Pembelajaran (TP): ${tp.tujuanPembelajaran}
-- Alokasi Waktu: ${alokasiJP} JP (2 Pertemuan x 80 Menit)
+- Arahan Konten/Materi TP: ${tp.arahanRangkuman}
+- Prasyarat Awal Siswa: ${prasyaratText}
+- Bukti Ketercapaian (KKTP): ${buktiText}
+- Rincian Sub-TP:
+${subTPText}
+- Alokasi Waktu: ${alokasiJP} JP (${jumlahPertemuan} Pertemuan x ${menitPerPertemuan} Menit, standar ${menitPerJP} menit/JP)
 - Model Pembelajaran Kurikulum Merdeka yang Diterapkan: ${modelDef.label}
 - Deskripsi Pendekatan Model: ${modelDef.deskripsi}
 - SINTAKS PEDAGOGIS WAJIB:
@@ -143,13 +162,14 @@ PANDUAN KOMPONEN INTI KURIKULUM MERDEKA:
 2. "pertanyaanPemantik": Susun minimal 3 butir pertanyaan pemantik berpikir kritis (HOTS) yang memancing eksplorasi peserta didik terhadap keterkaitan "${tp.materiPokok}" dan "${konteks}".
 3. "profilPelajarPancasila": Pilih 3-4 dimensi Profil Pelajar Pancasila yang paling relevan (misal Bernalar Kritis, Gotong Royong, Mandiri, Kreatif) dengan rincian sikap aplikatif.
 4. "saranaPrasarana": Tuliskan alat, media peraga, bahan ajar, dan sumber belajar kontekstual yang digunakan.
-5. "kegiatanPembelajaran": Susun 2 pertemuan terstruktur yang memuat langkah pembuka, inti, dan penutup.
-   Pada bagian "inti", WAJIB MENERAPKAN SINTAKS ${modelDef.label} secara eksplisit dan runut per tahap.
-6. "asesmen": Deskripsikan instrumen diagnostik awal, asesmen formatif proses, dan asesmen sumatif akhir secara komprehensif.
-7. "rubrikPenilaianSingkat": Sediakan rubrik penilaian singkat dengan kriteria dan 4 level capaian (baruBerkembang, layak, cakap, mahir).
-8. "pengayaanDanRemedial": Rancang strategi pengayaan analitis dan bimbingan remedial terarah.
-9. "glosarium": Minimal 3 istilah kunci beserta definisinya.
-10. "daftarPustaka": Minimal 2 referensi buku sumber resmi Kurikulum Merdeka atau rujukan ilmiah terpercaya.
+5. "bahanBacaan": Susun ringkasan materi ajar guru & siswa (2-3 kalimat padat akurat) serta minimal 3 poin konsep kunci spesifik topik "${tp.materiPokok}" untuk mendukung pemahaman di kelas.
+6. "kegiatanPembelajaran": Susun ${jumlahPertemuan} pertemuan terstruktur yang memuat langkah pembuka, inti, dan penutup, masing-masing berdurasi ${menitPerPertemuan} menit.
+   Pada bagian "inti", WAJIB MENERAPKAN SINTAKS ${modelDef.label} secara eksplisit dan runut per tahap sesuai topik "${tp.materiPokok}".
+7. "asesmen": Deskripsikan instrumen diagnostik awal, asesmen formatif proses, dan asesmen sumatif akhir secara komprehensif.
+8. "rubrikPenilaianSingkat": Sediakan rubrik penilaian singkat dengan kriteria dan 4 level capaian (baruBerkembang, layak, cakap, mahir).
+9. "pengayaanDanRemedial": Rancang strategi pengayaan analitis dan bimbingan remedial terarah.
+10. "glosarium": Minimal 3 istilah kunci beserta definisinya.
+11. "daftarPustaka": Cantumkan kerangka referensi jujur TANPA MENGARANG nama penulis, tahun terbit, nomor ISBN, atau halaman buku fiktif. Gunakan format panduan agar guru melengkapi edisi buku teks resmi sekolah.
 
 PETUNJUK OUTPUT JSON MURNI:
 Kembalikan HANYA format JSON valid tanpa tanda markdown pembuka/penutup (\`\`\`json) dan tanpa kalimat pengantar:
@@ -166,17 +186,22 @@ Kembalikan HANYA format JSON valid tanpa tanda markdown pembuka/penutup (\`\`\`j
   "saranaPrasarana": ["..."],
   "targetPesertaDidik": "Peserta didik reguler dengan diferensiasi proses dan produk",
   "modelPembelajaran": "${modelDef.label}",
+  "bahanBacaan": {
+    "ringkasanInti": "...",
+    "konsepKunci": ["...", "...", "..."],
+    "referensiCatatan": "Lengkapi/sesuaikan sumber bacaan dengan buku teks utama satuan pendidikan."
+  },
   "kegiatanPembelajaran": [
     {
       "pertemuan": 1,
-      "alokasiMenit": 80,
+      "alokasiMenit": ${menitPerPertemuan},
       "pendahuluan": ["..."],
       "inti": ["..."],
       "penutup": ["..."]
     },
     {
       "pertemuan": 2,
-      "alokasiMenit": 80,
+      "alokasiMenit": ${menitPerPertemuan},
       "pendahuluan": ["..."],
       "inti": ["..."],
       "penutup": ["..."]
@@ -371,8 +396,38 @@ function normalizeAIResponseToModulAjar(
       ? parsed.daftarPustaka.map(String)
       : fallback.daftarPustaka;
 
+  const bahanBacaan =
+    parsed?.bahanBacaan && typeof parsed.bahanBacaan === 'object'
+      ? {
+          ringkasanInti:
+            typeof parsed.bahanBacaan.ringkasanInti === 'string' &&
+            parsed.bahanBacaan.ringkasanInti.trim().length > 0
+              ? parsed.bahanBacaan.ringkasanInti.trim()
+              : fallback.bahanBacaan?.ringkasanInti || tp.arahanRangkuman,
+          konsepKunci:
+            Array.isArray(parsed.bahanBacaan.konsepKunci) &&
+            parsed.bahanBacaan.konsepKunci.length > 0
+              ? parsed.bahanBacaan.konsepKunci.map(String)
+              : fallback.bahanBacaan?.konsepKunci || [tp.materiPokok],
+          referensiCatatan:
+            typeof parsed.bahanBacaan.referensiCatatan === 'string' &&
+            parsed.bahanBacaan.referensiCatatan.trim().length > 0
+              ? parsed.bahanBacaan.referensiCatatan.trim()
+              : fallback.bahanBacaan?.referensiCatatan,
+        }
+      : fallback.bahanBacaan;
+
   return {
     ...fallback,
+    tpId: fallback.tpId,
+    schoolId: fallback.schoolId,
+    tpSourceHash: fallback.tpSourceHash,
+    needsReview: false,
+    targetSubTP: fallback.targetSubTP,
+    prasyaratMateri: fallback.prasyaratMateri,
+    buktiKetercapaian: fallback.buktiKetercapaian,
+    modelType: model,
+    draftSource: 'ai_generated',
     judul,
     modelPembelajaran,
     pemahamanBermakna,
@@ -381,6 +436,7 @@ function normalizeAIResponseToModulAjar(
     profilPelajarPancasila,
     saranaPrasarana,
     targetPesertaDidik,
+    bahanBacaan,
     kegiatanPembelajaran,
     asesmen,
     rubrikPenilaianSingkat,
@@ -403,6 +459,7 @@ export async function generateContextualModulAjarWithAI(
   konteksLokal?: string
 ): Promise<ContextualModulAjarResult> {
   const fallback = buildSmartModulAjar(tp, profile);
+  fallback.modelType = model;
   const modelDef = MODUL_AJAR_MODELS.find((m) => m.id === model) || MODUL_AJAR_MODELS[0];
   if (modelDef) {
     fallback.modelPembelajaran = `${modelDef.label} - ${modelDef.deskripsi}`;

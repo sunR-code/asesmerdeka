@@ -8,6 +8,7 @@ import {
   Sparkles,
   RefreshCw,
   Share2,
+  Save,
 } from 'lucide-react';
 import type { ModulAjarDokumen } from '../types/perangkatAjar';
 import type { SchoolProfile, CustomTPItem } from '../utils/schoolProfileStorage';
@@ -23,6 +24,11 @@ import {
   publishSharedCurriculum,
   hydrateSharedDocWithLocalProfile,
 } from '../utils/sharedCurriculumService';
+import {
+  loadModulAjarDraft,
+  saveModulAjarDraft,
+} from '../utils/perangkatDraftStorage';
+import { buildAcademicContextKey } from './modulAjarHelpers';
 import { requireActiveLicenseForAction } from '../utils/licenseManager';
 
 interface ModulAjarViewerProps {
@@ -31,6 +37,7 @@ interface ModulAjarViewerProps {
   customTP?: CustomTPItem | null;
   onPrint: () => void;
   onBackToClassHub: () => void;
+  onDraftSaved?: (doc: ModulAjarDokumen) => void;
 }
 
 interface AutoExpandingTextareaProps
@@ -87,21 +94,43 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
   customTP,
   onPrint,
   onBackToClassHub,
+  onDraftSaved,
 }) => {
   const activeProfile = schoolProfile || getSchoolProfile();
   const [copied, setCopied] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
-  const [selectedModel, setSelectedModel] = useState<ModulAjarModelType>('pbl');
+  const initialModel: ModulAjarModelType =
+    (modul.modelType as ModulAjarModelType) &&
+    MODUL_AJAR_MODELS.some((m) => m.id === modul.modelType)
+      ? (modul.modelType as ModulAjarModelType)
+      : 'pbl';
+
+  const [selectedModel, setSelectedModel] = useState<ModulAjarModelType>(initialModel);
   const [konteksInput, setKonteksInput] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isFromCommunity, setIsFromCommunity] = useState(false);
-  const [editableDoc, setEditableDoc] = useState<ModulAjarDokumen>(modul);
+  const [saveStatus, setSaveStatus] = useState<'Tersimpan' | 'Menyimpan...' | 'Gagal menyimpan'>('Tersimpan');
+  const [editableDoc, setEditableDoc] = useState<ModulAjarDokumen>(() => {
+    const initialTP: CustomTPItem = customTP || {
+      id: modul.tpId || `tp-${modul.tpKode}`,
+      kode: modul.tpKode,
+      elemen: modul.elemen || '',
+      materiPokok: modul.materiPokok || '',
+      tujuanPembelajaran: modul.tujuanPembelajaran || '',
+      arahanRangkuman: '',
+      alokasiJP: 2,
+      mingguMulai: 1,
+      mingguSelesai: 1,
+    };
+    const restored = loadModulAjarDraft(activeProfile, initialTP, initialModel);
+    return restored || modul;
+  });
 
   const effectiveTP: CustomTPItem = customTP || {
-    id: `tp-${modul.tpKode}`,
+    id: editableDoc.tpId || modul.tpId || `tp-${modul.tpKode}`,
     kode: modul.tpKode,
     elemen: modul.elemen || '',
     materiPokok: modul.materiPokok || '',
@@ -112,29 +141,101 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
     mingguSelesai: 1,
   };
 
+  const tpId = effectiveTP.id;
   const tpKode = effectiveTP.kode || modul.tpKode;
   const jenjang = activeProfile.jenjang || modul.jenjangFase || 'SD/MI';
   const kelas = modul.kelas || activeProfile.kelasUtama || '4';
   const mapel = modul.mataPelajaran || activeProfile.mataPelajaranUtama || 'Umum';
   const materiPokok = effectiveTP.materiPokok || modul.materiPokok || 'Umum';
+  const academicContextKey = buildAcademicContextKey(activeProfile);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 2600);
   };
 
-  const saveToLocalStorage = (doc: ModulAjarDokumen) => {
-    try {
-      if (typeof window !== 'undefined') {
-        const storageKey = `modul_ajar_${tpKode}_${selectedModel}`;
-        localStorage.setItem(storageKey, JSON.stringify(doc));
-      }
-    } catch {
-      // ignore
+  const pendingFlushRef = useRef<{
+    dirty: boolean;
+    doc: ModulAjarDokumen;
+    profile: SchoolProfile;
+    tp: CustomTPItem;
+    model: ModulAjarModelType;
+  }>({
+    dirty: false,
+    doc: editableDoc,
+    profile: activeProfile,
+    tp: effectiveTP,
+    model: selectedModel,
+  });
+
+  const flushModulSaveNow = (
+    overrideDoc?: ModulAjarDokumen,
+    overrideSource?: 'user_edited' | 'ai_generated' | 'template'
+  ) => {
+    const payload = pendingFlushRef.current;
+    const docToSave = overrideDoc || payload.doc;
+    if (!overrideDoc && !payload.dirty) return;
+    const res = saveModulAjarDraft(
+      payload.profile,
+      payload.tp,
+      payload.model,
+      docToSave,
+      overrideSource || docToSave.draftSource || 'user_edited'
+    );
+    pendingFlushRef.current.dirty = false;
+    pendingFlushRef.current.doc = res.doc;
+    if (res.ok) {
+      setSaveStatus('Tersimpan');
+      onDraftSaved?.(res.doc);
+    } else {
+      setSaveStatus('Gagal menyimpan');
     }
   };
 
-  // Auto-Loading Shared Bank / Local Draft saat TP atau selectedModel berubah
+  const saveToLocalStorage = (
+    doc: ModulAjarDokumen,
+    source: 'user_edited' | 'ai_generated' | 'template' = 'user_edited'
+  ) => {
+    setSaveStatus('Menyimpan...');
+    pendingFlushRef.current = {
+      dirty: true,
+      doc,
+      profile: activeProfile,
+      tp: effectiveTP,
+      model: selectedModel,
+    };
+    flushModulSaveNow(doc, source);
+  };
+
+  useEffect(() => {
+    const handleFlushOnExit = () => {
+      flushModulSaveNow();
+    };
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        flushModulSaveNow();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', handleFlushOnExit);
+      window.addEventListener('beforeunload', handleFlushOnExit);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibility);
+    }
+    return () => {
+      flushModulSaveNow();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', handleFlushOnExit);
+        window.removeEventListener('beforeunload', handleFlushOnExit);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibility);
+      }
+    };
+  }, []);
+
+  // Auto-Loading Shared Bank / Local Draft saat TP, konteks kelas, atau selectedModel berubah
   const prevModelRef = useRef<ModulAjarModelType | null>(null);
 
   useEffect(() => {
@@ -143,12 +244,21 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
       prevModelRef.current !== null && prevModelRef.current !== selectedModel;
     prevModelRef.current = selectedModel;
 
-    const storageKey = `modul_ajar_${tpKode}_${selectedModel}`;
+    pendingFlushRef.current = {
+      dirty: false,
+      doc: editableDoc,
+      profile: activeProfile,
+      tp: effectiveTP,
+      model: selectedModel,
+    };
+
     const selectedModelDef =
       MODUL_AJAR_MODELS.find((m) => m.id === selectedModel) || MODUL_AJAR_MODELS[0];
 
     const getFallbackDoc = (): ModulAjarDokumen => ({
       ...modul,
+      tpId,
+      modelType: selectedModel,
       modelPembelajaran: selectedModelDef.deskripsi
         ? `${selectedModelDef.label} - ${selectedModelDef.deskripsi}`
         : selectedModelDef.label,
@@ -156,17 +266,19 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
 
     const loadDraft = async () => {
       try {
-        const saved = typeof window !== 'undefined' ? localStorage.getItem(storageKey) : null;
-        if (saved) {
-          const parsed = JSON.parse(saved) as ModulAjarDokumen;
-          if (isMounted && parsed && parsed.tpKode) {
-            setEditableDoc(parsed);
+        const localDraft = loadModulAjarDraft(activeProfile, effectiveTP, selectedModel);
+        if (localDraft) {
+          if (isMounted) {
+            setEditableDoc(localDraft);
+            pendingFlushRef.current.doc = localDraft;
+            pendingFlushRef.current.dirty = false;
+            setSaveStatus('Tersimpan');
             setIsFromCommunity(false);
-            return;
           }
+          return;
         }
 
-        // Jika tidak di localStorage, cari di Bank Referensi Bersama
+        // Jika tidak di penyimpanan lokal terisolasi, cari di Bank Referensi Bersama
         const res = await fetchSharedCurriculum<ModulAjarDokumen>({
           type: 'modul_ajar',
           jenjang,
@@ -182,10 +294,13 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         if (res.found && res.data) {
           const hydrated = hydrateSharedDocWithLocalProfile(res.data, activeProfile);
           setEditableDoc(hydrated);
+          pendingFlushRef.current.doc = hydrated;
           setIsFromCommunity(true);
           showToast('Draf referensi guru komunitas berhasil dimuat!');
         } else {
-          setEditableDoc(getFallbackDoc());
+          const fallback = getFallbackDoc();
+          setEditableDoc(fallback);
+          pendingFlushRef.current.doc = fallback;
           setIsFromCommunity(false);
           if (isModelChange) {
             showToast(
@@ -195,7 +310,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         }
       } catch {
         if (isMounted) {
-          setEditableDoc(getFallbackDoc());
+          const fallback = getFallbackDoc();
+          setEditableDoc(fallback);
+          pendingFlushRef.current.doc = fallback;
           setIsFromCommunity(false);
           if (isModelChange) {
             showToast(
@@ -211,7 +328,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [tpKode, selectedModel, modul]);
+  }, [tpId, tpKode, academicContextKey, selectedModel, modul]);
 
   const handleGenerateAI = async () => {
     if (!requireActiveLicenseForAction('membuat draf Modul Ajar AI')) {
@@ -225,8 +342,15 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         selectedModel,
         konteksInput.trim() || undefined
       );
-      setEditableDoc(result.modul);
-      saveToLocalStorage(result.modul);
+      const sourceKind = result.usedFallback ? 'template' : 'ai_generated';
+      const nextDoc: ModulAjarDokumen = {
+        ...result.modul,
+        tpId: effectiveTP.id,
+        modelType: selectedModel,
+        draftSource: sourceKind,
+      };
+      setEditableDoc(nextDoc);
+      saveToLocalStorage(nextDoc, sourceKind);
       setIsFromCommunity(false);
       if (result.usedFallback) {
         showToast('Draf dibuat dengan template otomatis (offline/fallback).');
@@ -332,7 +456,10 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button
-              onClick={onBackToClassHub}
+              onClick={() => {
+                flushModulSaveNow();
+                onBackToClassHub();
+              }}
               className="btn btn-sm btn-outline"
               style={{ borderColor: '#cbd5e1', background: '#f8fafc', fontWeight: 700 }}
             >
@@ -340,6 +467,46 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             </button>
             <span className="badge badge-indigo">
               📘 Modul Ajar (RPP Kurikulum Merdeka)
+            </span>
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '3px 9px',
+                borderRadius: 999,
+                background:
+                  editableDoc.draftSource === 'ai_generated'
+                    ? '#ecfdf5'
+                    : editableDoc.draftSource === 'template'
+                      ? '#fffbeb'
+                      : '#eff6ff',
+                color:
+                  editableDoc.draftSource === 'ai_generated'
+                    ? '#047857'
+                    : editableDoc.draftSource === 'template'
+                      ? '#b45309'
+                      : '#1d4ed8',
+                border: '1px solid currentColor',
+              }}
+            >
+              {editableDoc.draftSource === 'ai_generated'
+                ? '✨ Draf AI'
+                : editableDoc.draftSource === 'template'
+                  ? '🧩 Template Adaptif'
+                  : '✏️ Edit Guru'}
+            </span>
+            <span
+              role="status"
+              style={{
+                fontSize: 12,
+                color: saveStatus === 'Gagal menyimpan' ? '#dc2626' : '#059669',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                fontWeight: 600,
+              }}
+            >
+              <Save size={13} /> {saveStatus}
             </span>
             <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
               TP {editableDoc.tpKode || modul.tpKode} • {editableDoc.alokasiWaktu || modul.alokasiWaktu}
@@ -394,7 +561,10 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             </label>
             <select
               value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value as ModulAjarModelType)}
+              onChange={(e) => {
+                flushModulSaveNow();
+                setSelectedModel(e.target.value as ModulAjarModelType);
+              }}
               className="form-select form-select-sm"
               style={{
                 fontSize: 13,
@@ -513,7 +683,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           background: '#ffffff',
           color: '#1e293b',
           borderRadius: 'var(--radius-lg)',
-          padding: '40px 48px',
+          padding: 'clamp(18px, 4vw, 40px) clamp(14px, 4vw, 48px)',
           boxShadow: 'var(--shadow-lg)',
           minHeight: 800,
         }}
@@ -555,6 +725,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             I. INFORMASI UMUM
           </h3>
 
+          <div className="print-table-scroll" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 14 }}>
             <tbody>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -587,9 +758,30 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               </tr>
             </tbody>
           </table>
+          </div>
 
-          {/* Profil Pancasila & Sarana */}
+          {/* Kompetensi Awal, Profil Pancasila & Sarana */}
           <div style={{ background: '#f8fafc', padding: '14px 18px', borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12.5 }}>
+            <div style={{ marginBottom: 10 }}>
+              <strong style={{ color: '#1e40af' }}>Kompetensi Awal (Prasyarat Peserta Didik):</strong>
+              {(editableDoc.kompetensiAwal && editableDoc.kompetensiAwal.length > 0 ? editableDoc.kompetensiAwal : ['']).map((ka, idx) => (
+                <div key={idx} style={{ marginTop: 4 }}>
+                  <AutoExpandingTextarea
+                    value={ka}
+                    onChange={(e) => {
+                      const list = [...(editableDoc.kompetensiAwal || [''])];
+                      list[idx] = e.target.value;
+                      const updated = { ...editableDoc, kompetensiAwal: list };
+                      setEditableDoc(updated);
+                      saveToLocalStorage(updated);
+                    }}
+                    rows={1}
+                    style={{ fontSize: 12.5, color: '#334155' }}
+                    placeholder="Isi pengetahuan/keterampilan prasyarat sebelum materi ini..."
+                  />
+                </div>
+              ))}
+            </div>
             <div style={{ marginBottom: 8 }}>
               <strong style={{ color: '#1e40af' }}>Profil Pelajar Pancasila yang Dikembangkan:</strong>
               <ul style={{ margin: '4px 0 0 18px', padding: 0, color: '#334155' }}>
@@ -622,7 +814,63 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             <div style={{ fontSize: 13, color: '#1e293b', background: '#eff6ff', padding: '10px 14px', borderRadius: 8, marginTop: 4 }}>
               {editableDoc.tujuanPembelajaran}
             </div>
+            {editableDoc.targetSubTP && editableDoc.targetSubTP.length > 0 && (
+              <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: '#f8fafc', border: '1px solid #cbd5e1', fontSize: 12 }}>
+                <strong style={{ color: '#1e40af' }}>Target Sub-TP / Indikator Pertemuan:</strong>
+                <ul style={{ margin: '4px 0 0 18px', padding: 0, color: '#334155' }}>
+                  {editableDoc.targetSubTP.map((sub, sIdx) => (
+                    <li key={sub.id || sIdx} style={{ marginBottom: 2 }}>
+                      <strong>{sub.kode}:</strong> {sub.kompetensi}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
+
+          {editableDoc.bahanBacaan && (
+            <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 4 }}>
+                Ringkasan Bahan Bacaan Guru & Siswa:
+              </div>
+              <AutoExpandingTextarea
+                value={editableDoc.bahanBacaan.ringkasanInti || ''}
+                onChange={(e) => {
+                  const updated = {
+                    ...editableDoc,
+                    bahanBacaan: {
+                      ...(editableDoc.bahanBacaan || { konsepKunci: [] }),
+                      ringkasanInti: e.target.value,
+                    },
+                  };
+                  setEditableDoc(updated);
+                  saveToLocalStorage(updated);
+                }}
+                rows={2}
+                style={{ fontSize: 12.5, color: '#14532d' }}
+              />
+              {editableDoc.bahanBacaan.konsepKunci && editableDoc.bahanBacaan.konsepKunci.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {editableDoc.bahanBacaan.konsepKunci.map((kk, kIdx) => (
+                    <span
+                      key={kIdx}
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        background: '#dcfce7',
+                        color: '#166534',
+                        border: '1px solid #86efac',
+                      }}
+                    >
+                      {kk}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>
@@ -713,7 +961,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 </div>
 
                 <div style={{ marginBottom: 8 }}>
-                  <strong style={{ fontSize: 12.5, color: '#047857' }}>2. Kegiatan Inti:</strong>
+                  <strong style={{ fontSize: 12.5, color: '#047857' }}>
+                    2. Kegiatan Inti ({editableDoc.modelPembelajaran || 'Model Terpilih'}):
+                  </strong>
                   <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12.5, color: '#334155' }}>
                     {(keg.inti || []).map((it, iIdx) => (
                       <li key={iIdx} style={{ marginBottom: 4 }}>
@@ -837,7 +1087,8 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           </div>
 
           {editableDoc.rubrikPenilaianSingkat && editableDoc.rubrikPenilaianSingkat.length > 0 && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', minWidth: 560, borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: '#1e3a8a', color: '#ffffff', textAlign: 'left' }}>
                   <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '25%' }}>Kriteria Penilaian</th>
@@ -924,6 +1175,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
 
@@ -952,6 +1204,56 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 <div key={i} style={{ paddingLeft: 12, marginTop: 2 }}>• {dp}</div>
               ))}
             </div>
+            {(editableDoc.refleksiGuru?.length || editableDoc.refleksiSiswa?.length) ? (
+              <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+                {editableDoc.refleksiGuru && editableDoc.refleksiGuru.length > 0 && (
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+                    <strong>D. Refleksi Guru:</strong>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      {editableDoc.refleksiGuru.map((rg, idx) => (
+                        <li key={idx} style={{ marginBottom: 4 }}>
+                          <AutoExpandingTextarea
+                            value={rg}
+                            onChange={(e) => {
+                              const list = [...(editableDoc.refleksiGuru || [])];
+                              list[idx] = e.target.value;
+                              const updated = { ...editableDoc, refleksiGuru: list };
+                              setEditableDoc(updated);
+                              saveToLocalStorage(updated);
+                            }}
+                            rows={1}
+                            style={{ fontSize: 12, color: '#334155' }}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {editableDoc.refleksiSiswa && editableDoc.refleksiSiswa.length > 0 && (
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+                    <strong>E. Refleksi Peserta Didik:</strong>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      {editableDoc.refleksiSiswa.map((rs, idx) => (
+                        <li key={idx} style={{ marginBottom: 4 }}>
+                          <AutoExpandingTextarea
+                            value={rs}
+                            onChange={(e) => {
+                              const list = [...(editableDoc.refleksiSiswa || [])];
+                              list[idx] = e.target.value;
+                              const updated = { ...editableDoc, refleksiSiswa: list };
+                              setEditableDoc(updated);
+                              saveToLocalStorage(updated);
+                            }}
+                            rows={1}
+                            style={{ fontSize: 12, color: '#334155' }}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -962,7 +1264,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               marginTop: 36,
               paddingTop: 16,
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
               gap: 24,
               textAlign: 'center',
               fontSize: 12,

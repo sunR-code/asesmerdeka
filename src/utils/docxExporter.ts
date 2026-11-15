@@ -20,7 +20,12 @@ import {
 import {
   buildCoverDanPengesahanElements,
   buildInstrumenSupervisiElements,
+  buildReferensiCapaianDanTPElements,
+  buildModulAjarDanLKPDElements,
   exportCoverDanPengesahanToDocx as rawExportCoverDanPengesahanToDocx,
+  exportReferensiCPTPToDocx as rawExportReferensiCPTPToDocx,
+  exportModulAjarSemesterSupervisiToDocx as rawExportModulAjarSemesterSupervisiToDocx,
+  exportBukuNilaiDanRaporSupervisiToDocx as rawExportBukuNilaiDanRaporSupervisiToDocx,
   exportInstrumenSupervisiToDocx as rawExportInstrumenSupervisiToDocx,
   exportBundelSupervisiMasterDocx as rawExportBundelSupervisiMasterDocx,
   exportPaketSupervisiToZip as rawExportPaketSupervisiToZip,
@@ -28,7 +33,12 @@ import {
 import { exportNaskahUjianToDocx as rawExportNaskahUjianToDocx } from './docx/docxUjianSemester';
 
 export * from './docx/docxShared';
-export { buildCoverDanPengesahanElements, buildInstrumenSupervisiElements };
+export {
+  buildCoverDanPengesahanElements,
+  buildInstrumenSupervisiElements,
+  buildReferensiCapaianDanTPElements,
+  buildModulAjarDanLKPDElements,
+};
 
 function guardExport<TArgs extends unknown[], TReturn>(
   fn: (...args: TArgs) => Promise<TReturn>,
@@ -59,6 +69,9 @@ export const exportDaftarNilaiToDocx = guardExport(rawExportDaftarNilaiToDocx);
 export const exportRekapRaporToDocx = guardExport(rawExportRekapRaporToDocx);
 
 export const exportCoverDanPengesahanToDocx = guardExport(rawExportCoverDanPengesahanToDocx);
+export const exportReferensiCPTPToDocx = guardExport(rawExportReferensiCPTPToDocx);
+export const exportModulAjarSemesterSupervisiToDocx = guardExport(rawExportModulAjarSemesterSupervisiToDocx);
+export const exportBukuNilaiDanRaporSupervisiToDocx = guardExport(rawExportBukuNilaiDanRaporSupervisiToDocx);
 export const exportInstrumenSupervisiToDocx = guardExport(rawExportInstrumenSupervisiToDocx);
 export const exportBundelSupervisiMasterDocx = guardExport(
   rawExportBundelSupervisiMasterDocx,

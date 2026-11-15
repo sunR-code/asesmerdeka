@@ -6,6 +6,26 @@ export type AdminPlanType = 'individu' | 'solo' | 'sekolah' | 'pro' | 'sekolah_p
 
 export type AdminLicenseStatus = 'aktif' | 'belum_aktif';
 
+export type LicenseLifecycleState =
+  | 'pending_payment'
+  | 'paid'
+  | 'active'
+  | 'expired'
+  | 'revoked'
+  | 'suspended'
+  | 'payment_failed';
+
+export interface TeacherSeatInfo {
+  teacherKey: string;
+  teacherLabel: string;
+  status: 'active' | 'disabled';
+  devices: string[];
+  maxDevices: number;
+  claimedAt: string;
+  updatedAt: string;
+  disabledAt?: string;
+}
+
 export interface AdminLicenseItem {
   code: string;
   label: string;
@@ -17,6 +37,15 @@ export interface AdminLicenseItem {
   usedSeats: number;
   devices: string[];
   status: AdminLicenseStatus;
+  lifecycleState?: LicenseLifecycleState;
+  expiresAt?: string | null;
+  renewedAt?: string | null;
+  revokedAt?: string | null;
+  suspendedAt?: string | null;
+  teacherSeats?: Record<string, TeacherSeatInfo>;
+  activeTeacherCount?: number;
+  maxDevicesPerTeacher?: number;
+  transactionId?: string;
 }
 
 export interface CreateLicensePayload {
@@ -24,6 +53,7 @@ export interface CreateLicensePayload {
   label: string;
   count?: number;
   customMaxSeats?: number;
+  expiresAt?: string | null;
 }
 
 export type AdminPortalTab = 'licenses' | 'feedback' | 'settings';

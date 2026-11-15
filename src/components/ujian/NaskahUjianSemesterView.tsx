@@ -12,17 +12,23 @@ import {
   School,
   UserCheck,
   Sparkles,
-  BookOpen
+  BookOpen,
+  AlertTriangle
 } from 'lucide-react';
 import type { SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
 import { getSchoolProfile, getSavedCustomTPList } from '../../utils/schoolProfileStorage';
 import type { NaskahUjianDokumen, TipeUjianSemester } from '../../types/examSemester';
+import type { AsesmenDokumen } from '../../types/assessment';
 import { 
   generateSmartNaskahUjian, 
   getTPCoverageForExam, 
+  validateNaskahUjian,
+  saveNaskahUjianDraft,
+  loadNaskahUjianDraft,
   EXAM_PRESETS 
 } from '../../utils/examSemesterEngine';
 import type { ExamGenerationOptions } from '../../utils/examSemesterEngine';
+import { getBankSoal } from '../../utils/bankSoalStorage';
 import { exportNaskahUjianToDocx } from '../../utils/docxExporter';
 import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 
@@ -34,6 +40,9 @@ interface Props {
 export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile, tpList: propTPList }) => {
   const [profile, setProfile] = useState<SchoolProfile>(propProfile || getSchoolProfile());
   const [tpList, setTpList] = useState<CustomTPItem[]>(propTPList || []);
+  const [scopedBankDocs, setScopedBankDocs] = useState<AsesmenDokumen[]>([]);
+  const [preferBankSoal, setPreferBankSoal] = useState<boolean>(true);
+  const [selectedBankDocIds, setSelectedBankDocIds] = useState<string[]>([]);
 
   const [tipeUjian, setTipeUjian] = useState<TipeUjianSemester>('SAS');
   const [selectedPreset, setSelectedPreset] = useState<string>('standar');
@@ -47,15 +56,25 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
   const [activeTab, setActiveTab] = useState<'soal' | 'ljk' | 'kunci' | 'matriks'>('soal');
   const [naskah, setNaskah] = useState<NaskahUjianDokumen | null>(null);
 
-  // Sinkronisasi profil & TP
+  // Sinkronisasi profil, TP (scoped), Bank Soal & Draf Naskah Ujian
   useEffect(() => {
     const prof = propProfile || getSchoolProfile();
     setProfile(prof);
     const list = propTPList && propTPList.length > 0 
       ? propTPList 
-      : (getSavedCustomTPList(prof.mataPelajaranUtama, prof.kelasUtama, prof.semester) || []);
+      : (getSavedCustomTPList(prof.mataPelajaranUtama, prof.kelasUtama, prof.semester, prof) || []);
     setTpList(list);
-  }, [propProfile, propTPList]);
+    const bankDocs = getBankSoal(prof);
+    setScopedBankDocs(bankDocs);
+    setSelectedBankDocIds(bankDocs.map((d) => d.id));
+
+    const savedDraft = loadNaskahUjianDraft(prof, tipeUjian);
+    if (savedDraft) {
+      setNaskah(savedDraft);
+    } else {
+      setNaskah(null);
+    }
+  }, [propProfile, propTPList, tipeUjian]);
 
   // Terapkan preset komposisi butir soal
   const handleSelectPreset = (presetId: string) => {
@@ -79,23 +98,77 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
         jumlahPGK,
         jumlahUraian,
         alokasiWaktu,
+        preferBankSoal,
+        selectedBankDocIds: preferBankSoal ? selectedBankDocIds : [],
       };
       const result = generateSmartNaskahUjian(profile, tpList, options);
       setNaskah(result);
+      saveNaskahUjianDraft(result, profile);
       setIsGenerating(false);
     }, 350);
   };
 
-  // Auto generate saat pertama kali mount
+  // Auto generate saat pertama kali mount bila belum ada draf tersimpan
   useEffect(() => {
     if (!naskah && tpList.length > 0) {
-      handleGenerate();
+      const savedDraft = loadNaskahUjianDraft(profile, tipeUjian);
+      if (savedDraft) {
+        setNaskah(savedDraft);
+      } else {
+        handleGenerate();
+      }
     }
   }, [tpList]);
 
-  // Ekspor Word Docx
+  // Toggle Kunci Benar/Salah pada soal PGK
+  const handleTogglePGKStatementKey = (nomorSoal: number, stmtIdx: number) => {
+    if (!naskah) return;
+    const updatedSoalPGK = naskah.soalPGK.map((item) => {
+      if (item.nomor !== nomorSoal) return item;
+      const nextPernyataan = item.pernyataan.map((p, idx) =>
+        idx === stmtIdx ? { ...p, isBenar: !p.isBenar } : p
+      );
+      return { ...item, pernyataan: nextPernyataan };
+    });
+    const updatedKunciPGK = (naskah.kunciPGK || []).map((k) => {
+      if (k.nomor !== nomorSoal) return k;
+      const matched = updatedSoalPGK.find((s) => s.nomor === nomorSoal);
+      const formatKunci = matched
+        ? matched.pernyataan.map((p, idx) => `(${idx + 1}) ${p.isBenar ? 'B' : 'S'}`).join(', ')
+        : k.kunci;
+      return { ...k, kunci: formatKunci };
+    });
+    const nextDoc: NaskahUjianDokumen = {
+      ...naskah,
+      soalPGK: updatedSoalPGK,
+      kunciPGK: updatedKunciPGK,
+      isFinalized: false,
+    };
+    setNaskah(nextDoc);
+    saveNaskahUjianDraft(nextDoc, profile);
+  };
+
+  const handleFinalizeNaskah = () => {
+    if (!naskah) return;
+    const validation = validateNaskahUjian(naskah);
+    if (!validation.valid) {
+      alert(`Naskah belum siap difinalisasi:\n• ${validation.errors.join('\n• ')}`);
+      return;
+    }
+    const finalizedDoc: NaskahUjianDokumen = { ...naskah, isFinalized: true };
+    setNaskah(finalizedDoc);
+    saveNaskahUjianDraft(finalizedDoc, profile);
+  };
+
+  // Ekspor Word Docx (dengan gerbang validasi pra-finalisasi & lisensi)
   const handleExportDocx = async () => {
     if (!naskah) return;
+    if (!requireActiveLicenseForAction('mengekspor Naskah Ujian Semester ke Word (.docx)')) return;
+    const validation = validateNaskahUjian(naskah);
+    if (!validation.valid) {
+      alert(`Ekspor dibatalkan karena masih ada masalah pada naskah:\n• ${validation.errors.join('\n• ')}`);
+      return;
+    }
     try {
       setIsExporting(true);
       await exportNaskahUjianToDocx(naskah, profile);
@@ -110,8 +183,17 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
   // Cetak dokumen
   const handlePrint = () => {
     if (!requireActiveLicenseForAction('mencetak Naskah Ujian Semester')) return;
+    if (naskah) {
+      const validation = validateNaskahUjian(naskah);
+      if (!validation.valid) {
+        alert(`Cetak dibatalkan karena masih ada masalah pada naskah:\n• ${validation.errors.join('\n• ')}`);
+        return;
+      }
+    }
     window.print();
   };
+
+  const naskahValidation = naskah ? validateNaskahUjian(naskah) : null;
 
   const coveredTPs = getTPCoverageForExam(tpList, tipeUjian);
 
@@ -163,6 +245,29 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
+            {naskah && (
+              <button
+                type="button"
+                onClick={handleFinalizeNaskah}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '10px 14px',
+                  background: naskah.isFinalized ? '#dcfce7' : '#fef3c7',
+                  color: naskah.isFinalized ? '#166534' : '#92400e',
+                  border: '1px solid rgba(255,255,255,0.4)',
+                  borderRadius: '10px',
+                  fontSize: '12.5px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+                title="Validasi kelengkapan kunci, rubrik, dan identitas sebelum dicetak"
+              >
+                <CheckCircle2 style={{ width: '15px', height: '15px' }} />
+                {naskah.isFinalized ? 'Naskah Tervalidasi & Siap Cetak' : 'Validasi & Finalisasi Naskah'}
+              </button>
+            )}
             <button
               onClick={handleExportDocx}
               disabled={!naskah || isExporting}
@@ -428,6 +533,57 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
           </div>
         </div>
 
+        {/* Sumber Bank Soal Tersimpan (Scope Mapel & Semester Aktif) */}
+        <div style={{ background: '#f0f9ff', borderRadius: '10px', padding: '12px 16px', border: '1px solid #bae6fd', fontSize: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: scopedBankDocs.length > 0 && preferBankSoal ? '8px' : '0' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontWeight: 800, color: '#0369a1', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={preferBankSoal}
+                onChange={(e) => setPreferBankSoal(e.target.checked)}
+                style={{ accentColor: '#0284c7', width: '16px', height: '16px' }}
+              />
+              Gunakan Butir Soal dari Bank Soal Guru ({scopedBankDocs.length} paket tersedia pada mapel/kelas aktif)
+            </label>
+          </div>
+          {preferBankSoal && scopedBankDocs.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {scopedBankDocs.map((bDoc) => {
+                const checked = selectedBankDocIds.includes(bDoc.id);
+                return (
+                  <label
+                    key={bDoc.id}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      background: checked ? '#ffffff' : '#f1f5f9',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      border: `1px solid ${checked ? '#38bdf8' : '#cbd5e1'}`,
+                      color: '#0f172a',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedBankDocIds((prev) => [...prev, bDoc.id]);
+                        } else {
+                          setSelectedBankDocIds((prev) => prev.filter((id) => id !== bDoc.id));
+                        }
+                      }}
+                    />
+                    <span>{bDoc.judul.slice(0, 36)} ({bDoc.soalList.length} soal)</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Ringkasan TP Tercakup */}
         <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '12px 16px', border: '1px solid #e2e8f0', fontSize: '12px' }}>
           <div style={{ fontWeight: 800, color: '#1e293b', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -471,6 +627,48 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
           </button>
         </div>
       </div>
+
+      {/* Validasi Kelayakan & Ringkasan Sumber Soal */}
+      {naskah && naskahValidation && (naskahValidation.errors.length > 0 || naskahValidation.warnings.length > 0 || naskah.sourceSummary) && (
+        <div
+          style={{
+            background: naskahValidation.errors.length > 0 ? '#fef2f2' : naskahValidation.warnings.length > 0 ? '#fffbeb' : '#f0fdf4',
+            border: `1px solid ${naskahValidation.errors.length > 0 ? '#fecaca' : naskahValidation.warnings.length > 0 ? '#fde68a' : '#bbf7d0'}`,
+            borderRadius: '12px',
+            padding: '12px 16px',
+            fontSize: '12.5px',
+            color: '#1e293b',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+          }}
+        >
+          {naskah.sourceSummary && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+              <strong style={{ color: '#0f172a' }}>Sumber Butir Naskah:</strong>
+              <span>{naskah.sourceSummary.fromBankSoal} Bank Soal Guru</span>
+              <span>• {naskah.sourceSummary.fromDomainBank} Bank Kurikulum</span>
+              {naskah.sourceSummary.fromFallback > 0 && (
+                <span style={{ color: '#b45309', fontWeight: 700 }}>
+                  • {naskah.sourceSummary.fromFallback} Templat Cadangan
+                </span>
+              )}
+            </div>
+          )}
+          {naskahValidation.errors.map((errMsg, idx) => (
+            <div key={`err-${idx}`} style={{ color: '#b91c1c', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <AlertTriangle style={{ width: '14px', height: '14px', flexShrink: 0 }} />
+              <span>[Wajib Diperbaiki]: {errMsg}</span>
+            </div>
+          ))}
+          {naskahValidation.warnings.map((warnMsg, idx) => (
+            <div key={`warn-${idx}`} style={{ color: '#92400e', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <AlertTriangle style={{ width: '14px', height: '14px', flexShrink: 0 }} />
+              <span>{warnMsg}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 3. Dokumen Naskah & Tab Pratinjau */}
       {naskah && (
@@ -604,7 +802,7 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
                 width: '100%',
                 maxWidth: '820px',
                 minHeight: '1120px',
-                padding: '44px 52px',
+                padding: 'clamp(18px, 4vw, 48px)',
                 borderRadius: '4px',
                 boxShadow: '0 10px 30px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06)',
                 border: '1px solid #cbd5e1',
@@ -924,6 +1122,23 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
                       {naskah.soalUraian.map((soal) => (
                         <div key={soal.id} style={{ fontSize: '13.5px', color: '#1e293b' }}>
+                          {soal.stimulus && (
+                            <div style={{
+                              background: '#f8fafc',
+                              borderLeft: '4px solid #0284c7',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '6px',
+                              padding: '10px 14px',
+                              fontSize: '12.5px',
+                              color: '#334155',
+                              fontStyle: 'italic',
+                              marginBottom: '8px',
+                              lineHeight: 1.5,
+                            }}>
+                              <strong style={{ fontStyle: 'normal', color: '#0369a1', marginRight: '6px' }}>[Stimulus]:</strong>
+                              {soal.stimulus}
+                            </div>
+                          )}
                           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', lineHeight: 1.6 }}>
                             <span style={{ fontWeight: 800, minWidth: '24px', color: '#0f172a' }}>{soal.nomor}.</span>
                             <span style={{ fontWeight: 600, color: '#0f172a' }}>{soal.pertanyaan}</span>
@@ -961,7 +1176,7 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
                 width: '100%',
                 maxWidth: '820px',
                 minHeight: '1000px',
-                padding: '44px 52px',
+                padding: 'clamp(18px, 4vw, 48px)',
                 borderRadius: '4px',
                 boxShadow: '0 10px 30px rgba(0, 0, 0, 0.12)',
                 border: '1px solid #cbd5e1',
@@ -1023,11 +1238,35 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
                         }}>
                           <span style={{ fontWeight: 800, color: '#475569', width: '24px', textAlign: 'right' }}>{pg.nomor}.</span>
                           <div style={{ display: 'flex', gap: '8px', color: '#1e293b', fontFamily: 'monospace', fontWeight: 700 }}>
-                            <span>( A )</span>
-                            <span>( B )</span>
-                            <span>( C )</span>
-                            <span>( D )</span>
-                            {(profile.jenjang === 'SMA/MA' || profile.jenjang === 'SMK') && <span>( E )</span>}
+                            {(pg.pilihan && pg.pilihan.length > 0
+                              ? pg.pilihan.map((opt) => opt.label)
+                              : naskah.jenjang === 'SMA/MA' || naskah.jenjang === 'SMK'
+                              ? ['A', 'B', 'C', 'D', 'E']
+                              : ['A', 'B', 'C', 'D']
+                            ).map((lbl) => (
+                              <span key={lbl}>( {lbl} )</span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Lembar PGK */}
+                {naskah.soalPGK.length > 0 && (
+                  <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px dashed #cbd5e1' }}>
+                    <h4 style={{ fontSize: '13px', fontWeight: 800, color: '#1e293b', textTransform: 'uppercase', marginBottom: '10px' }}>
+                      B. Pilihan Ganda Kompleks (Centang Benar / Salah):
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {naskah.soalPGK.map((pgk) => (
+                        <div key={pgk.nomor} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#ffffff', fontSize: '12px' }}>
+                          <span style={{ fontWeight: 800, color: '#475569', minWidth: '48px' }}>No. {pgk.nomor}</span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', fontFamily: 'monospace', fontWeight: 700, color: '#1e293b' }}>
+                            {(pgk.pernyataan || []).map((_, idx) => (
+                              <span key={idx}>({idx + 1}) [B] [S]</span>
+                            ))}
                           </div>
                         </div>
                       ))}
@@ -1039,7 +1278,7 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
                 {naskah.soalUraian.length > 0 && (
                   <div style={{ marginTop: '28px', paddingTop: '18px', borderTop: '1px dashed #cbd5e1' }}>
                     <h4 style={{ fontSize: '13px', fontWeight: 800, color: '#1e293b', textTransform: 'uppercase', marginBottom: '14px' }}>
-                      B. Lembar Jawaban Soal Uraian:
+                      {naskah.soalPGK.length > 0 ? 'C' : 'B'}. Lembar Jawaban Soal Uraian:
                     </h4>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       {naskah.soalUraian.map((u) => (
@@ -1117,6 +1356,59 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
                 </div>
               )}
 
+              {/* Kunci Pilihan Ganda Kompleks (B/S) Interaktif */}
+              {naskah.soalPGK && naskah.soalPGK.length > 0 && (
+                <div>
+                  <h4 style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a', marginBottom: '10px' }}>
+                    Kunci Jawaban Pilihan Ganda Kompleks (Klik B/S untuk Menyesuaikan Kunci)
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {naskah.soalPGK.map((pgk) => {
+                      const kEntry = naskah.kunciPGK?.find((k) => k.nomor === pgk.nomor);
+                      return (
+                        <div key={pgk.nomor} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 16px', background: '#f8fafc', fontSize: '12.5px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                            <strong style={{ color: '#0f172a' }}>
+                              Soal PGK No. {pgk.nomor} ({pgk.levelKognitif})
+                            </strong>
+                            <span style={{ color: '#1d4ed8', fontWeight: 800 }}>
+                              Kunci: {kEntry?.kunci || pgk.pernyataan.map((p, idx) => `(${idx + 1}) ${p.isBenar ? 'B' : 'S'}`).join(', ')} • Skor {pgk.skor || 2}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {pgk.pernyataan.map((stmt, sIdx) => (
+                              <div key={stmt.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', background: '#ffffff', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                                <span style={{ color: '#334155', flex: 1 }}>
+                                  ({sIdx + 1}) {stmt.teks}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePGKStatementKey(pgk.nomor, sIdx)}
+                                  style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    fontWeight: 800,
+                                    fontSize: '11.5px',
+                                    cursor: 'pointer',
+                                    border: '1px solid',
+                                    borderColor: stmt.isBenar ? '#16a34a' : '#dc2626',
+                                    background: stmt.isBenar ? '#dcfce7' : '#fee2e2',
+                                    color: stmt.isBenar ? '#166534' : '#991b1b',
+                                  }}
+                                  title="Klik untuk menukar kunci Benar/Salah"
+                                >
+                                  {stmt.isBenar ? 'BENAR (B)' : 'SALAH (S)'}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Rubrik Uraian */}
               {naskah.rubrikUraian.length > 0 && (
                 <div style={{ paddingTop: '10px' }}>
@@ -1124,22 +1416,37 @@ export const NaskahUjianSemesterView: React.FC<Props> = ({ profile: propProfile,
                     Pedoman Rubrik Penskoran Soal Uraian
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {naskah.rubrikUraian.map((rub) => (
-                      <div key={rub.nomor} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 18px', background: '#f8fafc', fontSize: '12.5px' }}>
-                        <div style={{ fontWeight: 800, color: '#0f172a', display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                          <span>Soal Nomor {rub.nomor}: {rub.soalRingkas}</span>
-                          <span style={{ color: '#2563eb' }}>Maks. {rub.skorMaksimal} Poin</span>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          {rub.kriteriaSkor.map((kr) => (
-                            <div key={kr.skor} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', background: '#ffffff', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                              <span style={{ fontWeight: 800, color: '#2563eb', width: '56px' }}>Skor {kr.skor}:</span>
-                              <span style={{ color: '#334155', flex: 1 }}>{kr.deskripsi}</span>
+                    {naskah.rubrikUraian.map((rub) => {
+                      const matchedUraian = naskah.soalUraian?.find((u) => u.nomor === rub.nomor);
+                      const contohJawab = rub.contohJawaban || matchedUraian?.contohJawaban;
+                      const pedoman = rub.pedomanPenskoran || matchedUraian?.pedomanPenskoran;
+                      return (
+                        <div key={rub.nomor} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 18px', background: '#f8fafc', fontSize: '12.5px' }}>
+                          <div style={{ fontWeight: 800, color: '#0f172a', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                            <span>Soal Nomor {rub.nomor}: {rub.soalRingkas}</span>
+                            <span style={{ color: '#2563eb' }}>Maks. {rub.skorMaksimal} Poin</span>
+                          </div>
+                          {contohJawab && (
+                            <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px', padding: '8px 10px', marginBottom: '6px', color: '#065f46' }}>
+                              <strong>Contoh Jawaban Ideal:</strong> {contohJawab}
                             </div>
-                          ))}
+                          )}
+                          {pedoman && (
+                            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '8px 10px', marginBottom: '8px', color: '#1e3a8a' }}>
+                              <strong>Pedoman Penskoran:</strong> {pedoman}
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {rub.kriteriaSkor.map((kr) => (
+                              <div key={kr.skor} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', background: '#ffffff', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                                <span style={{ fontWeight: 800, color: '#2563eb', width: '56px' }}>Skor {kr.skor}:</span>
+                                <span style={{ color: '#334155', flex: 1 }}>{kr.deskripsi}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

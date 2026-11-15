@@ -241,7 +241,7 @@ export function buildEnglishTopicRangkuman(
         '🎯 Cara Cepat Jawab Soal Synonym: Perhatikan konteks kalimat apakah bermakna positif (magnificent = breathtaking = splendid) atau ukuran (vast = huge = spacious).',
       ],
       faktaMenarik: [
-        'Tahukah Kamu? Pembaca manusia 3x lebih mudah mengingat teks deskripsi yang melibatkan minimal 3 panca indera (Sight/Penglihatan, Sound/Pendengaran, dan Touch/Suasana) dibandingkan daftar fakta biasa!',
+        'Tips Kebahasaan: Deskripsi yang memadukan detail visual (Sight), bunyi (Sound), dan suasana membantu pembaca membayangkan objek secara lebih utuh dibanding daftar ciri singkat.',
       ],
       glosarium: [
         { istilah: 'Specific Participant', makna: 'Objek tunggal/khusus yang menjadi fokus deskripsi (misal: Mount Bromo, My Pet Cat).' },
@@ -290,7 +290,7 @@ export function buildEnglishTopicRangkuman(
         '1. Social Function (How to Make / Use Something)',
         '2. Generic Structure (Goal → Materials/Tools → Steps)',
         '3. Language Features (Imperatives, Action Verbs, Sequencers)',
-        '4.Contoh Teks Manual / SOP & Bedah Analisis',
+        '4. Contoh Teks Manual / SOP & Bedah Analisis',
       ],
       rumusAtauPola: [
         {
@@ -351,7 +351,7 @@ export function buildEnglishTopicRangkuman(
         '🎯 Jika ditanya "Why should we do [Step]?", cari klausa tujuan yang menggunakan kata "to...", "in order to...", atau "so that...".',
       ],
       faktaMenarik: [
-        'Tahukah Kamu? Di dunia penerbangan dan kedokteran, Procedure Text dalam bentuk Checklist SOP berhasil menurunkan tingkat kecelakaan kerja hingga lebih dari 80%!',
+        'Catatan Praktik: Checklist SOP tertulis digunakan luas di bidang penerbangan dan medis untuk menjaga konsistensi keselamatan kerja langkah demi langkah.',
       ],
       glosarium: [
         { istilah: 'Imperative Sentence', makna: 'Kalimat perintah yang langsung diawali Verb 1 tanpa subjek.' },
@@ -467,7 +467,7 @@ export function buildEnglishTopicRangkuman(
       '🎯 Untuk soal Main Idea paragraf, baca kalimat pertama dan kalimat terakhir paragraf tersebut.',
     ],
     faktaMenarik: [
-      'Tahukah Kamu? Membaca teks Bahasa Inggris secara nyaring selama 10 menit sehari dapat meningkatkan daya ingat kosakata dan kelancaran berbicara hingga 2 kali lipat!',
+      'Catatan Belajar: Membaca teks Bahasa Inggris secara aktif sambil menandai kata hubung dan rujukan kata ganti (pronoun) melatih pemahaman struktur kalimat dengan lebih akurat.',
     ],
     glosarium: [
       { istilah: 'Social Function', makna: 'Tujuan komunikatif penulis dalam menyampaikan teks kepada pembaca.' },

@@ -13,14 +13,50 @@ import {
 import saveAs from 'file-saver';
 import JSZip from 'jszip';
 import type { KelasHarianData } from '../../types/kelasHarian';
+import type { LKPDDokumen, ModulAjarDokumen } from '../../types/perangkatAjar';
 import type { CustomTPItem, SchoolProfile } from '../schoolProfileStorage';
+import { jenjangToDefaultFase } from '../schoolProfileStorage';
+import { getSemesterCurriculumPlan } from '../kurikulumCatalog';
 import {
   buildSmartATP,
   buildSmartProta,
   buildSmartPromes,
   buildSmartModulAjar,
+  buildSmartLKPD,
 } from '../perangkatAjarEngine';
-import { buildSignatureBlockTable } from './docxShared';
+import {
+  loadLatestLKPDDraft,
+  loadLatestModulAjarDraft,
+} from '../perangkatDraftStorage';
+import { getExportVerificationNoticeText } from '../kelasHarianStorage';
+import {
+  createDefaultSupervisiInstrumentData,
+  evaluateSupervisiInstrument,
+  getSupervisiDocumentsReadiness,
+  getSupervisiInstrumentData,
+  SUPERVISI_DOCUMENT_DEFINITIONS,
+  SUPERVISI_STATUS_LABELS,
+  type SupervisiInstrumentData,
+  type SupervisiItemStatus,
+} from '../supervisiStorage';
+import {
+  buildSignatureBlockTable,
+  createMultiSectionStyledDocxDocument,
+  createStyledDocxDocument,
+} from './docxShared';
+import {
+  buildATPElements,
+  buildLKPDElements,
+  buildModulAjarElements,
+  buildPromesElements,
+  buildProtaElements,
+} from './docxPerangkatAjar';
+import {
+  buildDaftarNilaiElements,
+  buildJurnalMengajarElements,
+  buildPresensiElements,
+  buildRekapRaporElements,
+} from './docxKelasHarian';
 
 /**
  * =========================================================================
@@ -28,34 +64,149 @@ import { buildSignatureBlockTable } from './docxShared';
  * =========================================================================
  */
 
+export interface SupervisiExportOptions {
+  instrument?: SupervisiInstrumentData;
+  activeModulAjar?: ModulAjarDokumen | null;
+  activeLKPD?: LKPDDokumen | null;
+  /**
+   * Hook opsional untuk pengujian integritas / fault-injection pembuatan dokumen tertentu (1..9).
+   */
+  docBlobOverrides?: Partial<Record<number, () => Promise<Blob>>>;
+}
+
+export interface SupervisiZipFileEntry {
+  id: number;
+  kode: string;
+  nama: string;
+  fileName: string;
+  byteSize: number;
+}
+
+export interface SupervisiZipExportResult {
+  zipBlob: Blob;
+  zipFileName: string;
+  folderName: string;
+  files: SupervisiZipFileEntry[];
+}
+
+export interface SupervisiMasterBundleResult {
+  blob: Blob;
+  fileName: string;
+  sections: string[];
+}
+
+function maybeBuildVerificationBanner(kelasHarian?: KelasHarianData): Paragraph[] {
+  if (!kelasHarian) return [];
+  const noticeText = getExportVerificationNoticeText(kelasHarian);
+  if (!noticeText) return [];
+  return [
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 80, after: 120 },
+      children: [
+        new TextRun({
+          text: `[${noticeText}]`,
+          bold: true,
+          size: 18,
+          color: 'B45309',
+          font: 'Calibri',
+        }),
+      ],
+    }),
+  ];
+}
+
+function pageBreakParagraph(): Paragraph {
+  return new Paragraph({
+    pageBreakBefore: true,
+    children: [new TextRun({ text: '' })],
+  });
+}
+
+function statusCellShading(status: SupervisiItemStatus): string {
+  if (status === 'ada') return 'DCFCE7';
+  if (status === 'perlu_perbaikan') return 'FEF3C7';
+  if (status === 'tidak_ada') return 'FEE2E2';
+  return 'F1F5F9';
+}
+
+function statusTextColor(status: SupervisiItemStatus): string {
+  if (status === 'ada') return '15803D';
+  if (status === 'perlu_perbaikan') return 'B45309';
+  if (status === 'tidak_ada') return 'B91C1C';
+  return '475569';
+}
+
+async function packAndValidateDocxBlob(
+  doc: Document,
+  docLabel: string
+): Promise<Blob> {
+  const blob = await Packer.toBlob(doc);
+  if (!blob || blob.size === 0) {
+    throw new Error(`Dokumen ${docLabel} menghasilkan file kosong (0 byte).`);
+  }
+  const buffer = await blob.arrayBuffer();
+  const parsedZip = await JSZip.loadAsync(buffer);
+  const xmlFile = parsedZip.file('word/document.xml');
+  if (!xmlFile) {
+    throw new Error(`Dokumen ${docLabel} tidak memiliki struktur word/document.xml yang valid.`);
+  }
+  const xmlText = await xmlFile.async('string');
+  if (!xmlText || xmlText.length < 200) {
+    throw new Error(`Dokumen ${docLabel} tidak memiliki isi dokumen yang memadai.`);
+  }
+  return blob;
+}
+
 /**
- * 13. ELEMEN COVER & LEMBAR PENGESAHAN RESMI
+ * 13. ELEMEN COVER, IDENTITAS, STATUS KELENGKAPAN & LEMBAR PENGESAHAN RESMI
  */
-export function buildCoverDanPengesahanElements(profile: SchoolProfile): (Paragraph | Table)[] {
+export function buildCoverDanPengesahanElements(
+  profile: SchoolProfile,
+  kelasHarian?: KelasHarianData,
+  instrument?: SupervisiInstrumentData,
+  tpList?: CustomTPItem[]
+): (Paragraph | Table)[] {
   const children: (Paragraph | Table)[] = [];
+  const evalSummary = evaluateSupervisiInstrument(
+    instrument || createDefaultSupervisiInstrumentData()
+  );
   const todayStr = new Date().toLocaleDateString('id-ID', {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
   });
 
-  // Header Dinas
   if (profile.instansiDinas) {
     children.push(
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { after: 20 },
-        children: [new TextRun({ text: profile.instansiDinas.toUpperCase(), bold: true, size: 22, color: '475569', font: 'Calibri' })],
+        children: [
+          new TextRun({
+            text: profile.instansiDinas.toUpperCase(),
+            bold: true,
+            size: 22,
+            color: '475569',
+            font: 'Calibri',
+          }),
+        ],
       })
     );
   }
 
-  // Nama Sekolah
   children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 30 },
-      children: [new TextRun({ text: (profile.namaSekolah || 'SEKOLAH').toUpperCase(), bold: true, size: 28, font: 'Calibri' })],
+      children: [
+        new TextRun({
+          text: (profile.namaSekolah || 'SEKOLAH').toUpperCase(),
+          bold: true,
+          size: 28,
+          font: 'Calibri',
+        }),
+      ],
     })
   );
 
@@ -64,40 +215,77 @@ export function buildCoverDanPengesahanElements(profile: SchoolProfile): (Paragr
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { after: 120 },
-        children: [new TextRun({ text: `${profile.alamatSekolah}${profile.kotaSekolah ? ' • ' + profile.kotaSekolah : ''}`, size: 18, color: '64748B', font: 'Calibri' })],
+        children: [
+          new TextRun({
+            text: `${profile.alamatSekolah}${profile.kotaSekolah ? ' • ' + profile.kotaSekolah : ''}`,
+            size: 18,
+            color: '64748B',
+            font: 'Calibri',
+          }),
+        ],
       })
     );
   }
 
-  // Garis Pembatas
   children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 240 },
-      children: [new TextRun({ text: '═════════════════════════════════════════════════════════════════', bold: true, size: 20, color: '1E3A8A' })],
+      spacing: { after: 200 },
+      children: [
+        new TextRun({
+          text: '══════════════════════════════════════════════',
+          bold: true,
+          size: 20,
+          color: '1E3A8A',
+        }),
+      ],
     })
   );
 
-  // Judul Besar Cover Portofolio
   children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 60 },
-      children: [new TextRun({ text: 'BUNDEL ADMINISTRASI PEMBELAJARAN', bold: true, size: 32, color: '1E3A8A', font: 'Calibri' })],
+      children: [
+        new TextRun({
+          text: 'BUNDEL ADMINISTRASI PEMBELAJARAN',
+          bold: true,
+          size: 32,
+          color: '1E3A8A',
+          font: 'Calibri',
+        }),
+      ],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 60 },
-      children: [new TextRun({ text: '& PORTOFOLIO SUPERVISI AKADEMIK GURU', bold: true, size: 28, color: '2563EB', font: 'Calibri' })],
+      children: [
+        new TextRun({
+          text: '& PORTOFOLIO SUPERVISI AKADEMIK GURU',
+          bold: true,
+          size: 28,
+          color: '2563EB',
+          font: 'Calibri',
+        }),
+      ],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 240 },
-      children: [new TextRun({ text: 'KURIKULUM MERDEKA', bold: true, size: 24, color: '0D9488', font: 'Calibri' })],
+      spacing: { after: 180 },
+      children: [
+        new TextRun({
+          text: 'KURIKULUM MERDEKA',
+          bold: true,
+          size: 24,
+          color: '0D9488',
+          font: 'Calibri',
+        }),
+      ],
     })
   );
 
-  // Tabel Identitas Portofolio
+  children.push(...maybeBuildVerificationBanner(kelasHarian));
+
   const borderNone = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const borderBox = { style: BorderStyle.SINGLE, size: 12, color: '1E3A8A' };
 
@@ -112,35 +300,212 @@ export function buildCoverDanPengesahanElements(profile: SchoolProfile): (Paragr
               borders: { top: borderBox, bottom: borderBox, left: borderBox, right: borderBox },
               shading: { fill: 'F8FAFC' },
               children: [
-                new Paragraph({ spacing: { before: 100, after: 40 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'IDENTITAS PEMBELAJARAN', bold: true, size: 20, color: '1E3A8A' })] }),
-                new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: '  Mata Pelajaran    : ', bold: true, size: 19 }), new TextRun({ text: profile.mataPelajaranUtama, size: 19 })] }),
-                new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: '  Kelas / Rombel   : ', bold: true, size: 19 }), new TextRun({ text: `Kelas ${profile.kelasUtama} (${profile.rombelAktif || 'A'})`, size: 19 })] }),
-                new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: '  Semester          : ', bold: true, size: 19 }), new TextRun({ text: profile.semester, size: 19 })] }),
-                new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: '  Tahun Pelajaran   : ', bold: true, size: 19 }), new TextRun({ text: profile.tahunAjaran, size: 19 })] }),
-                new Paragraph({ spacing: { after: 20 }, children: [new TextRun({ text: '  Guru Pengampu    : ', bold: true, size: 19 }), new TextRun({ text: profile.namaGuru || '..........................................', bold: true, size: 19 })] }),
-                new Paragraph({ spacing: { after: 100 }, children: [new TextRun({ text: '  NIP Guru          : ', bold: true, size: 19 }), new TextRun({ text: profile.nipGuru ? `NIP. ${profile.nipGuru}` : 'NIP. -', size: 19 })] }),
+                new Paragraph({
+                  spacing: { before: 100, after: 40 },
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({
+                      text: 'IDENTITAS ADMINISTRASI PEMBELAJARAN',
+                      bold: true,
+                      size: 20,
+                      color: '1E3A8A',
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  spacing: { after: 20 },
+                  children: [
+                    new TextRun({ text: '  Satuan Pendidikan : ', bold: true, size: 19 }),
+                    new TextRun({ text: profile.namaSekolah || 'Belum diisi', size: 19 }),
+                  ],
+                }),
+                new Paragraph({
+                  spacing: { after: 20 },
+                  children: [
+                    new TextRun({ text: '  Mata Pelajaran    : ', bold: true, size: 19 }),
+                    new TextRun({ text: profile.mataPelajaranUtama, size: 19 }),
+                  ],
+                }),
+                new Paragraph({
+                  spacing: { after: 20 },
+                  children: [
+                    new TextRun({ text: '  Jenjang / Kelas     : ', bold: true, size: 19 }),
+                    new TextRun({
+                      text: `${profile.jenjang || '-'} • Kelas ${profile.kelasUtama} (${profile.rombelAktif || 'A'})`,
+                      size: 19,
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  spacing: { after: 20 },
+                  children: [
+                    new TextRun({ text: '  Semester / TA       : ', bold: true, size: 19 }),
+                    new TextRun({ text: `${profile.semester} • ${profile.tahunAjaran}`, size: 19 }),
+                  ],
+                }),
+                new Paragraph({
+                  spacing: { after: 20 },
+                  children: [
+                    new TextRun({ text: '  Guru Pengampu       : ', bold: true, size: 19 }),
+                    new TextRun({
+                      text: profile.namaGuru || '..........................................',
+                      bold: true,
+                      size: 19,
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  spacing: { after: 20 },
+                  children: [
+                    new TextRun({ text: '  NIP Guru            : ', bold: true, size: 19 }),
+                    new TextRun({
+                      text: profile.nipGuru ? `NIP. ${profile.nipGuru}` : 'NIP. -',
+                      size: 19,
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  spacing: { after: 100 },
+                  children: [
+                    new TextRun({ text: '  Status Telaah       : ', bold: true, size: 19 }),
+                    new TextRun({
+                      text: evalSummary.isPenilaianLengkap
+                        ? `Selesai dinilai (${evalSummary.skorTerkumpul}/${evalSummary.skorMaksimalTotal} • ${evalSummary.predikat})`
+                        : evalSummary.alasanBelumLengkap || 'Menunggu pemeriksaan pengawas',
+                      size: 18,
+                      color: evalSummary.isPenilaianLengkap ? '15803D' : 'B45309',
+                    }),
+                  ],
+                }),
               ],
             }),
           ],
         }),
       ],
     }),
-    new Paragraph({ spacing: { after: 240 } })
+    new Paragraph({ spacing: { after: 180 } })
   );
 
-  // Footer Cover
-  children.push(
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 30 },
-      children: [new TextRun({ text: (profile.namaSekolah || 'SEKOLAH').toUpperCase(), bold: true, size: 22, color: '1E293B' })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 20 },
-      children: [new TextRun({ text: `${profile.kotaSekolah || 'Indonesia'} • Tahun ${new Date().getFullYear()}`, size: 18, color: '64748B' })],
-    })
-  );
+  // Ringkasan status ketersediaan 9 dokumen di workspace apabila tersedia konteks TP & kelas harian
+  if (tpList && kelasHarian) {
+    const readiness = getSupervisiDocumentsReadiness(profile, tpList, kelasHarian);
+    children.push(
+      new Paragraph({
+        spacing: { before: 60, after: 60 },
+        children: [
+          new TextRun({
+            text: 'DAFTAR ISI & STATUS KETERSEDIAAN DOKUMEN PAKET (01–09)',
+            bold: true,
+            size: 20,
+            color: '1E3A8A',
+          }),
+        ],
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({
+                width: { size: 8, type: WidthType.PERCENTAGE },
+                shading: { fill: '1E3A8A' },
+                children: [
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    children: [new TextRun({ text: 'Kode', bold: true, color: 'FFFFFF', size: 15 })],
+                  }),
+                ],
+              }),
+              new TableCell({
+                width: { size: 38, type: WidthType.PERCENTAGE },
+                shading: { fill: '1E3A8A' },
+                children: [
+                  new Paragraph({
+                    children: [new TextRun({ text: 'Nama Dokumen', bold: true, color: 'FFFFFF', size: 15 })],
+                  }),
+                ],
+              }),
+              new TableCell({
+                width: { size: 16, type: WidthType.PERCENTAGE },
+                shading: { fill: '1E3A8A' },
+                children: [
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    children: [new TextRun({ text: 'Status Data', bold: true, color: 'FFFFFF', size: 15 })],
+                  }),
+                ],
+              }),
+              new TableCell({
+                width: { size: 38, type: WidthType.PERCENTAGE },
+                shading: { fill: '1E3A8A' },
+                children: [
+                  new Paragraph({
+                    children: [new TextRun({ text: 'Keterangan Aktual Workspace', bold: true, color: 'FFFFFF', size: 15 })],
+                  }),
+                ],
+              }),
+            ],
+          }),
+          ...readiness.map(
+            (r) =>
+              new TableRow({
+                children: [
+                  new TableCell({
+                    children: [
+                      new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        children: [new TextRun({ text: r.kode, bold: true, size: 15 })],
+                      }),
+                    ],
+                  }),
+                  new TableCell({
+                    children: [
+                      new Paragraph({
+                        children: [new TextRun({ text: r.nama, bold: true, size: 15 })],
+                      }),
+                    ],
+                  }),
+                  new TableCell({
+                    shading: {
+                      fill: !r.tersedia ? 'FEE2E2' : r.perluPerhatianData ? 'FEF3C7' : 'DCFCE7',
+                    },
+                    children: [
+                      new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        children: [
+                          new TextRun({
+                            text: !r.tersedia
+                              ? 'Belum tersedia'
+                              : r.perluPerhatianData
+                              ? 'Perlu verifikasi'
+                              : 'Tersedia',
+                            bold: true,
+                            size: 14,
+                            color: !r.tersedia
+                              ? 'B91C1C'
+                              : r.perluPerhatianData
+                              ? 'B45309'
+                              : '15803D',
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
+                  new TableCell({
+                    children: [
+                      new Paragraph({
+                        children: [new TextRun({ text: r.ringkasan, size: 14, color: '334155' })],
+                      }),
+                    ],
+                  }),
+                ],
+              })
+          ),
+        ],
+      }),
+      new Paragraph({ spacing: { after: 140 } })
+    );
+  }
 
   // PAGE BREAK: LEMBAR PENGESAHAN
   children.push(
@@ -148,19 +513,35 @@ export function buildCoverDanPengesahanElements(profile: SchoolProfile): (Paragr
       pageBreakBefore: true,
       alignment: AlignmentType.CENTER,
       spacing: { after: 30 },
-      children: [new TextRun({ text: 'LEMBAR PENGESAHAN', bold: true, size: 28, color: '1E3A8A', font: 'Calibri' })],
+      children: [
+        new TextRun({
+          text: 'LEMBAR PENGESAHAN DOKUMEN ADMINISTRASI',
+          bold: true,
+          size: 28,
+          color: '1E3A8A',
+          font: 'Calibri',
+        }),
+      ],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 160 },
-      children: [new TextRun({ text: 'DOKUMEN ADMINISTRASI & PERANGKAT PEMBELAJARAN GURU', bold: true, size: 22, color: '334155', font: 'Calibri' })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.JUSTIFIED,
       spacing: { after: 140 },
       children: [
         new TextRun({
-          text: `Setelah diteliti, diperiksa, dan diverifikasi kelengkapannya, Dokumen Administrasi Pembelajaran dan Portofolio Guru Mata Pelajaran ${profile.mataPelajaranUtama} Kelas ${profile.kelasUtama} (${profile.rombelAktif || 'A'}) Semester ${profile.semester} Tahun Pelajaran ${profile.tahunAjaran} yang disusun oleh:`,
+          text: 'PERANGKAT PEMBELAJARAN & PORTOFOLIO SUPERVISI AKADEMIK GURU',
+          bold: true,
+          size: 22,
+          color: '334155',
+          font: 'Calibri',
+        }),
+      ],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.JUSTIFIED,
+      spacing: { after: 120 },
+      children: [
+        new TextRun({
+          text: `Dokumen Administrasi Pembelajaran dan Portofolio Guru Mata Pelajaran ${profile.mataPelajaranUtama} Kelas ${profile.kelasUtama} (${profile.rombelAktif || 'A'}) Semester ${profile.semester} Tahun Pelajaran ${profile.tahunAjaran} diajukan oleh:`,
           size: 20,
         }),
       ],
@@ -169,36 +550,47 @@ export function buildCoverDanPengesahanElements(profile: SchoolProfile): (Paragr
       spacing: { after: 40 },
       children: [
         new TextRun({ text: '  Nama Guru  : ', bold: true, size: 20 }),
-        new TextRun({ text: profile.namaGuru || '..........................................', bold: true, size: 20 }),
+        new TextRun({
+          text: profile.namaGuru || '..........................................',
+          bold: true,
+          size: 20,
+        }),
       ],
     }),
     new Paragraph({
       spacing: { after: 40 },
       children: [
         new TextRun({ text: '  NIP Guru   : ', bold: true, size: 20 }),
-        new TextRun({ text: profile.nipGuru ? `NIP. ${profile.nipGuru}` : 'NIP. -', size: 20 }),
+        new TextRun({
+          text: profile.nipGuru ? `NIP. ${profile.nipGuru}` : 'NIP. -',
+          size: 20,
+        }),
       ],
     }),
     new Paragraph({
-      spacing: { after: 140 },
+      spacing: { after: 120 },
       children: [
         new TextRun({ text: '  Unit Kerja : ', bold: true, size: 20 }),
-        new TextRun({ text: profile.namaSekolah || '..........................................', size: 20 }),
+        new TextRun({
+          text: profile.namaSekolah || '..........................................',
+          size: 20,
+        }),
       ],
     }),
     new Paragraph({
       alignment: AlignmentType.JUSTIFIED,
-      spacing: { after: 200 },
+      spacing: { after: 180 },
       children: [
         new TextRun({
-          text: `Dinyatakan LENGKAP dan SAH untuk dipergunakan sebagai pedoman pelaksanaan proses belajar mengajar, asesmen ketercapaian tujuan pembelajaran, serta pemenuhan standar mutu supervisi akademik pada satuan pendidikan.`,
+          text: evalSummary.isPenilaianLengkap
+            ? `Berdasarkan hasil telaah instrumen supervisi akademik (${evalSummary.skorTerkumpul}/${evalSummary.skorMaksimalTotal}, Predikat: ${evalSummary.predikat}), dokumen ini dinyatakan telah diperiksa untuk dipergunakan pada satuan pendidikan terkait.`
+            : 'Dokumen ini disiapkan untuk dilakukan pemeriksaan, telaah kelengkapan, dan pengesahan resmi oleh Kepala Sekolah dan Pengawas Pembina sesuai hasil observasi supervisi akademik.',
           size: 20,
         }),
       ],
     })
   );
 
-  // Triple Signature Block: Guru, Kepala Sekolah, Pengawas
   children.push(
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
@@ -206,23 +598,90 @@ export function buildCoverDanPengesahanElements(profile: SchoolProfile): (Paragr
         new TableRow({
           children: [
             new TableCell({
-              width: { size: 50, type: WidthType.PERCENTAGE },
+              width: { size: 33, type: WidthType.PERCENTAGE },
               borders: { top: borderNone, bottom: borderNone, left: borderNone, right: borderNone },
               children: [
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Mengetahui,', size: 20 })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 700 }, children: [new TextRun({ text: 'Kepala Sekolah', size: 20 })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: profile.namaKepalaSekolah || '..........................................', bold: true, underline: {}, size: 20 })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: profile.nipKepalaSekolah ? `NIP. ${profile.nipKepalaSekolah}` : 'NIP. -', size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Mengetahui,', size: 19 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 650 }, children: [new TextRun({ text: 'Kepala Sekolah', size: 19 })] }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({
+                      text: profile.namaKepalaSekolah || '................................',
+                      bold: true,
+                      underline: {},
+                      size: 19,
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({
+                      text: profile.nipKepalaSekolah ? `NIP. ${profile.nipKepalaSekolah}` : 'NIP. -',
+                      size: 17,
+                    }),
+                  ],
+                }),
               ],
             }),
             new TableCell({
-              width: { size: 50, type: WidthType.PERCENTAGE },
+              width: { size: 34, type: WidthType.PERCENTAGE },
               borders: { top: borderNone, bottom: borderNone, left: borderNone, right: borderNone },
               children: [
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${profile.kotaSekolah || 'Indonesia'}, ${todayStr}`, size: 20 })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 700 }, children: [new TextRun({ text: 'Guru Mata Pelajaran', size: 20 })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: profile.namaGuru || '..........................................', bold: true, underline: {}, size: 20 })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: profile.nipGuru ? `NIP. ${profile.nipGuru}` : 'NIP. -', size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Telah Ditelaah,', size: 19 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 650 }, children: [new TextRun({ text: 'Pengawas / Supervisor', size: 19 })] }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({
+                      text: instrument?.namaPengawas?.trim() || '................................',
+                      bold: true,
+                      underline: {},
+                      size: 19,
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({
+                      text: instrument?.nipPengawas?.trim() ? `NIP. ${instrument.nipPengawas.trim()}` : 'NIP. -',
+                      size: 17,
+                    }),
+                  ],
+                }),
+              ],
+            }),
+            new TableCell({
+              width: { size: 33, type: WidthType.PERCENTAGE },
+              borders: { top: borderNone, bottom: borderNone, left: borderNone, right: borderNone },
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: `${profile.kotaSekolah || 'Indonesia'}, ${todayStr}`, size: 19 })],
+                }),
+                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 650 }, children: [new TextRun({ text: 'Guru Mata Pelajaran', size: 19 })] }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({
+                      text: profile.namaGuru || '................................',
+                      bold: true,
+                      underline: {},
+                      size: 19,
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({
+                      text: profile.nipGuru ? `NIP. ${profile.nipGuru}` : 'NIP. -',
+                      size: 17,
+                    }),
+                  ],
+                }),
               ],
             }),
           ],
@@ -236,94 +695,353 @@ export function buildCoverDanPengesahanElements(profile: SchoolProfile): (Paragr
 }
 
 /**
- * 14. INSTRUMEN TELAAH & VERIFIKASI SUPERVISI AKADEMIK GURU
+ * 14. INSTRUMEN TELAAH & VERIFIKASI SUPERVISI AKADEMIK GURU (TANPA SKOR OTOMATIS PALSU)
  */
-export function buildInstrumenSupervisiElements(profile: SchoolProfile): (Paragraph | Table)[] {
+export function buildInstrumenSupervisiElements(
+  profile: SchoolProfile,
+  instrumentData?: SupervisiInstrumentData
+): (Paragraph | Table)[] {
   const children: (Paragraph | Table)[] = [];
+  const instrument = instrumentData || getSupervisiInstrumentData(profile);
+  const summary = evaluateSupervisiInstrument(instrument);
 
   children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 30 },
-      children: [new TextRun({ text: 'INSTRUMEN VERIFIKASI & TELAAH ADMINISTRASI GURU', bold: true, size: 26, color: '1E3A8A', font: 'Calibri' })],
+      children: [
+        new TextRun({
+          text: 'INSTRUMEN VERIFIKASI & TELAAH ADMINISTRASI GURU',
+          bold: true,
+          size: 26,
+          color: '1E3A8A',
+          font: 'Calibri',
+        }),
+      ],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 120 },
-      children: [new TextRun({ text: `STANDAR PENILAIAN SUPERVISI AKADEMIK PEMBELAJARAN (KURIKULUM MERDEKA)`, bold: true, size: 20, color: '555555', font: 'Calibri' })],
+      spacing: { after: 100 },
+      children: [
+        new TextRun({
+          text: 'LEMBAR PENILAIAN PENGAWAS / KEPALA SEKOLAH (KURIKULUM MERDEKA)',
+          bold: true,
+          size: 20,
+          color: '555555',
+          font: 'Calibri',
+        }),
+      ],
+    }),
+    new Paragraph({
+      spacing: { after: 40 },
+      children: [
+        new TextRun({
+          text: `Satuan Pendidikan: ${profile.namaSekolah} • Mapel: ${profile.mataPelajaranUtama} • Kelas: ${profile.kelasUtama} (${profile.rombelAktif || 'A'}) • Semester: ${profile.semester}`,
+          size: 18,
+          color: '334155',
+        }),
+      ],
     }),
     new Paragraph({
       spacing: { after: 100 },
       children: [
-        new TextRun({ text: `Satuan Pendidikan : ${profile.namaSekolah} • Mapel: ${profile.mataPelajaranUtama} • Kelas: ${profile.kelasUtama} (${profile.rombelAktif || 'A'}) • Semester: ${profile.semester}`, size: 18, color: '334155' }),
+        new TextRun({
+          text: `Pengawas / Penelaah: ${instrument.namaPengawas.trim() || '........................'} (${instrument.jabatanPengawas || 'Pengawas'}) • Tanggal Telaah: ${instrument.tanggalSupervisi.trim() || '........................'}`,
+          size: 18,
+          color: '334155',
+        }),
       ],
     })
   );
 
   const headerRow = new TableRow({
     children: [
-      new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 40, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Komponen Dokumen Pembelajaran', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Ketersediaan', bold: true, color: 'FFFFFF', size: 14 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Skor (0-2)', bold: true, color: 'FFFFFF', size: 14 })] })] }),
-      new TableCell({ width: { size: 35, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Catatan & Analisis Ketercapaian', bold: true, color: 'FFFFFF', size: 15 })] })] }),
+      new TableCell({
+        width: { size: 6, type: WidthType.PERCENTAGE },
+        shading: { fill: '1E3A8A' },
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 15 })],
+          }),
+        ],
+      }),
+      new TableCell({
+        width: { size: 28, type: WidthType.PERCENTAGE },
+        shading: { fill: '1E3A8A' },
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: 'Komponen Dokumen Pembelajaran', bold: true, color: 'FFFFFF', size: 15 })],
+          }),
+        ],
+      }),
+      new TableCell({
+        width: { size: 14, type: WidthType.PERCENTAGE },
+        shading: { fill: '1E3A8A' },
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: 'Status Telaah', bold: true, color: 'FFFFFF', size: 14 })],
+          }),
+        ],
+      }),
+      new TableCell({
+        width: { size: 10, type: WidthType.PERCENTAGE },
+        shading: { fill: '1E3A8A' },
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: 'Skor (0-2)', bold: true, color: 'FFFFFF', size: 14 })],
+          }),
+        ],
+      }),
+      new TableCell({
+        width: { size: 42, type: WidthType.PERCENTAGE },
+        shading: { fill: '1E3A8A' },
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: 'Catatan, Rekomendasi & Tindak Lanjut', bold: true, color: 'FFFFFF', size: 15 })],
+          }),
+        ],
+      }),
     ],
   });
 
-  const checklistItems = [
-    { no: 1, komponen: 'Alur Tujuan Pembelajaran (ATP)', catatan: 'Tersusun urut, logis, dan memuat alokasi JP serta dimensi Profil Pancasila.' },
-    { no: 2, komponen: 'Program Tahunan (Prota)', catatan: 'Distribusi materi dan JP Semester 1 & Semester 2 sinkron dengan kurikulum.' },
-    { no: 3, komponen: 'Program Semester (Promes Visual)', catatan: 'Pemetaan JP per minggu efektif rapi dan dilengkapi penanda non-efektif.' },
-    { no: 4, komponen: 'Modul Ajar / RPP Berdiferensiasi', catatan: 'Memuat tujuan, langkah berdiferensiasi, asesmen diagnostik & formatif.' },
-    { no: 5, komponen: 'Lembar Kerja Peserta Didik (LKPD)', catatan: 'Dilengkapi stimulus kontekstual, instruksi tugas terarah, dan rubrik asesmen.' },
-    { no: 6, komponen: 'Buku Agenda & Jurnal Guru', catatan: 'Terdokumentasi 16 pertemuan lengkap dengan ketidakhadiran dan refleksi guru.' },
-    { no: 7, komponen: 'Daftar Presensi Kehadiran Siswa', catatan: 'Rekap kehadiran per pertemuan terisi lengkap beserta persentase kehadiran.' },
-    { no: 8, komponen: 'Buku Nilai Formatif & Sumatif (STS/SAS)', catatan: 'Asesmen per TP terukur dengan bobot 50% Formatif + 25% STS + 25% SAS.' },
-    { no: 9, komponen: 'Rekapitulasi Capaian & Deskripsi e-Rapor', catatan: 'Sintesis capaian tertinggi & terendah sesuai panduan resmi Kemendikbud.' },
-  ];
+  const dataRows: TableRow[] = instrument.items.map((it) => {
+    const statusLabel = SUPERVISI_STATUS_LABELS[it.status];
+    const scoreDisplay = typeof it.skor === 'number' ? String(it.skor) : '-';
+    const noteParagraphs: Paragraph[] = [];
+    if (it.catatan.trim()) {
+      noteParagraphs.push(
+        new Paragraph({
+          children: [
+            new TextRun({ text: 'Catatan: ', bold: true, size: 13 }),
+            new TextRun({ text: it.catatan.trim(), size: 13 }),
+          ],
+        })
+      );
+    }
+    if (it.rekomendasi.trim()) {
+      noteParagraphs.push(
+        new Paragraph({
+          children: [
+            new TextRun({ text: 'Rekomendasi: ', bold: true, size: 13 }),
+            new TextRun({ text: it.rekomendasi.trim(), size: 13 }),
+          ],
+        })
+      );
+    }
+    if (it.tindakLanjut.trim()) {
+      noteParagraphs.push(
+        new Paragraph({
+          children: [
+            new TextRun({ text: 'Tindak Lanjut: ', bold: true, size: 13 }),
+            new TextRun({ text: it.tindakLanjut.trim(), size: 13 }),
+          ],
+        })
+      );
+    }
+    if (noteParagraphs.length === 0) {
+      noteParagraphs.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: 'Belum ada catatan telaah pengawas.',
+              italics: true,
+              size: 13,
+              color: '64748B',
+            }),
+          ],
+        })
+      );
+    }
 
-  const dataRows: TableRow[] = checklistItems.map((it) => {
     return new TableRow({
       children: [
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(it.no), size: 15 })] })] }),
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: it.komponen, bold: true, size: 15 })] })] }),
-        new TableCell({ shading: { fill: 'DCFCE7' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'ADA (✓)', bold: true, color: '15803D', size: 14 })] })] }),
-        new TableCell({ shading: { fill: 'EFF6FF' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '2', bold: true, color: '1D4ED8', size: 15 })] })] }),
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: it.catatan, size: 13, color: '334155' })] })] }),
+        new TableCell({
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: it.kode, size: 15 })],
+            }),
+          ],
+        }),
+        new TableCell({
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: it.komponen, bold: true, size: 15 })],
+            }),
+          ],
+        }),
+        new TableCell({
+          shading: { fill: statusCellShading(it.status) },
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [
+                new TextRun({
+                  text: statusLabel,
+                  bold: true,
+                  color: statusTextColor(it.status),
+                  size: 13,
+                }),
+              ],
+            }),
+          ],
+        }),
+        new TableCell({
+          shading: { fill: typeof it.skor === 'number' ? 'EFF6FF' : 'F8FAFC' },
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [
+                new TextRun({
+                  text: scoreDisplay,
+                  bold: true,
+                  color: typeof it.skor === 'number' ? '1D4ED8' : '64748B',
+                  size: 15,
+                }),
+              ],
+            }),
+          ],
+        }),
+        new TableCell({ children: noteParagraphs }),
       ],
     });
   });
 
-  // Baris Total Skor
+  const summaryStatusText = summary.isPenilaianLengkap
+    ? `${summary.jumlahDiperiksa}/${summary.totalKomponen} Selesai`
+    : `${summary.jumlahDinilai}/${summary.totalKomponen} Dinilai`;
+
+  const summaryScoreText =
+    summary.jumlahDinilai === 0
+      ? 'Belum dinilai'
+      : summary.isPenilaianLengkap
+      ? `${summary.skorTerkumpul} / ${summary.skorMaksimalTotal}`
+      : `${summary.skorTerkumpul} / ${summary.skorMaksimalDiperiksa}`;
+
+  const summaryPredicateText = summary.isPenilaianLengkap
+    ? `PREDIKAT: ${summary.predikat?.toUpperCase()} (${summary.persentaseDinilai}%)`
+    : `PREDIKAT BELUM DITETAPKAN — ${summary.alasanBelumLengkap}`;
+
   const totalRow = new TableRow({
     children: [
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '', size: 15 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: 'TOTAL SKOR KETERCAPAIAN (MAKSIMAL 18):', bold: true, size: 15 })] })] }),
-      new TableCell({ shading: { fill: 'DCFCE7' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '100% LENGKAP', bold: true, color: '15803D', size: 13 })] })] }),
-      new TableCell({ shading: { fill: 'DBEAFE' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '18 / 18', bold: true, color: '1E3A8A', size: 15 })] })] }),
-      new TableCell({ shading: { fill: 'DCFCE7' }, children: [new Paragraph({ children: [new TextRun({ text: 'PREDIKAT: AMAT BAIK (A) / SANGAT LAYAK', bold: true, color: '15803D', size: 14 })] })] }),
+      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: '', size: 14 })] })] }),
+      new TableCell({
+        children: [
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `REKAPITULASI SKOR SUPERVISI (MAKS. ${summary.skorMaksimalTotal}):`,
+                bold: true,
+                size: 14,
+              }),
+            ],
+          }),
+        ],
+      }),
+      new TableCell({
+        shading: { fill: summary.isPenilaianLengkap ? 'DCFCE7' : 'F1F5F9' },
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [
+              new TextRun({
+                text: summaryStatusText,
+                bold: true,
+                color: summary.isPenilaianLengkap ? '15803D' : '475569',
+                size: 13,
+              }),
+            ],
+          }),
+        ],
+      }),
+      new TableCell({
+        shading: { fill: summary.jumlahDinilai > 0 ? 'DBEAFE' : 'F1F5F9' },
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [
+              new TextRun({
+                text: summaryScoreText,
+                bold: true,
+                color: summary.jumlahDinilai > 0 ? '1E3A8A' : '64748B',
+                size: 14,
+              }),
+            ],
+          }),
+        ],
+      }),
+      new TableCell({
+        shading: { fill: summary.isPenilaianLengkap ? 'DCFCE7' : 'FEF3C7' },
+        children: [
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: summaryPredicateText,
+                bold: true,
+                color: summary.isPenilaianLengkap ? '15803D' : '92400E',
+                size: 13,
+              }),
+            ],
+          }),
+        ],
+      }),
     ],
   });
 
   children.push(
-    new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [headerRow, ...dataRows, totalRow] }),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [headerRow, ...dataRows, totalRow],
+    }),
     new Paragraph({ spacing: { after: 120 } })
   );
 
-  // Catatan & Tanda Tangan
   children.push(
     new Paragraph({
-      spacing: { after: 40 },
-      children: [new TextRun({ text: 'Catatan & Rekomendasi Supervisor:', bold: true, size: 18 })],
+      spacing: { after: 30 },
+      children: [new TextRun({ text: 'Catatan Umum Pengawas:', bold: true, size: 18 })],
+    }),
+    new Paragraph({
+      spacing: { after: 80 },
+      children: [
+        new TextRun({
+          text: instrument.catatanUmum.trim() || 'Belum diisi oleh pengawas.',
+          size: 17,
+          italics: !instrument.catatanUmum.trim(),
+          color: instrument.catatanUmum.trim() ? '1E293B' : '64748B',
+        }),
+      ],
+    }),
+    new Paragraph({
+      spacing: { after: 30 },
+      children: [new TextRun({ text: 'Rekomendasi Supervisi:', bold: true, size: 18 })],
+    }),
+    new Paragraph({
+      spacing: { after: 80 },
+      children: [
+        new TextRun({
+          text: instrument.rekomendasiUmum.trim() || 'Belum diisi oleh pengawas.',
+          size: 17,
+          italics: !instrument.rekomendasiUmum.trim(),
+          color: instrument.rekomendasiUmum.trim() ? '1E293B' : '64748B',
+        }),
+      ],
+    }),
+    new Paragraph({
+      spacing: { after: 30 },
+      children: [new TextRun({ text: 'Rencana Tindak Lanjut:', bold: true, size: 18 })],
     }),
     new Paragraph({
       spacing: { after: 140 },
       children: [
         new TextRun({
-          text: 'Perangkat pembelajaran telah disusun secara komprehensif, berbasis capaian pembelajaran Kurikulum Merdeka yang kontekstual, terintegrasi diferensiasi, serta siap diimplementasikan secara optimal.',
+          text: instrument.tindakLanjutUmum.trim() || 'Belum diisi oleh pengawas.',
           size: 17,
-          italics: true,
-          color: '334155',
+          italics: !instrument.tindakLanjutUmum.trim(),
+          color: instrument.tindakLanjutUmum.trim() ? '1E293B' : '64748B',
         }),
       ],
     })
@@ -337,402 +1055,758 @@ export function buildInstrumenSupervisiElements(profile: SchoolProfile): (Paragr
 }
 
 /**
- * EXPORT 1 FILE DOCX: COVER & LEMBAR PENGESAHAN
+ * 02. REFERENSI CAPAIAN PEMBELAJARAN (CP) & TUJUAN PEMBELAJARAN (TP)
  */
-export async function exportCoverDanPengesahanToDocx(profile: SchoolProfile): Promise<void> {
-  const children = buildCoverDanPengesahanElements(profile);
-  const doc = new Document({ sections: [{ properties: {}, children }] });
-  const blob = await Packer.toBlob(doc);
-  saveAs(blob, `01_Cover_dan_Pengesahan_${profile.mataPelajaranUtama}_Kelas_${profile.kelasUtama}${profile.rombelAktif || 'A'}.docx`);
+export function buildReferensiCapaianDanTPElements(
+  profile: SchoolProfile,
+  tpList: CustomTPItem[]
+): (Paragraph | Table)[] {
+  const children: (Paragraph | Table)[] = [];
+  const fase = jenjangToDefaultFase(profile.jenjang, profile.kelasUtama);
+  const plan = getSemesterCurriculumPlan(
+    profile.mataPelajaranUtama,
+    fase,
+    profile.kelasUtama,
+    profile.semester,
+    { schoolId: profile.schoolId, tahunAjaran: profile.tahunAjaran }
+  );
+
+  children.push(
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 30 },
+      children: [
+        new TextRun({
+          text: 'REFERENSI CAPAIAN & TUJUAN PEMBELAJARAN (CP / TP)',
+          bold: true,
+          size: 28,
+          color: '1D4ED8',
+          font: 'Calibri',
+        }),
+      ],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 40 },
+      children: [
+        new TextRun({
+          text: (profile.namaSekolah || 'SATUAN PENDIDIKAN').toUpperCase(),
+          bold: true,
+          size: 22,
+          font: 'Calibri',
+        }),
+      ],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 140 },
+      children: [
+        new TextRun({
+          text: `MAPEL: ${profile.mataPelajaranUtama.toUpperCase()} • ${fase} • KELAS ${profile.kelasUtama} (${profile.rombelAktif || 'A'}) • SEMESTER ${profile.semester.toUpperCase()}`,
+          size: 18,
+          color: '555555',
+          font: 'Calibri',
+        }),
+      ],
+    })
+  );
+
+  children.push(
+    new Paragraph({
+      spacing: { after: 30 },
+      children: [
+        new TextRun({
+          text: 'A. Capaian Pembelajaran (CP) Fase Acuan:',
+          bold: true,
+          size: 20,
+          color: '1E3A8A',
+        }),
+      ],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.JUSTIFIED,
+      spacing: { after: 80 },
+      children: [
+        new TextRun({
+          text: plan.capaianPembelajaran || 'Capaian pembelajaran mengikuti dokumen kurikulum satuan pendidikan.',
+          size: 19,
+        }),
+      ],
+    })
+  );
+
+  if (plan.referensiCatatan) {
+    children.push(
+      new Paragraph({
+        spacing: { after: 120 },
+        children: [
+          new TextRun({ text: 'Sumber Acuan Kurikulum: ', bold: true, size: 17, color: '475569' }),
+          new TextRun({ text: plan.referensiCatatan, italics: true, size: 17, color: '475569' }),
+        ],
+      })
+    );
+  }
+
+  children.push(
+    new Paragraph({
+      spacing: { after: 60 },
+      children: [
+        new TextRun({
+          text: `B. Daftar Tujuan Pembelajaran (TP) Aktif (${tpList.length} TP):`,
+          bold: true,
+          size: 20,
+          color: '1E3A8A',
+        }),
+      ],
+    })
+  );
+
+  if (tpList.length === 0) {
+    children.push(
+      new Paragraph({
+        spacing: { after: 120 },
+        children: [
+          new TextRun({
+            text: 'Catatan: Belum ada Tujuan Pembelajaran yang ditetapkan untuk mata pelajaran dan kelas ini.',
+            italics: true,
+            size: 18,
+            color: '64748B',
+          }),
+        ],
+      })
+    );
+  } else {
+    const headerRow = new TableRow({
+      children: [
+        ['No', 6],
+        ['Kode TP', 10],
+        ['Elemen', 16],
+        ['Materi Pokok', 20],
+        ['Tujuan Pembelajaran', 32],
+        ['JP', 8],
+        ['Minggu', 8],
+      ].map(
+        ([label, w]) =>
+          new TableCell({
+            width: { size: w as number, type: WidthType.PERCENTAGE },
+            shading: { fill: '1E3A8A' },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: label as string, bold: true, color: 'FFFFFF', size: 16 })],
+              }),
+            ],
+          })
+      ),
+    });
+
+    const dataRows = tpList.map(
+      (tp, idx) =>
+        new TableRow({
+          children: [
+            new TableCell({
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: String(idx + 1), size: 16 })],
+                }),
+              ],
+            }),
+            new TableCell({
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: tp.kode, bold: true, size: 16 })],
+                }),
+              ],
+            }),
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: tp.elemen, size: 16 })] })],
+            }),
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: tp.materiPokok, bold: true, size: 16 })] })],
+            }),
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: tp.tujuanPembelajaran, size: 16 })] })],
+            }),
+            new TableCell({
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: `${tp.alokasiJP} JP`, size: 16 })],
+                }),
+              ],
+            }),
+            new TableCell({
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: `M${tp.mingguMulai}-${tp.mingguSelesai}`, size: 15 })],
+                }),
+              ],
+            }),
+          ],
+        })
+    );
+
+    children.push(
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [headerRow, ...dataRows],
+      }),
+      new Paragraph({ spacing: { after: 140 } })
+    );
+  }
+
+  if (profile.tampilkanTandaTangan) {
+    children.push(buildSignatureBlockTable(profile, profile.namaGuru));
+  }
+
+  return children;
+}
+
+function doesDraftMatchSupervisiContext(
+  draft: {
+    tpId?: string;
+    tpKode?: string;
+    materiPokok?: string;
+    mataPelajaran?: string;
+    kelas?: string;
+    semester?: string;
+    schoolId?: string;
+  },
+  tp: CustomTPItem,
+  profile: SchoolProfile
+): boolean {
+  const idMatch = draft.tpId
+    ? draft.tpId === tp.id
+    : draft.tpKode === tp.kode && draft.materiPokok === tp.materiPokok;
+  if (!idMatch) return false;
+  if (
+    draft.mataPelajaran &&
+    draft.mataPelajaran.trim().toLowerCase() !== profile.mataPelajaranUtama.trim().toLowerCase()
+  ) {
+    return false;
+  }
+  if (
+    draft.kelas &&
+    draft.kelas.trim().toLowerCase() !== profile.kelasUtama.trim().toLowerCase()
+  ) {
+    return false;
+  }
+  if (draft.semester) {
+    const draftSem2 = draft.semester.trim().startsWith('2');
+    const profileSem2 = (profile.semester || '1').trim().startsWith('2');
+    if (draftSem2 !== profileSem2) return false;
+  }
+  if (draft.schoolId && profile.schoolId && draft.schoolId !== profile.schoolId) {
+    return false;
+  }
+  return true;
+}
+
+export function resolveSupervisiTPDocuments(
+  profile: SchoolProfile,
+  tp: CustomTPItem,
+  options?: SupervisiExportOptions
+): {
+  modulDoc: ModulAjarDokumen;
+  modulStatusLabel: string;
+  modulIsSavedDraft: boolean;
+  lkpdDoc: LKPDDokumen;
+  lkpdStatusLabel: string;
+  lkpdIsSavedDraft: boolean;
+} {
+  const persistedModul = loadLatestModulAjarDraft(profile, tp);
+  const activeModul = options?.activeModulAjar;
+  const activeModulValid = Boolean(
+    activeModul && doesDraftMatchSupervisiContext(activeModul, tp, profile)
+  );
+
+  let modulDoc: ModulAjarDokumen;
+  let modulStatusLabel: string;
+  let modulIsSavedDraft = false;
+
+  if (persistedModul && (!activeModulValid || !activeModul?.savedAt || (persistedModul.savedAt || '') >= activeModul.savedAt)) {
+    modulDoc = persistedModul.doc;
+    modulIsSavedDraft = true;
+    modulStatusLabel =
+      persistedModul.origin === 'saved_ai'
+        ? `Draf Tersimpan Hasil AI / Suntingan Guru (Model: ${persistedModul.variant.toUpperCase()})`
+        : `Draf Tersimpan / Disunting Guru (Model: ${persistedModul.variant.toUpperCase()})`;
+  } else if (activeModulValid && activeModul) {
+    modulDoc = activeModul;
+    modulIsSavedDraft = true;
+    modulStatusLabel =
+      activeModul.draftSource === 'ai_generated'
+        ? 'Draf Aktif Hasil AI / Suntingan Guru'
+        : 'Draf Aktif / Disunting Guru';
+  } else {
+    modulDoc = buildSmartModulAjar(tp, profile);
+    modulIsSavedDraft = false;
+    modulStatusLabel = 'Template Bawaan Sistem (Belum Disunting Guru)';
+  }
+
+  const persistedLKPD = loadLatestLKPDDraft(profile, tp);
+  const activeLKPD = options?.activeLKPD;
+  const activeLKPDValid = Boolean(
+    activeLKPD && doesDraftMatchSupervisiContext(activeLKPD, tp, profile)
+  );
+
+  let lkpdDoc: LKPDDokumen;
+  let lkpdStatusLabel: string;
+  let lkpdIsSavedDraft = false;
+
+  if (persistedLKPD && (!activeLKPDValid || !activeLKPD?.savedAt || (persistedLKPD.savedAt || '') >= activeLKPD.savedAt)) {
+    lkpdDoc = persistedLKPD.doc;
+    lkpdIsSavedDraft = true;
+    lkpdStatusLabel =
+      persistedLKPD.origin === 'saved_ai'
+        ? `Draf Tersimpan Hasil AI / Suntingan Guru (Preset: ${persistedLKPD.variant})`
+        : `Draf Tersimpan / Disunting Guru (Preset: ${persistedLKPD.variant})`;
+  } else if (activeLKPDValid && activeLKPD) {
+    lkpdDoc = activeLKPD;
+    lkpdIsSavedDraft = true;
+    lkpdStatusLabel =
+      activeLKPD.draftSource === 'ai_generated'
+        ? 'Draf Aktif Hasil AI / Suntingan Guru'
+        : 'Draf Aktif / Disunting Guru';
+  } else {
+    lkpdDoc = buildSmartLKPD(tp, profile);
+    lkpdIsSavedDraft = false;
+    lkpdStatusLabel = 'Template Bawaan Sistem (Belum Disunting Guru)';
+  }
+
+  return {
+    modulDoc,
+    modulStatusLabel,
+    modulIsSavedDraft,
+    lkpdDoc,
+    lkpdStatusLabel,
+    lkpdIsSavedDraft,
+  };
 }
 
 /**
- * EXPORT 1 FILE DOCX: INSTRUMEN SUPERVISI
+ * 06. MODUL AJAR & LAMPIRAN LKPD (DARI TP AKTUAL + DRAF TERSIMPAN GURU)
  */
-export async function exportInstrumenSupervisiToDocx(profile: SchoolProfile): Promise<void> {
-  const children = buildInstrumenSupervisiElements(profile);
-  const doc = new Document({ sections: [{ properties: {}, children }] });
-  const blob = await Packer.toBlob(doc);
-  saveAs(blob, `02_Instrumen_Supervisi_${profile.mataPelajaranUtama}_Kelas_${profile.kelasUtama}${profile.rombelAktif || 'A'}.docx`);
+export function buildModulAjarDanLKPDElements(
+  profile: SchoolProfile,
+  tpList: CustomTPItem[],
+  options?: SupervisiExportOptions
+): (Paragraph | Table)[] {
+  const children: (Paragraph | Table)[] = [];
+
+  children.push(
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 30 },
+      children: [
+        new TextRun({
+          text: 'KOMPILASI MODUL AJAR & LEMBAR KERJA PESERTA DIDIK (LKPD)',
+          bold: true,
+          size: 28,
+          color: '1D4ED8',
+          font: 'Calibri',
+        }),
+      ],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 120 },
+      children: [
+        new TextRun({
+          text: `${profile.namaSekolah} • ${profile.mataPelajaranUtama} • Kelas ${profile.kelasUtama} (${profile.rombelAktif || 'A'}) • Semester ${profile.semester}`,
+          size: 18,
+          color: '475569',
+        }),
+      ],
+    })
+  );
+
+  if (tpList.length === 0) {
+    children.push(
+      new Paragraph({
+        spacing: { before: 40, after: 120 },
+        children: [
+          new TextRun({
+            text: 'Catatan: Belum ada Tujuan Pembelajaran aktif sehingga Modul Ajar dan LKPD belum dapat disusun.',
+            italics: true,
+            size: 18,
+            color: '64748B',
+          }),
+        ],
+      })
+    );
+    return children;
+  }
+
+  tpList.forEach((tp, idx) => {
+    const {
+      modulDoc,
+      modulStatusLabel,
+      modulIsSavedDraft,
+      lkpdDoc,
+      lkpdStatusLabel,
+      lkpdIsSavedDraft,
+    } = resolveSupervisiTPDocuments(profile, tp, options);
+
+    if (idx > 0) {
+      children.push(pageBreakParagraph());
+    }
+    children.push(
+      new Paragraph({
+        spacing: { before: 40, after: 20 },
+        children: [
+          new TextRun({
+            text: `UNIT ${idx + 1} (${tp.kode}): MODUL AJAR — ${tp.materiPokok.toUpperCase()}`,
+            bold: true,
+            size: 21,
+            color: '1E3A8A',
+          }),
+        ],
+      }),
+      new Paragraph({
+        spacing: { after: 60 },
+        children: [
+          new TextRun({
+            text: `Status Draf: ${modulStatusLabel}`,
+            italics: true,
+            size: 16,
+            color: modulIsSavedDraft ? '15803D' : 'B45309',
+          }),
+        ],
+      }),
+      ...buildModulAjarElements(modulDoc, profile),
+      pageBreakParagraph(),
+      new Paragraph({
+        spacing: { before: 40, after: 20 },
+        children: [
+          new TextRun({
+            text: `LAMPIRAN UNIT ${idx + 1} (${tp.kode}): LKPD — ${lkpdDoc.materiPokok.toUpperCase()}`,
+            bold: true,
+            size: 21,
+            color: '0D9488',
+          }),
+        ],
+      }),
+      new Paragraph({
+        spacing: { after: 60 },
+        children: [
+          new TextRun({
+            text: `Status Draf: ${lkpdStatusLabel}`,
+            italics: true,
+            size: 16,
+            color: lkpdIsSavedDraft ? '15803D' : 'B45309',
+          }),
+        ],
+      }),
+      ...buildLKPDElements(lkpdDoc, profile, true)
+    );
+  });
+
+  return children;
+}
+
+/**
+ * Helper pembangun masing-masing dari 9 dokumen Paket Supervisi (dipakai ZIP & ekspor tunggal)
+ */
+async function buildSupervisiNumberedDocumentBlob(
+  docId: number,
+  profile: SchoolProfile,
+  tpList: CustomTPItem[],
+  kelasHarian: KelasHarianData,
+  options?: SupervisiExportOptions
+): Promise<Blob> {
+  const def = SUPERVISI_DOCUMENT_DEFINITIONS.find((d) => d.id === docId);
+  const label = def ? `${def.kode} (${def.nama})` : String(docId);
+
+  if (options?.docBlobOverrides?.[docId]) {
+    const overridden = await options.docBlobOverrides[docId]!();
+    const buffer = await overridden.arrayBuffer();
+    const parsedZip = await JSZip.loadAsync(buffer);
+    if (!parsedZip.file('word/document.xml')) {
+      throw new Error(`Dokumen ${label} tidak memiliki word/document.xml yang valid.`);
+    }
+    return overridden;
+  }
+
+  const instrument = options?.instrument || getSupervisiInstrumentData(profile);
+  let children: (Paragraph | Table)[];
+
+  if (docId === 1) {
+    children = [
+      ...buildCoverDanPengesahanElements(profile, kelasHarian, instrument, tpList),
+      pageBreakParagraph(),
+      ...buildInstrumenSupervisiElements(profile, instrument),
+    ];
+  } else if (docId === 2) {
+    children = buildReferensiCapaianDanTPElements(profile, tpList);
+  } else if (docId === 3) {
+    children = buildATPElements(buildSmartATP(tpList, profile), profile);
+  } else if (docId === 4) {
+    children = buildProtaElements(buildSmartProta(profile, tpList), profile);
+  } else if (docId === 5) {
+    children = buildPromesElements(buildSmartPromes(profile, tpList), profile);
+  } else if (docId === 6) {
+    children = buildModulAjarDanLKPDElements(profile, tpList, options);
+  } else if (docId === 7) {
+    children = buildPresensiElements(profile, kelasHarian);
+  } else if (docId === 8) {
+    children = buildJurnalMengajarElements(profile, kelasHarian);
+  } else if (docId === 9) {
+    children = [
+      ...buildDaftarNilaiElements(profile, kelasHarian, tpList),
+      pageBreakParagraph(),
+      ...buildRekapRaporElements(profile, kelasHarian, tpList),
+    ];
+  } else {
+    throw new Error(`Nomor dokumen supervisi tidak dikenal: ${docId}`);
+  }
+
+  const isLandscape = docId === 5 || docId === 7;
+  const doc = createStyledDocxDocument(
+    profile,
+    def ? `${def.kode}. ${def.nama}` : 'Paket Supervisi',
+    children,
+    { landscape: isLandscape }
+  );
+  return packAndValidateDocxBlob(doc, label);
+}
+
+/**
+ * EXPORT 01 DOCX: IDENTITAS & PERANGKAT ADMINISTRASI
+ */
+export async function exportCoverDanPengesahanToDocx(
+  profile: SchoolProfile,
+  kelasHarian?: KelasHarianData,
+  tpList?: CustomTPItem[],
+  instrument?: SupervisiInstrumentData
+): Promise<Blob> {
+  const resolvedInstrument = instrument || getSupervisiInstrumentData(profile);
+  const children: (Paragraph | Table)[] = [
+    ...buildCoverDanPengesahanElements(profile, kelasHarian, resolvedInstrument, tpList),
+    pageBreakParagraph(),
+    ...buildInstrumenSupervisiElements(profile, resolvedInstrument),
+  ];
+  const doc = createStyledDocxDocument(
+    profile,
+    '01. Identitas dan Perangkat Administrasi',
+    children
+  );
+  const blob = await packAndValidateDocxBlob(doc, '01 (Identitas dan Perangkat Administrasi)');
+  saveAs(
+    blob,
+    `01_Identitas_dan_Perangkat_Administrasi_${profile.mataPelajaranUtama}_Kelas_${profile.kelasUtama}${profile.rombelAktif || 'A'}.docx`
+  );
+  return blob;
+}
+
+/**
+ * EXPORT 02 DOCX: REFERENSI CP & TP
+ */
+export async function exportReferensiCPTPToDocx(
+  profile: SchoolProfile,
+  tpList: CustomTPItem[]
+): Promise<Blob> {
+  const children = buildReferensiCapaianDanTPElements(profile, tpList);
+  const doc = createStyledDocxDocument(
+    profile,
+    '02. Referensi Capaian dan Tujuan Pembelajaran',
+    children
+  );
+  const blob = await packAndValidateDocxBlob(doc, '02 (Referensi CP dan TP)');
+  saveAs(
+    blob,
+    `02_Referensi_Capaian_dan_TP_${profile.mataPelajaranUtama}_Kelas_${profile.kelasUtama}${profile.rombelAktif || 'A'}.docx`
+  );
+  return blob;
+}
+
+/**
+ * EXPORT 06 DOCX: MODUL AJAR & LKPD SEMESTER
+ */
+export async function exportModulAjarSemesterSupervisiToDocx(
+  profile: SchoolProfile,
+  tpList: CustomTPItem[],
+  options?: SupervisiExportOptions
+): Promise<Blob> {
+  const children = buildModulAjarDanLKPDElements(profile, tpList, options);
+  const doc = createStyledDocxDocument(profile, '06. Modul Ajar & LKPD', children);
+  const blob = await packAndValidateDocxBlob(doc, '06 (Modul Ajar & LKPD)');
+  saveAs(
+    blob,
+    `06_Modul_Ajar_${profile.mataPelajaranUtama}_Kelas_${profile.kelasUtama}${profile.rombelAktif || 'A'}.docx`
+  );
+  return blob;
+}
+
+/**
+ * EXPORT 09 DOCX: BUKU NILAI & e-RAPOR
+ */
+export async function exportBukuNilaiDanRaporSupervisiToDocx(
+  profile: SchoolProfile,
+  kelasHarian: KelasHarianData,
+  tpList: CustomTPItem[]
+): Promise<Blob> {
+  const children: (Paragraph | Table)[] = [
+    ...buildDaftarNilaiElements(profile, kelasHarian, tpList),
+    pageBreakParagraph(),
+    ...buildRekapRaporElements(profile, kelasHarian, tpList),
+  ];
+  const doc = createStyledDocxDocument(profile, '09. Buku Nilai dan e-Rapor', children);
+  const blob = await packAndValidateDocxBlob(doc, '09 (Buku Nilai dan e-Rapor)');
+  saveAs(
+    blob,
+    `09_Buku_Nilai_dan_eRapor_${profile.mataPelajaranUtama}_Kelas_${profile.kelasUtama}${profile.rombelAktif || 'A'}.docx`
+  );
+  return blob;
+}
+
+/**
+ * EXPORT MANDIRI: INSTRUMEN SUPERVISI
+ */
+export async function exportInstrumenSupervisiToDocx(
+  profile: SchoolProfile,
+  instrumentData?: SupervisiInstrumentData
+): Promise<Blob> {
+  const children = buildInstrumenSupervisiElements(profile, instrumentData);
+  const doc = createStyledDocxDocument(profile, 'Instrumen Supervisi Akademik', children);
+  const blob = await packAndValidateDocxBlob(doc, 'Instrumen Supervisi');
+  saveAs(
+    blob,
+    `Instrumen_Supervisi_${profile.mataPelajaranUtama}_Kelas_${profile.kelasUtama}${profile.rombelAktif || 'A'}.docx`
+  );
+  return blob;
 }
 
 /**
  * 15. EKSPOR MASTER BUNDEL LENGKAP SUPERVISI (SATU FILE DOCX BESAR SEMESTER PENUH)
+ * Menggunakan document builder modul yang sama sehingga 100% sinkron dengan ekspor masing-masing modul & ZIP.
  */
 export async function exportBundelSupervisiMasterDocx(
   profile: SchoolProfile,
   tpList: CustomTPItem[],
-  kelasHarian: KelasHarianData
-): Promise<void> {
-  const allChildren: (Paragraph | Table)[] = [];
-
-  // 1. Cover & Lembar Pengesahan
-  allChildren.push(...buildCoverDanPengesahanElements(profile));
-
-  // 2. Instrumen Supervisi (Page break)
-  allChildren.push(
-    new Paragraph({ pageBreakBefore: true, children: [new TextRun({ text: '' })] }),
-    ...buildInstrumenSupervisiElements(profile)
-  );
-
-  // 3. ATP (Page break)
+  kelasHarian: KelasHarianData,
+  options?: SupervisiExportOptions
+): Promise<SupervisiMasterBundleResult> {
+  const instrument = options?.instrument || getSupervisiInstrumentData(profile);
   const atpDoc = buildSmartATP(tpList, profile);
-  allChildren.push(
-    new Paragraph({
-      pageBreakBefore: true,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 30 },
-      children: [new TextRun({ text: 'ALUR TUJUAN PEMBELAJARAN (ATP)', bold: true, size: 28, color: '1D4ED8', font: 'Calibri' })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 120 },
-      children: [new TextRun({ text: `MATA PELAJARAN: ${atpDoc.mataPelajaran.toUpperCase()} • KELAS ${atpDoc.kelas} (${atpDoc.jenjangFase})`, size: 20, color: '555555' })],
-    })
-  );
-  // Tabel ATP
-  const atpHeader = new TableRow({
-    children: [
-      new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kode', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 25, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Lingkup Materi', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 45, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Tujuan Pembelajaran (TP)', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 15, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'JP', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-    ],
-  });
-  const atpRows = atpDoc.items.map((it) => new TableRow({
-    children: [
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(it.no), size: 16 })] })] }),
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: it.kodeTP, bold: true, size: 16 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: it.lingkupMateri, bold: true, size: 16 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: it.tujuanPembelajaran, size: 15 })] })] }),
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${it.alokasiJP} JP`, bold: true, size: 16 })] })] }),
-    ],
-  }));
-  allChildren.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [atpHeader, ...atpRows] }), new Paragraph({ spacing: { after: 120 } }));
-
-  // 4. Prota (Page break)
   const protaDoc = buildSmartProta(profile, tpList);
-  allChildren.push(
-    new Paragraph({
-      pageBreakBefore: true,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 30 },
-      children: [new TextRun({ text: 'PROGRAM TAHUNAN (PROTA)', bold: true, size: 28, color: '1D4ED8', font: 'Calibri' })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 120 },
-      children: [new TextRun({ text: `MATA PELAJARAN: ${protaDoc.mataPelajaran.toUpperCase()} • KELAS ${protaDoc.kelas} • TOTAL ${protaDoc.totalJPTahunan} JP`, size: 20, color: '555555' })],
-    })
-  );
-  const protaHeader = new TableRow({
-    children: [
-      new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kode', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 25, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Lingkup Materi', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 45, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Tujuan Pembelajaran', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 15, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Alokasi JP', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-    ],
-  });
-  const protaRows = [...protaDoc.itemsSemester1, ...protaDoc.itemsSemester2].map((it, idx) => new TableRow({
-    children: [
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), size: 16 })] })] }),
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: it.kodeTP, bold: true, size: 16 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: it.lingkupMateri, bold: true, size: 16 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: it.tujuanPembelajaran, size: 15 })] })] }),
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${it.alokasiJP} JP`, bold: true, size: 16 })] })] }),
-    ],
-  }));
-  allChildren.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [protaHeader, ...protaRows] }), new Paragraph({ spacing: { after: 120 } }));
-
-  // 5. Promes (Page break)
   const promesDoc = buildSmartPromes(profile, tpList);
-  allChildren.push(
-    new Paragraph({
-      pageBreakBefore: true,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 30 },
-      children: [new TextRun({ text: 'PROGRAM SEMESTER (PROMES VISUAL)', bold: true, size: 28, color: '1D4ED8', font: 'Calibri' })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 120 },
-      children: [new TextRun({ text: `SEMESTER ${promesDoc.semester} • TOTAL ${promesDoc.totalJPEfektif} JP EFEKTIF`, size: 20, color: '555555' })],
-    })
+
+  const masterDoc = createMultiSectionStyledDocxDocument(
+    profile,
+    'Master Bundel Supervisi Akademik (01–09)',
+    [
+      {
+        // Bagian Portrait 1: 01 Cover & Pengesahan & Instrumen, 02 CP/TP, 03 ATP, 04 Prota
+        landscape: false,
+        children: [
+          ...buildCoverDanPengesahanElements(profile, kelasHarian, instrument, tpList),
+          pageBreakParagraph(),
+          ...buildInstrumenSupervisiElements(profile, instrument),
+          pageBreakParagraph(),
+          ...buildReferensiCapaianDanTPElements(profile, tpList),
+          pageBreakParagraph(),
+          ...buildATPElements(atpDoc, profile),
+          pageBreakParagraph(),
+          ...buildProtaElements(protaDoc, profile),
+        ],
+      },
+      {
+        // Bagian Landscape 1: 05 Program Semester (matriks 25+ kolom mingguan)
+        landscape: true,
+        children: buildPromesElements(promesDoc, profile),
+      },
+      {
+        // Bagian Portrait 2: 06 Modul Ajar & Lampiran LKPD
+        landscape: false,
+        children: buildModulAjarDanLKPDElements(profile, tpList, options),
+      },
+      {
+        // Bagian Landscape 2: 07 Daftar Presensi (16 pertemuan + H/S/I/A/%)
+        landscape: true,
+        children: buildPresensiElements(profile, kelasHarian),
+      },
+      {
+        // Bagian Portrait 3: 08 Jurnal Mengajar & 09 Buku Nilai & Rekap e-Rapor
+        landscape: false,
+        children: [
+          ...buildJurnalMengajarElements(profile, kelasHarian),
+          pageBreakParagraph(),
+          ...buildDaftarNilaiElements(profile, kelasHarian, tpList),
+          pageBreakParagraph(),
+          ...buildRekapRaporElements(profile, kelasHarian, tpList),
+        ],
+      },
+    ]
   );
-  const promesHeader = new TableRow({
-    children: [
-      new TableCell({ width: { size: 4, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kode', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 30, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Materi & TP', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      new TableCell({ width: { size: 6, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'JP', bold: true, color: 'FFFFFF', size: 16 })] })] }),
-      ...promesDoc.columns.map((col) => new TableCell({
-        width: { size: Math.max(2, Math.round(52 / promesDoc.columns.length)), type: WidthType.PERCENTAGE },
-        shading: { fill: col.isEfektif ? '1E3A8A' : '475569' },
-        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${col.bulanNama.slice(0, 3)} M${col.mingguKe}`, bold: true, color: 'FFFFFF', size: 13 })] })],
-      })),
-    ],
-  });
-  const promesRows = promesDoc.rows.map((row) => new TableRow({
-    children: [
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(row.no), size: 16 })] })] }),
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: row.kodeTP, bold: true, size: 16 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: row.materiPokok, bold: true, size: 16 })] })] }),
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(row.alokasiJP), bold: true, size: 16 })] })] }),
-      ...promesDoc.columns.map((col, cIdx) => {
-        const jp = row.distribusiJP[cIdx];
-        return new TableCell({
-          shading: { fill: jp ? 'DCFCE7' : !col.isEfektif ? 'F1F5F9' : 'FFFFFF' },
-          children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: jp ? String(jp) : !col.isEfektif ? col.labelKegiatan || '-' : '', bold: !!jp, size: 13 })] })],
-        });
-      }),
-    ],
-  }));
-  allChildren.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [promesHeader, ...promesRows] }), new Paragraph({ spacing: { after: 120 } }));
+  const blob = await packAndValidateDocxBlob(masterDoc, 'Master Bundel Supervisi');
+  const fileName = `Bundel_Supervisi_Lengkap_${profile.mataPelajaranUtama}_Kelas_${profile.kelasUtama}${profile.rombelAktif || 'A'}_${profile.semester.replace(/[^a-zA-Z0-9]/g, '_')}.docx`;
+  saveAs(blob, fileName);
 
-  // 6. Presensi Siswa (Page break)
-  allChildren.push(
-    new Paragraph({
-      pageBreakBefore: true,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 30 },
-      children: [new TextRun({ text: 'DAFTAR PRESENSI & KEHADIRAN SISWA', bold: true, size: 28, color: '1D4ED8', font: 'Calibri' })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 120 },
-      children: [new TextRun({ text: `KELAS ${profile.kelasUtama} (${kelasHarian.rombel}) • SEMESTER ${kelasHarian.semester.toUpperCase()}`, size: 20, color: '555555' })],
-    })
-  );
-  const presensiHeader = new TableRow({
-    children: [
-      new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'NIS', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 45, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Nama Peserta Didik', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '059669' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Hadir', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: 'D97706' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Sakit', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '2563EB' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Izin', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '% Hadir', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-    ],
-  });
-  const presensiRows = kelasHarian.daftarSiswa.map((s) => {
-    let sH = 0; let sS = 0; let sI = 0;
-    kelasHarian.daftarPresensi.forEach((p) => {
-      const st = p.statusMap[s.id] || 'H';
-      if (st === 'H') sH++; else if (st === 'S') sS++; else if (st === 'I') sI++;
-    });
-    const pct = kelasHarian.daftarPresensi.length > 0 ? Math.round((sH / kelasHarian.daftarPresensi.length) * 100) : 100;
-    return new TableRow({
-      children: [
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(s.noUrut), size: 15 })] })] }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.nis, size: 14 })] })] }),
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: s.nama, bold: true, size: 15 })] })] }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(sH), size: 15 })] })] }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(sS), size: 15 })] })] }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(sI), size: 15 })] })] }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${pct}%`, bold: true, size: 15, color: pct >= 85 ? '059669' : 'DC2626' })] })] }),
-      ],
-    });
-  });
-  allChildren.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [presensiHeader, ...presensiRows] }), new Paragraph({ spacing: { after: 120 } }));
-
-  // 7. Jurnal Mengajar (Page break)
-  allChildren.push(
-    new Paragraph({
-      pageBreakBefore: true,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 30 },
-      children: [new TextRun({ text: 'AGENDA & JURNAL MENGAJAR GURU', bold: true, size: 28, color: '1D4ED8', font: 'Calibri' })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 120 },
-      children: [new TextRun({ text: `MATA PELAJARAN: ${profile.mataPelajaranUtama.toUpperCase()} • KELAS ${profile.kelasUtama} (${kelasHarian.rombel})`, size: 20, color: '555555' })],
-    })
-  );
-  const jurnalHeader = new TableRow({
-    children: [
-      new TableCell({ width: { size: 6, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'P.Ke', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 14, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Hari/Tanggal', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 20, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Materi & TP', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 40, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Kegiatan Pembelajaran', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 20, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Refleksi / Ket.', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-    ],
-  });
-  const jurnalRows = kelasHarian.daftarJurnal.map((j) => new TableRow({
-    children: [
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(j.pertemuanKe), bold: true, size: 15 })] })] }),
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: j.tanggal, size: 14 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `[${j.kodeTP}] ${j.materiPokok}`, bold: true, size: 14 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: j.kegiatanPembelajaran, size: 13 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: j.catatanRefleksi || '-', size: 13, italics: true })] })] }),
-    ],
-  }));
-  allChildren.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [jurnalHeader, ...jurnalRows] }), new Paragraph({ spacing: { after: 120 } }));
-
-  // 8. Buku Nilai & e-Rapor (Page break)
-  allChildren.push(
-    new Paragraph({
-      pageBreakBefore: true,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 30 },
-      children: [new TextRun({ text: 'REKAPITULASI CAPAIAN NILAI & DESKRIPSI e-RAPOR', bold: true, size: 28, color: '1D4ED8', font: 'Calibri' })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 120 },
-      children: [new TextRun({ text: `KURIKULUM MERDEKA • KELAS ${profile.kelasUtama} (${kelasHarian.rombel}) • SEMESTER ${profile.semester.toUpperCase()}`, size: 20, color: '555555' })],
-    })
-  );
-  const raporHeader = new TableRow({
-    children: [
-      new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'NIS', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 22, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Nama Peserta Didik', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-      new TableCell({ width: { size: 8, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'N.Akhir', bold: true, color: 'FFFFFF', size: 14 })] })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Predikat', bold: true, color: 'FFFFFF', size: 14 })] })] }),
-      new TableCell({ width: { size: 45, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Deskripsi Capaian e-Rapor', bold: true, color: 'FFFFFF', size: 15 })] })] }),
-    ],
-  });
-  const raporRows = kelasHarian.daftarNilai.map((item, idx) => new TableRow({
-    children: [
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), size: 15 })] })] }),
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item.nis, size: 14 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: item.nama, bold: true, size: 15 })] })] }),
-      new TableCell({ shading: { fill: item.nilaiAkhir >= 75 ? 'ECFDF5' : 'FEF2F2' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(item.nilaiAkhir), bold: true, size: 15, color: item.nilaiAkhir >= 75 ? '047857' : 'B91C1C' })] })] }),
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item.predikatKKTP, bold: true, size: 13 })] })] }),
-      new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: item.deskripsiRapor, size: 14 })] })] }),
-    ],
-  }));
-  allChildren.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [raporHeader, ...raporRows] }), new Paragraph({ spacing: { after: 120 } }));
-
-  // Blok Tanda Tangan Penutup
-  if (profile.tampilkanTandaTangan) {
-    allChildren.push(buildSignatureBlockTable(profile, profile.namaGuru));
-  }
-
-  const masterDoc = new Document({ sections: [{ properties: {}, children: allChildren }] });
-  const blob = await Packer.toBlob(masterDoc);
-  saveAs(blob, `Bundel_Supervisi_Lengkap_${profile.mataPelajaranUtama}_Kelas_${profile.kelasUtama}${profile.rombelAktif || 'A'}_${profile.semester.replace(/[^a-zA-Z0-9]/g, '_')}.docx`);
+  return {
+    blob,
+    fileName,
+    sections: SUPERVISI_DOCUMENT_DEFINITIONS.map((d) => `${d.kode}. ${d.nama}`),
+  };
 }
 
 /**
- * 16. EKSPOR PAKET ARSIP ZIP (BERISI SEMUA FILE DOCX TERORGANISIR)
+ * 16. EKSPOR PAKET ARSIP ZIP (BERISI 9 FILE DOCX LENGKAP DARI DOCUMENT BUILDER MODUL)
+ * Jika salah satu dari 9 dokumen gagal dibuat atau tidak valid, ekspor ZIP dibatalkan dan melempar Error eksplisit.
  */
 export async function exportPaketSupervisiToZip(
   profile: SchoolProfile,
   tpList: CustomTPItem[],
-  kelasHarian: KelasHarianData
-): Promise<void> {
+  kelasHarian: KelasHarianData,
+  options?: SupervisiExportOptions
+): Promise<SupervisiZipExportResult> {
   const zip = new JSZip();
   const folderName = `Paket_Supervisi_${profile.mataPelajaranUtama.replace(/[^a-zA-Z0-9]/g, '_')}_Kelas_${profile.kelasUtama}${profile.rombelAktif || 'A'}`;
   const folder = zip.folder(folderName) || zip;
 
-  // 1. Cover & Pengesahan
-  const docCover = new Document({ sections: [{ properties: {}, children: buildCoverDanPengesahanElements(profile) }] });
-  folder.file('01_Cover_dan_Lembar_Pengesahan.docx', await Packer.toBlob(docCover));
+  const builtFiles: SupervisiZipFileEntry[] = [];
+  const failures: string[] = [];
 
-  // 2. Instrumen Supervisi
-  const docSupervisi = new Document({ sections: [{ properties: {}, children: buildInstrumenSupervisiElements(profile) }] });
-  folder.file('02_Instrumen_Verifikasi_Supervisi.docx', await Packer.toBlob(docSupervisi));
+  for (const def of SUPERVISI_DOCUMENT_DEFINITIONS) {
+    try {
+      const docBlob = await buildSupervisiNumberedDocumentBlob(
+        def.id,
+        profile,
+        tpList,
+        kelasHarian,
+        options
+      );
+      folder.file(def.zipFileName, docBlob);
+      builtFiles.push({
+        id: def.id,
+        kode: def.kode,
+        nama: def.nama,
+        fileName: def.zipFileName,
+        byteSize: docBlob.size,
+      });
+    } catch (err: any) {
+      const reason = err?.message || String(err);
+      failures.push(`${def.kode}. ${def.nama}: ${reason}`);
+    }
+  }
 
-  // 3. ATP
-  const atpDoc = buildSmartATP(tpList, profile);
-  const docATP = new Document({
-    sections: [{
-      properties: {},
-      children: [
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'ALUR TUJUAN PEMBELAJARAN (ATP)', bold: true, size: 28, color: '1D4ED8' })] }),
-        new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: `MAPEL: ${atpDoc.mataPelajaran} • KELAS ${atpDoc.kelas}`, size: 20 })] }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({ children: [new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'No', bold: true, color: 'FFFFFF' })] })] }), new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kode', bold: true, color: 'FFFFFF' })] })] }), new TableCell({ width: { size: 25, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Materi', bold: true, color: 'FFFFFF' })] })] }), new TableCell({ width: { size: 45, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ children: [new TextRun({ text: 'Tujuan Pembelajaran', bold: true, color: 'FFFFFF' })] })] }), new TableCell({ width: { size: 15, type: WidthType.PERCENTAGE }, shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'JP', bold: true, color: 'FFFFFF' })] })] })] }),
-            ...atpDoc.items.map((it) => new TableRow({ children: [new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(it.no) })] })] }), new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: it.kodeTP, bold: true })] })] }), new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: it.lingkupMateri, bold: true })] })] }), new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: it.tujuanPembelajaran })] })] }), new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${it.alokasiJP} JP`, bold: true })] })] })] })),
-          ],
-        }),
-      ],
-    }],
-  });
-  folder.file('03_Alur_Tujuan_Pembelajaran_ATP.docx', await Packer.toBlob(docATP));
+  if (failures.length > 0 || builtFiles.length !== SUPERVISI_DOCUMENT_DEFINITIONS.length) {
+    throw new Error(
+      `Gagal menyusun Paket Supervisi ZIP secara lengkap (${builtFiles.length}/${SUPERVISI_DOCUMENT_DEFINITIONS.length} dokumen berhasil). Kegagalan pada: ${failures.join(' | ')}`
+    );
+  }
 
-  // 4. Prota
-  const protaDoc = buildSmartProta(profile, tpList);
-  const docProta = new Document({
-    sections: [{
-      properties: {},
-      children: [
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'PROGRAM TAHUNAN (PROTA)', bold: true, size: 28, color: '1D4ED8' })] }),
-        new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: `MAPEL: ${protaDoc.mataPelajaran} • KELAS ${protaDoc.kelas}`, size: 20 })] }),
-      ],
-    }],
-  });
-  folder.file('04_Program_Tahunan_Prota.docx', await Packer.toBlob(docProta));
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const zipFileName = `${folderName}_Lengkap.zip`;
+  saveAs(zipBlob, zipFileName);
 
-  // 5. Promes
-  const promesDoc = buildSmartPromes(profile, tpList);
-  const docPromes = new Document({
-    sections: [{
-      properties: {},
-      children: [
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'PROGRAM SEMESTER (PROMES)', bold: true, size: 28, color: '1D4ED8' })] }),
-        new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: `MAPEL: ${promesDoc.mataPelajaran} • KELAS ${promesDoc.kelas}`, size: 20 })] }),
-      ],
-    }],
-  });
-  folder.file('05_Program_Semester_Promes.docx', await Packer.toBlob(docPromes));
-
-  // 6. Modul Ajar (TP Pertama)
-  const firstTP = tpList[0] || { kode: 'TP.1', materiPokok: 'Materi Pembelajaran', tujuanPembelajaran: 'Tujuan Pembelajaran', elemen: 'Elemen', alokasiJP: 4 };
-  const modulDoc = buildSmartModulAjar(firstTP, profile);
-  const docModul = new Document({
-    sections: [{
-      properties: {},
-      children: [
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'MODUL AJAR / RPP KURIKULUM MERDEKA', bold: true, size: 28, color: '1D4ED8' })] }),
-        new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: `MATERI: ${modulDoc.materiPokok.toUpperCase()}`, size: 20 })] }),
-      ],
-    }],
-  });
-  folder.file('06_Modul_Ajar_Semester.docx', await Packer.toBlob(docModul));
-
-  // 7. Presensi
-  const docPresensi = new Document({
-    sections: [{
-      properties: {},
-      children: [
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'DAFTAR PRESENSI SISWA', bold: true, size: 28, color: '1D4ED8' })] }),
-        new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: `KELAS ${profile.kelasUtama} (${kelasHarian.rombel})`, size: 20 })] }),
-      ],
-    }],
-  });
-  folder.file('07_Daftar_Presensi_Siswa.docx', await Packer.toBlob(docPresensi));
-
-  // 8. Jurnal Mengajar
-  const docJurnal = new Document({
-    sections: [{
-      properties: {},
-      children: [
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'JURNAL MENGAJAR GURU', bold: true, size: 28, color: '1D4ED8' })] }),
-        new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: `KELAS ${profile.kelasUtama} (${kelasHarian.rombel})`, size: 20 })] }),
-      ],
-    }],
-  });
-  folder.file('08_Jurnal_Mengajar_Guru.docx', await Packer.toBlob(docJurnal));
-
-  // 9. Buku Nilai & Rapor
-  const docNilai = new Document({
-    sections: [{
-      properties: {},
-      children: [
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'REKAPITULASI NILAI & e-RAPOR', bold: true, size: 28, color: '1D4ED8' })] }),
-        new Paragraph({ spacing: { after: 120 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: `KELAS ${profile.kelasUtama} (${kelasHarian.rombel})`, size: 20 })] }),
-      ],
-    }],
-  });
-  folder.file('09_Buku_Nilai_dan_eRapor.docx', await Packer.toBlob(docNilai));
-
-  const zipContent = await zip.generateAsync({ type: 'blob' });
-  saveAs(zipContent, `${folderName}.zip`);
+  return {
+    zipBlob,
+    zipFileName,
+    folderName,
+    files: builtFiles,
+  };
 }

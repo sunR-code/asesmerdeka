@@ -1,13 +1,13 @@
 import type { CustomTPItem, SchoolProfile } from './schoolProfileStorage';
-import { jenjangToDefaultFase, computeTPContentHash } from './schoolProfileStorage';
+import {
+  jenjangToDefaultFase,
+  computeTPContentHash,
+  getSavedCustomTPList,
+} from './schoolProfileStorage';
 import type {
   ModulAjarDokumen,
   LKPDDokumen,
   LKPDPresetType,
-  LKPDEksperimenData,
-  LKPDDiferensiasiData,
-  LKPDProyekData,
-  LKPDPertanyaanItem,
   ATPDokumen,
   ATPItem,
   ProtaDokumen,
@@ -16,7 +16,20 @@ import type {
   PromesMingguColumn,
   PromesRowItem,
 } from '../types/perangkatAjar';
+import type {
+  PromesValidationIssue,
+  SemesterAcademicCalendar,
+  SubjectJPConfig,
+} from '../types/academicSchedule';
 import { getSemesterCurriculumPlan } from './kurikulumCatalog';
+import {
+  generateSemesterWeekColumns,
+  getAcademicCalendarForContext,
+  getPromesManualOverrides,
+  type PromesManualOverridesMap,
+} from './academicCalendarStorage';
+import { getSubjectJPConfig } from './jpConfigStorage';
+import { resolveSemesterCode } from './storageIdentity';
 import {
   buildCuratedOrAdaptiveLKPDContent,
   buildLKPDDokumenFromCurated,
@@ -63,12 +76,30 @@ export function buildSmartModulAjar(
   // Pemahaman Bermakna
   const pemahamanBermakna = `Peserta didik memahami bahwa konsep "${tp.materiPokok}" bukan sekadar teori hafalan, melainkan prinsip aplikatif yang dapat dimanfaatkan untuk menganalisis situasi nyata, mengambil keputusan rasional, serta memecahkan masalah kontekstual di lingkungan sekitar dan dunia kerja.`;
 
-  // Kompetensi Awal
-  const kompetensiAwal = [
-    `Peserta didik telah memiliki pengetahuan dasar tentang istilah-istilah pengantar materi terkait.`,
-    `Peserta didik mampu melakukan pengamatan, membaca informasi terstruktur, dan berkomunikasi secara efektif.`,
-    `Peserta didik memahami pentingnya bernalar logis dan disiplin dalam proses penyelidikan belajar.`,
-  ];
+  // Kompetensi Awal (spesifik dari prasyarat TP bila tersedia)
+  const kompetensiAwal =
+    tp.prasyarat && tp.prasyarat.length > 0
+      ? [
+          ...tp.prasyarat.map((p) => `Peserta didik telah memahami: ${p}.`),
+          `Peserta didik siap melakukan eksplorasi terstruktur terkait "${tp.materiPokok}".`,
+        ]
+      : [
+          `Peserta didik telah memiliki pengetahuan dasar pada elemen ${tp.elemen} sebagai pengantar "${tp.materiPokok}".`,
+          `Peserta didik mampu membaca informasi terstruktur dan menyampaikan pendapat dalam diskusi.`,
+        ];
+
+  const bahanBacaan = {
+    ringkasanInti:
+      tp.arahanRangkuman?.trim() ||
+      `Materi "${tp.materiPokok}" memfokuskan peserta didik pada pencapaian: ${tp.tujuanPembelajaran}`,
+    konsepKunci: [
+      `Pokok bahasan utama: ${tp.materiPokok} (Elemen ${tp.elemen})`,
+      ...(tp.buktiKetercapaian?.slice(0, 2) || [`Kompetensi inti: ${tp.kompetensiInti || tp.tujuanPembelajaran}`]),
+      ...(tp.subTP?.slice(0, 2).map((s) => `${s.kode}: ${s.fokusMateri}`) || []),
+    ],
+    referensiCatatan:
+      'Ringkasan bahan bacaan disusun dari metadata TP aktif. Guru disarankan melengkapi dengan contoh kasus atau kutipan halaman buku teks sekolah.',
+  };
 
   // Langkah Kegiatan Pembelajaran
   const kegiatanPembelajaran = Array.from({ length: jumlahPertemuan }, (_, i) => {
@@ -113,6 +144,12 @@ export function buildSmartModulAjar(
 
   return {
     id: `modul-${tp.id}-${Date.now().toString(36)}`,
+    tpId: tp.id,
+    schoolId: profile.schoolId,
+    tpSourceHash: computeTPContentHash(tp),
+    needsReview: false,
+    modelType: 'pbl',
+    draftSource: 'template',
     judul: `Modul Ajar: ${tp.materiPokok}`,
     mataPelajaran: profile.mataPelajaranUtama,
     jenjangFase,
@@ -134,6 +171,13 @@ export function buildSmartModulAjar(
     materiPokok: tp.materiPokok,
     elemen: tp.elemen,
     tujuanPembelajaran: tp.tujuanPembelajaran,
+    targetSubTP: tp.subTP?.map((s) => ({
+      id: s.id,
+      kode: s.kode,
+      kompetensi: s.kompetensi,
+    })),
+    prasyaratMateri: tp.prasyarat?.join('; '),
+    buktiKetercapaian: tp.buktiKetercapaian,
     kompetensiAwal,
     profilPelajarPancasila: profilList,
     saranaPrasarana: saranaList,
@@ -142,6 +186,7 @@ export function buildSmartModulAjar(
 
     pemahamanBermakna,
     pertanyaanPemantik: pemantik,
+    bahanBacaan,
     kegiatanPembelajaran,
 
     asesmen: {
@@ -184,86 +229,11 @@ export function buildSmartModulAjar(
 
     glosarium,
     daftarPustaka: [
-      `Kementerian Pendidikan, Kebudayaan, Riset, dan Teknologi Republik Indonesia. Buku Panduan Guru & Siswa ${profile.mataPelajaranUtama} Kelas ${profile.kelasUtama}. Jakarta: Kemendikbudristek.`,
-      `Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP). Panduan Pembelajaran dan Asesmen Kurikulum Merdeka.`,
-      `Sumber referensi literatur dan media pembelajaran digital terkait topik ${tp.materiPokok}.`,
+      `[Lengkapi referensi satuan pendidikan] Buku teks/panduan resmi ${profile.mataPelajaranUtama} Kelas ${profile.kelasUtama} yang digunakan sekolah (cantumkan penulis, tahun terbit, dan penerbit sesuai edisi).`,
+      `Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP). Panduan Pembelajaran dan Asesmen (PPA) Kurikulum Merdeka.`,
+      `Catatan ajar guru & sumber belajar kontekstual terkait materi "${tp.materiPokok}".`,
     ],
   };
-}
-
-interface LKPDSectionResult {
-  judul: string;
-  alokasiWaktu: string;
-  petunjukPengerjaan: string[];
-  stimulusKasus: {
-    judul: string;
-    teks: string;
-    pertanyaanAwal?: string;
-  };
-  eksperimenData?: LKPDEksperimenData;
-  diferensiasiData?: LKPDDiferensiasiData;
-  proyekData?: LKPDProyekData;
-  langkahAktivitas: {
-    langkahKe: number;
-    judulLangkah?: string;
-    instruksi: string;
-    bantuanAtauTabel?: string[];
-  }[];
-  pertanyaanAnalisis: LKPDPertanyaanItem[];
-  kesimpulanRefleksi: string[];
-}
-
-function buildSectionAdapter(
-  tp: CustomTPItem,
-  profile: SchoolProfile,
-  presetType: LKPDPresetType,
-  konteks?: string
-): LKPDSectionResult {
-  const curated = buildCuratedOrAdaptiveLKPDContent(tp, profile, presetType, konteks);
-  return {
-    judul: curated.subJudulTopik,
-    alokasiWaktu: curated.alokasiWaktu,
-    petunjukPengerjaan: curated.petunjukPengerjaan,
-    stimulusKasus: curated.stimulusKasus,
-    eksperimenData: curated.eksperimenData,
-    diferensiasiData: curated.diferensiasiData,
-    proyekData: curated.proyekData,
-    langkahAktivitas: curated.langkahAktivitas,
-    pertanyaanAnalisis: curated.pertanyaanAnalisis,
-    kesimpulanRefleksi: curated.kesimpulanRefleksi,
-  };
-}
-
-export function buildKasusSection(
-  tp: CustomTPItem,
-  profile: SchoolProfile,
-  konteks?: string
-): LKPDSectionResult {
-  return buildSectionAdapter(tp, profile, 'kasus', konteks);
-}
-
-export function buildEksperimenSection(
-  tp: CustomTPItem,
-  profile: SchoolProfile,
-  konteks?: string
-): LKPDSectionResult {
-  return buildSectionAdapter(tp, profile, 'eksperimen', konteks);
-}
-
-export function buildDiferensiasiSection(
-  tp: CustomTPItem,
-  profile: SchoolProfile,
-  konteks?: string
-): LKPDSectionResult {
-  return buildSectionAdapter(tp, profile, 'diferensiasi', konteks);
-}
-
-export function buildProyekSection(
-  tp: CustomTPItem,
-  profile: SchoolProfile,
-  konteks?: string
-): LKPDSectionResult {
-  return buildSectionAdapter(tp, profile, 'proyek', konteks);
 }
 
 /**
@@ -290,9 +260,19 @@ export function buildSmartLKPD(
   const validation = validateLKPDDokumen(doc, tp, profile, {
     sourceMode: content.isCuratedFixture ? 'curated' : 'adaptive_fallback',
   });
+  const mergedIssues = Array.from(
+    new Set([...(validation.issues || []), ...(content.validationStatus?.issues || [])])
+  );
+  const mergedWarnings = Array.from(
+    new Set([...(validation.warnings || []), ...(content.validationStatus?.warnings || [])])
+  );
   return {
     ...doc,
-    catatanValidasi: validation,
+    catatanValidasi: {
+      ...validation,
+      issues: mergedIssues,
+      warnings: mergedWarnings,
+    },
   };
 }
 
@@ -308,7 +288,8 @@ export function buildSmartATP(
     profile.mataPelajaranUtama,
     jenjangFase,
     profile.kelasUtama,
-    profile.semester
+    profile.semester,
+    { schoolId: profile.schoolId, tahunAjaran: profile.tahunAjaran }
   );
 
   const profilOptions = [
@@ -354,45 +335,180 @@ export function buildSmartATP(
   };
 }
 
-/**
- * Pembuat Program Tahunan (Prota) Semester 1 & 2
- */
-export function buildSmartProta(
-  profile: SchoolProfile,
-  tpListSem1: CustomTPItem[]
-): ProtaDokumen {
-  const jenjangFase = jenjangToDefaultFase(profile.jenjang, profile.kelasUtama);
+export interface BuildProtaOptions {
+  tpListSem1?: CustomTPItem[];
+  tpListSem2?: CustomTPItem[];
+  calendarSem1?: SemesterAcademicCalendar;
+  calendarSem2?: SemesterAcademicCalendar;
+  jpConfig?: SubjectJPConfig;
+}
 
-  // Buat TP Semester 2 otomatis jika belum ada
-  const planSem2 = getSemesterCurriculumPlan(
+function normalizeProtaTopicKey(topic: string): string {
+  return (topic || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function resolveSemesterTPListIndependently(
+  profile: SchoolProfile,
+  jenjangFase: ReturnType<typeof jenjangToDefaultFase>,
+  targetSemester: '1 (Ganjil)' | '2 (Genap)',
+  explicitList?: CustomTPItem[],
+  activeSemesterTpList?: CustomTPItem[]
+): { list: CustomTPItem[]; sumber: 'saved' | 'catalog' } {
+  const saved = getSavedCustomTPList(
+    profile.mataPelajaranUtama,
+    profile.kelasUtama,
+    targetSemester,
+    profile
+  );
+  if (explicitList && explicitList.length > 0) {
+    return { list: explicitList, sumber: 'saved' };
+  }
+
+  const targetCode = resolveSemesterCode(targetSemester);
+  const activeCode = resolveSemesterCode(profile.semester);
+
+  if (targetCode === activeCode && activeSemesterTpList && activeSemesterTpList.length > 0) {
+    return {
+      list: activeSemesterTpList,
+      sumber: saved && saved.length > 0 ? 'saved' : 'catalog',
+    };
+  }
+
+  if (saved && saved.length > 0) {
+    return { list: saved, sumber: 'saved' };
+  }
+
+  const plan = getSemesterCurriculumPlan(
     profile.mataPelajaranUtama,
     jenjangFase,
     profile.kelasUtama,
-    '2 (Genap)'
+    targetSemester,
+    { schoolId: profile.schoolId, tahunAjaran: profile.tahunAjaran }
+  );
+  return { list: plan.tpList, sumber: 'catalog' };
+}
+
+/**
+ * Pembuat Program Tahunan (Prota) Semester 1 & 2 secara independen (anti-duplikasi antarsemester)
+ */
+export function buildSmartProta(
+  profile: SchoolProfile,
+  activeSemesterTpList?: CustomTPItem[],
+  options?: BuildProtaOptions
+): ProtaDokumen {
+  const jenjangFase = jenjangToDefaultFase(profile.jenjang, profile.kelasUtama);
+  const jpConfig = options?.jpConfig || getSubjectJPConfig(profile);
+  const calendarSem1 = options?.calendarSem1 || getAcademicCalendarForContext(profile, '1 (Ganjil)');
+  const calendarSem2 = options?.calendarSem2 || getAcademicCalendarForContext(profile, '2 (Genap)');
+
+  const colsSem1 = generateSemesterWeekColumns(calendarSem1, jpConfig.jpPerMinggu);
+  const colsSem2 = generateSemesterWeekColumns(calendarSem2, jpConfig.jpPerMinggu);
+  const mingguEfektifSemester1 = colsSem1.filter((c) => c.isEfektif).length;
+  const mingguEfektifSemester2 = colsSem2.filter((c) => c.isEfektif).length;
+  const mingguEfektifTahunan = mingguEfektifSemester1 + mingguEfektifSemester2;
+  const kapasitasJPSemester1 = colsSem1.reduce(
+    (s, c) => s + (c.isEfektif ? c.kapasitasJP ?? jpConfig.jpPerMinggu : 0),
+    0
+  );
+  const kapasitasJPSemester2 = colsSem2.reduce(
+    (s, c) => s + (c.isEfektif ? c.kapasitasJP ?? jpConfig.jpPerMinggu : 0),
+    0
+  );
+  const kapasitasJPTahunan = kapasitasJPSemester1 + kapasitasJPSemester2;
+
+  const sem1Resolved = resolveSemesterTPListIndependently(
+    profile,
+    jenjangFase,
+    '1 (Ganjil)',
+    options?.tpListSem1,
+    activeSemesterTpList
+  );
+  const sem2Resolved = resolveSemesterTPListIndependently(
+    profile,
+    jenjangFase,
+    '2 (Genap)',
+    options?.tpListSem2,
+    activeSemesterTpList
   );
 
-  const itemsSemester1: ProtaItem[] = tpListSem1.map((tp, idx) => ({
+  const sem1TopicKeys = new Set(
+    sem1Resolved.list.map((tp) => normalizeProtaTopicKey(tp.materiPokok)).filter(Boolean)
+  );
+
+  const itemsSemester1: ProtaItem[] = sem1Resolved.list.map((tp, idx) => ({
     no: idx + 1,
+    tpId: tp.id,
     semester: '1 (Ganjil)',
     kodeTP: tp.kode,
     lingkupMateri: tp.materiPokok,
     tujuanPembelajaran: tp.tujuanPembelajaran,
-    alokasiJP: Number(tp.alokasiJP) || 12,
+    alokasiJP: Math.max(0, Number(tp.alokasiJP) || 0),
+    mingguMulai: tp.mingguMulai,
+    mingguSelesai: tp.mingguSelesai,
     keterangan: 'Tuntas Semester Ganjil',
   }));
 
-  const itemsSemester2: ProtaItem[] = planSem2.tpList.map((tp, idx) => ({
-    no: idx + 1,
-    semester: '2 (Genap)',
-    kodeTP: tp.kode,
-    lingkupMateri: tp.materiPokok,
-    tujuanPembelajaran: tp.tujuanPembelajaran,
-    alokasiJP: Number(tp.alokasiJP) || 12,
-    keterangan: 'Tuntas Semester Genap',
-  }));
+  let hasSpiralTopic = false;
+  const itemsSemester2: ProtaItem[] = sem2Resolved.list.map((tp, idx) => {
+    const normTopic = normalizeProtaTopicKey(tp.materiPokok);
+    const isSpiralContinuation = normTopic !== '' && sem1TopicKeys.has(normTopic);
+    if (isSpiralContinuation) {
+      hasSpiralTopic = true;
+    }
+    const progresSpiral = isSpiralContinuation
+      ? 'Pembelajaran spiral: pendalaman konsep, variasi kasus kompleks, dan transfer lintas konteks dari Semester 1'
+      : undefined;
+
+    return {
+      no: idx + 1,
+      tpId: tp.id,
+      semester: '2 (Genap)',
+      kodeTP: tp.kode,
+      lingkupMateri: tp.materiPokok,
+      tujuanPembelajaran: tp.tujuanPembelajaran,
+      alokasiJP: Math.max(0, Number(tp.alokasiJP) || 0),
+      mingguMulai: tp.mingguMulai,
+      mingguSelesai: tp.mingguSelesai,
+      progresSpiral,
+      keterangan: isSpiralContinuation
+        ? 'Pendalaman Spiral (Lanjutan Sem 1)'
+        : 'Tuntas Semester Genap',
+    };
+  });
 
   const totalJPSemester1 = itemsSemester1.reduce((sum, it) => sum + it.alokasiJP, 0);
   const totalJPSemester2 = itemsSemester2.reduce((sum, it) => sum + it.alokasiJP, 0);
+  const totalJPTahunan = totalJPSemester1 + totalJPSemester2;
+
+  const peringatanProta: string[] = [];
+  if (
+    calendarSem1.statusKonfirmasi !== 'dikonfirmasi_sekolah' ||
+    calendarSem2.statusKonfirmasi !== 'dikonfirmasi_sekolah'
+  ) {
+    peringatanProta.push(
+      'Kalender akademik masih menggunakan template awal (belum dikonfirmasi sekolah) — jumlah minggu efektif dapat berubah setelah dikonfirmasi.'
+    );
+  }
+  if (jpConfig.statusKonfirmasi !== 'dikonfirmasi_sekolah') {
+    peringatanProta.push(
+      `Alokasi ${jpConfig.jpPerMinggu} JP/minggu (${jpConfig.durasiJPMinut} menit/JP) merupakan estimasi awal dan perlu dikonfirmasi terhadap jadwal sekolah.`
+    );
+  }
+  if (totalJPSemester1 > kapasitasJPSemester1) {
+    peringatanProta.push(
+      `Semester 1 kelebihan alokasi TP (${totalJPSemester1} JP vs kapasitas ${kapasitasJPSemester1} JP pada ${mingguEfektifSemester1} minggu efektif).`
+    );
+  }
+  if (totalJPSemester2 > kapasitasJPSemester2) {
+    peringatanProta.push(
+      `Semester 2 kelebihan alokasi TP (${totalJPSemester2} JP vs kapasitas ${kapasitasJPSemester2} JP pada ${mingguEfektifSemester2} minggu efektif).`
+    );
+  }
+  if (hasSpiralTopic) {
+    peringatanProta.push(
+      'Beberapa lingkup materi muncul kembali di Semester 2 sebagai kelanjutan spiral (pendalaman kompetensi bertahap), bukan duplikasi materi identik.'
+    );
+  }
 
   return {
     id: `prota-${profile.kelasUtama}-${Date.now().toString(36)}`,
@@ -410,90 +526,253 @@ export function buildSmartProta(
     itemsSemester2,
     totalJPSemester1,
     totalJPSemester2,
-    totalJPTahunan: totalJPSemester1 + totalJPSemester2,
+    totalJPTahunan,
+    sumberSemester1: sem1Resolved.sumber,
+    sumberSemester2: sem2Resolved.sumber,
+    mingguEfektifSemester1,
+    mingguEfektifSemester2,
+    mingguEfektifTahunan,
+    kapasitasJPSemester1,
+    kapasitasJPSemester2,
+    kapasitasJPTahunan,
+    kalenderSem1Terkonfirmasi: calendarSem1.statusKonfirmasi === 'dikonfirmasi_sekolah',
+    kalenderSem2Terkonfirmasi: calendarSem2.statusKonfirmasi === 'dikonfirmasi_sekolah',
+    jpConfig,
+    peringatanProta,
   };
 }
 
+export interface BuildPromesOptions {
+  calendar?: SemesterAcademicCalendar;
+  jpConfig?: SubjectJPConfig;
+  manualDistributions?: PromesManualOverridesMap;
+}
+
 /**
- * Pembuat Program Semester (Promes) Visual Minggu Efektif
+ * Pembuat Program Semester (Promes) Visual berbasis Kalender Sekolah, Konfigurasi JP Mapel,
+ * rentang mingguMulai–mingguSelesai TP, dan validasi kapasitas/defisit/overflow tanpa membuang JP diam-diam.
  */
 export function buildSmartPromes(
   profile: SchoolProfile,
-  tpList: CustomTPItem[]
+  tpList: CustomTPItem[],
+  options?: BuildPromesOptions
 ): PromesDokumen {
   const jenjangFase = jenjangToDefaultFase(profile.jenjang, profile.kelasUtama);
-  const isSem1 = !profile.semester.startsWith('2');
+  const calendar = options?.calendar || getAcademicCalendarForContext(profile, profile.semester);
+  const jpConfig = options?.jpConfig || getSubjectJPConfig(profile);
+  const manualOverrides = options?.manualDistributions ?? getPromesManualOverrides(profile);
 
-  const bulanList = isSem1
-    ? [
-        { nama: 'Juli', jumlahMinggu: 4, nonEfektif: [1] }, // M1: MPLS
-        { nama: 'Agustus', jumlahMinggu: 4, nonEfektif: [] },
-        { nama: 'September', jumlahMinggu: 4, nonEfektif: [4] }, // M4: PTS/STS
-        { nama: 'Oktober', jumlahMinggu: 5, nonEfektif: [] },
-        { nama: 'November', jumlahMinggu: 4, nonEfektif: [] },
-        { nama: 'Desember', jumlahMinggu: 4, nonEfektif: [2, 3, 4] }, // PAS & Libur
-      ]
-    : [
-        { nama: 'Januari', jumlahMinggu: 4, nonEfektif: [1] },
-        { nama: 'Februari', jumlahMinggu: 4, nonEfektif: [] },
-        { nama: 'Maret', jumlahMinggu: 4, nonEfektif: [3] }, // STS
-        { nama: 'April', jumlahMinggu: 4, nonEfektif: [2] }, // Libur Idul Fitri / Hari Besar
-        { nama: 'Mei', jumlahMinggu: 5, nonEfektif: [] },
-        { nama: 'Juni', jumlahMinggu: 4, nonEfektif: [2, 3, 4] }, // SAS & Pembagian Rapor
-      ];
+  const columns: PromesMingguColumn[] = generateSemesterWeekColumns(
+    calendar,
+    jpConfig.jpPerMinggu
+  );
 
-  const columns: PromesMingguColumn[] = [];
-  bulanList.forEach((bln) => {
-    for (let m = 1; m <= bln.jumlahMinggu; m++) {
-      const isEfektif = !bln.nonEfektif.includes(m);
-      let labelKegiatan: string | undefined = undefined;
-      if (!isEfektif) {
-        if (bln.nama === 'Juli' && m === 1) labelKegiatan = 'MPLS';
-        else if ((bln.nama === 'September' || bln.nama === 'Maret') && (m === 3 || m === 4)) labelKegiatan = 'STS';
-        else if ((bln.nama === 'Desember' || bln.nama === 'Juni') && m === 2) labelKegiatan = 'SAS';
-        else if ((bln.nama === 'Desember' || bln.nama === 'Juni') && m >= 3) labelKegiatan = 'Libur';
-        else labelKegiatan = 'Non-Efektif';
-      }
-      columns.push({
-        bulanNama: bln.nama,
-        mingguKe: m,
-        isEfektif,
-        labelKegiatan,
-      });
+  const remainingCap = columns.map((col) =>
+    col.isEfektif ? Math.max(0, col.kapasitasJP ?? jpConfig.jpPerMinggu) : 0
+  );
+  const weekKeyToColIndex = new Map<string, number>();
+  columns.forEach((col, cIdx) => {
+    if (col.weekKey) {
+      weekKeyToColIndex.set(col.weekKey, cIdx);
     }
   });
 
-  // Distribusikan alokasi JP per TP ke minggu-minggu efektif secara berurutan
-  let colPointer = 0;
-  const rows: PromesRowItem[] = tpList.map((tp, idx) => {
-    const jpPerWeek = 4; // Bawaan rata-rata 4 JP per minggu
-    let sisaJP = Number(tp.alokasiJP) || 12;
-    const distribusiJP: { [colIndex: number]: number } = {};
+  const validationIssues: PromesValidationIssue[] = [];
 
-    while (sisaJP > 0 && colPointer < columns.length) {
-      if (columns[colPointer].isEfektif) {
-        const alokasi = Math.min(sisaJP, jpPerWeek);
-        distribusiJP[colPointer] = alokasi;
-        sisaJP -= alokasi;
-        if (sisaJP <= 0) {
-          colPointer++;
-          break;
+  if (calendar.statusKonfirmasi !== 'dikonfirmasi_sekolah') {
+    validationIssues.push({
+      kode: 'KALENDER_BELUM_DIKONFIRMASI',
+      severity: 'info',
+      pesan:
+        'Kalender akademik semester ini masih berstatus template awal (belum dikonfirmasi sekolah). Atur tanggal libur nasional/keagamaan, MPLS, STS, SAS, dan rapor agar akurat.',
+    });
+  }
+
+  if (
+    jpConfig.statusKonfirmasi !== 'dikonfirmasi_sekolah' ||
+    !jpConfig.tersediaDiKatalogDefault
+  ) {
+    validationIssues.push({
+      kode: 'JP_BELUM_DIKONFIRMASI',
+      severity: !jpConfig.tersediaDiKatalogDefault ? 'warning' : 'info',
+      pesan: !jpConfig.tersediaDiKatalogDefault
+        ? `Alokasi JP default untuk "${profile.mataPelajaranUtama}" belum tersedia di preset — harap isi & konfirmasi JP/minggu sesuai jadwal sekolah.`
+        : `Konfigurasi ${jpConfig.jpPerMinggu} JP/minggu (${jpConfig.durasiJPMinut} menit, ${jpConfig.pertemuanPerMinggu} pertemuan) masih berupa estimasi dan belum dikonfirmasi oleh guru.`,
+    });
+  }
+
+  const rows: PromesRowItem[] = tpList.map((tp, idx) => {
+    const alokasiJP = Math.max(0, Number(tp.alokasiJP) || 0);
+    const rawMulai = Number(tp.mingguMulai);
+    const rawSelesai = Number(tp.mingguSelesai);
+    const hasExplicitRange = Number.isFinite(rawMulai) && Number.isFinite(rawSelesai);
+    const mingguMulai = Number.isFinite(rawMulai) ? Math.max(1, Math.floor(rawMulai)) : 1;
+    const mingguSelesai = Number.isFinite(rawSelesai)
+      ? Math.max(1, Math.floor(rawSelesai))
+      : columns.length;
+
+    const distribusiJP: { [colIndex: number]: number } = {};
+    let konflikJadwal: string | undefined = undefined;
+    const tpManual = tp.id ? manualOverrides[tp.id] : undefined;
+    const hasManualForTP = Boolean(tpManual && Object.keys(tpManual).length > 0);
+
+    if (hasExplicitRange && rawMulai > rawSelesai) {
+      konflikJadwal = `Rentang minggu tidak valid (${rawMulai} > ${rawSelesai}).`;
+      validationIssues.push({
+        kode: 'RENTANG_MINGGU_TIDAK_VALID',
+        severity: 'error',
+        tpKode: tp.kode,
+        pesan: `TP ${tp.kode}: mingguMulai (${rawMulai}) lebih besar daripada mingguSelesai (${rawSelesai}).`,
+      });
+    } else if (hasManualForTP && tpManual) {
+      let rejectedHolidayCount = 0;
+      for (const [weekKey, rawVal] of Object.entries(tpManual)) {
+        const val = Math.max(0, Math.floor(Number(rawVal) || 0));
+        if (val <= 0) continue;
+        const cIdx = weekKeyToColIndex.get(weekKey);
+        if (cIdx === undefined) continue;
+        const col = columns[cIdx];
+        if (!col.isEfektif) {
+          rejectedHolidayCount += val;
+          continue;
+        }
+        distribusiJP[cIdx] = val;
+        remainingCap[cIdx] = remainingCap[cIdx] - val;
+      }
+      if (rejectedHolidayCount > 0) {
+        validationIssues.push({
+          kode: 'KONFLIK_LIBUR_MANUAL',
+          severity: 'warning',
+          tpKode: tp.kode,
+          pesan: `TP ${tp.kode}: ${rejectedHolidayCount} JP dari penyesuaian manual diabaikan karena jatuh pada minggu libur/non-efektif.`,
+        });
+      }
+    } else {
+      // Penjadwalan otomatis STRICT mengikuti [mingguMulai .. mingguSelesai] dan melewati minggu non-efektif/libur
+      let sisaJP = alokasiJP;
+      const clampedStart = Math.max(1, mingguMulai);
+      const clampedEnd = Math.min(columns.length, mingguSelesai);
+
+      if (hasExplicitRange && (rawMulai < 1 || rawSelesai > columns.length)) {
+        validationIssues.push({
+          kode: 'RENTANG_MINGGU_TIDAK_VALID',
+          severity: 'warning',
+          tpKode: tp.kode,
+          pesan: `TP ${tp.kode} menetapkan rentang Minggu ${rawMulai}–${rawSelesai}, sedangkan kalender semester memiliki ${columns.length} minggu.`,
+        });
+      }
+
+      for (let cIdx = 0; cIdx < columns.length && sisaJP > 0; cIdx++) {
+        const col = columns[cIdx];
+        const semWeek = col.semesterWeekNumber ?? cIdx + 1;
+        if (semWeek < clampedStart || semWeek > clampedEnd) {
+          continue;
+        }
+        if (!col.isEfektif || remainingCap[cIdx] <= 0) {
+          continue;
+        }
+        const alloc = Math.min(sisaJP, remainingCap[cIdx]);
+        if (alloc > 0) {
+          distribusiJP[cIdx] = alloc;
+          remainingCap[cIdx] -= alloc;
+          sisaJP -= alloc;
         }
       }
-      colPointer++;
+    }
+
+    const jpTerjadwal = Object.values(distribusiJP).reduce((s, v) => s + v, 0);
+    const jpBelumTerjadwal = Math.max(0, alokasiJP - jpTerjadwal);
+
+    if (jpBelumTerjadwal > 0 && !konflikJadwal) {
+      konflikJadwal = `${jpBelumTerjadwal} JP belum terjadwal pada Minggu ${mingguMulai}–${mingguSelesai}`;
+      validationIssues.push({
+        kode: 'OVERFLOW_RENTANG_TP',
+        severity: 'warning',
+        tpKode: tp.kode,
+        pesan: `TP ${tp.kode} (${tp.materiPokok}) membutuhkan ${alokasiJP} JP pada Minggu ${mingguMulai}–${mingguSelesai}, tetapi hanya ${jpTerjadwal} JP yang muat di minggu efektif rentang tersebut (kurang / belum terjadwal ${jpBelumTerjadwal} JP).`,
+      });
     }
 
     return {
       no: idx + 1,
+      tpId: tp.id,
       kodeTP: tp.kode,
       materiPokok: tp.materiPokok,
       tujuanPembelajaran: tp.tujuanPembelajaran,
-      alokasiJP: Number(tp.alokasiJP) || 12,
+      alokasiJP,
+      mingguMulai,
+      mingguSelesai,
+      jpTerjadwal,
+      jpBelumTerjadwal,
+      konflikJadwal,
+      isManualOverride: hasManualForTP,
       distribusiJP,
     };
   });
 
-  const totalJPEfektif = rows.reduce((sum, r) => sum + r.alokasiJP, 0);
+  // Cek apakah ada minggu yang terisi melebihi kapasitas mingguan akibat penyesuaian manual
+  columns.forEach((col, cIdx) => {
+    const colSum = rows.reduce((s, r) => s + (r.distribusiJP[cIdx] || 0), 0);
+    const colCap = col.isEfektif ? col.kapasitasJP ?? jpConfig.jpPerMinggu : 0;
+    if (colSum > colCap) {
+      validationIssues.push({
+        kode: 'OVERFLOW_ALOKASI',
+        severity: 'error',
+        pesan: `Minggu ${col.bulanNama} M${col.mingguKe} (Minggu ke-${col.semesterWeekNumber ?? cIdx + 1}) terisi ${colSum} JP melebihi kapasitas ${colCap} JP/minggu.`,
+      });
+    }
+  });
+
+  const totalMingguKalender = columns.length;
+  const totalMingguEfektif = columns.filter((c) => c.isEfektif).length;
+  const totalMingguNonEfektif = totalMingguKalender - totalMingguEfektif;
+  const totalKapasitasJPSemester = columns.reduce(
+    (s, c) => s + (c.isEfektif ? c.kapasitasJP ?? jpConfig.jpPerMinggu : 0),
+    0
+  );
+  const totalJPDibutuhkanTP = rows.reduce((s, r) => s + r.alokasiJP, 0);
+  const totalJPTerjadwal = rows.reduce((s, r) => s + (r.jpTerjadwal ?? 0), 0);
+  const totalJPBelumTerjadwal = Math.max(0, totalJPDibutuhkanTP - totalJPTerjadwal);
+  const selisihKapasitasJP = totalKapasitasJPSemester - totalJPDibutuhkanTP;
+  const defisitJP = Math.max(0, totalJPDibutuhkanTP - totalKapasitasJPSemester);
+  const surplusJP = Math.max(0, totalKapasitasJPSemester - totalJPDibutuhkanTP);
+
+  if (totalJPDibutuhkanTP > totalKapasitasJPSemester) {
+    validationIssues.push({
+      kode: 'OVERFLOW_ALOKASI',
+      severity: 'error',
+      pesan: `Overflow Alokasi JP: Total kebutuhan TP (${totalJPDibutuhkanTP} JP) melebihi kapasitas minggu efektif semester (${totalKapasitasJPSemester} JP) sebesar ${defisitJP} JP.`,
+    });
+    validationIssues.push({
+      kode: 'DEFISIT_KAPASITAS',
+      severity: 'error',
+      pesan: `Defisit Kapasitas Semester: Tersedia ${totalKapasitasJPSemester} JP efektif, kurang ${defisitJP} JP untuk menuntaskan seluruh TP. Tambah JP/minggu, tambah minggu efektif, atau kurangi alokasi JP TP.`,
+    });
+  } else if (totalJPBelumTerjadwal > 0) {
+    validationIssues.push({
+      kode: 'DEFISIT_KAPASITAS',
+      severity: 'warning',
+      pesan: `Defisit Slot Rentang Minggu: Masih ada ${totalJPBelumTerjadwal} JP alokasi TP yang belum terjadwal pada rentang minggu mulai–selesai yang dipilih.`,
+    });
+  }
+
+  if (surplusJP > 0) {
+    const isScheduleConfirmed =
+      calendar.statusKonfirmasi === 'dikonfirmasi_sekolah' &&
+      jpConfig.statusKonfirmasi === 'dikonfirmasi_sekolah';
+    const rangeDetail =
+      totalJPBelumTerjadwal > 0
+        ? ` (catatan: baru ${totalJPTerjadwal} JP yang masuk ke rentang minggu TP terpilih dan ${totalJPBelumTerjadwal} JP masih perlu perluasan rentang minggu)`
+        : '';
+    const basisNote = isScheduleConfirmed
+      ? 'Sisa jam ini dapat dimanfaatkan untuk pengayaan, remedial, proyek/kokurikuler, atau cadangan asesmen formatif.'
+      : 'Angka sisa masih berbasis kalender/JP estimasi awal dan dapat berkurang setelah hari libur nasional/keagamaan serta agenda sekolah ditambahkan.';
+    validationIssues.push({
+      kode: 'SURPLUS_KAPASITAS',
+      severity: 'info',
+      pesan: `Sisa Kapasitas Efektif (${surplusJP} JP): Total kapasitas minggu efektif saat ini (${totalKapasitasJPSemester} JP) menyisakan ${surplusJP} JP di luar total kebutuhan TP (${totalJPDibutuhkanTP} JP)${rangeDetail}. ${basisNote}`,
+    });
+  }
 
   return {
     id: `promes-${profile.kelasUtama}-${Date.now().toString(36)}`,
@@ -510,6 +789,24 @@ export function buildSmartPromes(
     kotaSekolah: profile.kotaSekolah,
     columns,
     rows,
-    totalJPEfektif,
+    totalJPEfektif: totalJPTerjadwal,
+    jpPerMinggu: jpConfig.jpPerMinggu,
+    durasiJPMinut: jpConfig.durasiJPMinut,
+    pertemuanPerMinggu: jpConfig.pertemuanPerMinggu,
+    totalMingguKalender,
+    totalMingguEfektif,
+    totalMingguNonEfektif,
+    totalKapasitasJPSemester,
+    totalJPDibutuhkanTP,
+    totalJPTerjadwal,
+    totalJPBelumTerjadwal,
+    selisihKapasitasJP,
+    defisitJP,
+    surplusJP,
+    kalenderTerkonfirmasi: calendar.statusKonfirmasi === 'dikonfirmasi_sekolah',
+    jpTerkonfirmasi: jpConfig.statusKonfirmasi === 'dikonfirmasi_sekolah',
+    calendarSummary: calendar,
+    jpConfig,
+    validationIssues,
   };
 }

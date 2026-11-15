@@ -24,6 +24,10 @@ export function buildExtendedSubjectFixture(
   // =========================================================================
   if (family === 'bahasa') {
     if (lowerMapel.includes('arab')) {
+      const matchesArab = /(ta['’]?aruf|perlengkapan|benda|isyarah|hadza|hadzihi|mufradat|kosakata)/i.test(
+        lowerTopic
+      );
+      if (!matchesArab) return null;
       const stimulusText =
         'Bacalah daftar kosakata peralatan belajar di meja sekolah berikut beserta tanda jenis katanya: (1) قَلَمٌ (qalamun = pulpen), (2) مِسْطَرَةٌ (mistharatun = penggaris, berakhiran ta’ marbuthah ة), (3) كِتَابٌ (kitaabun = buku), (4) حَقِيبَةٌ (haqiibatun = tas sekolah, berakhiran ة). Gunakan kata tunjuk هَذَا (ini, untuk kata benda mudzakkar tanpa ة) atau هَذِهِ (ini, untuk muannats berakhiran ة) sesuai kaidah bahasa Arab dasar!';
       return {
@@ -135,6 +139,10 @@ export function buildExtendedSubjectFixture(
 
     if (lowerMapel.includes('inggris')) {
       const isSD = grade.gradeBand === 'sd_awal' || grade.gradeBand === 'sd_atas';
+      const matchesInggris = isSD
+        ? /(order|food|drink|canteen|price|menu|transaction|describing|classroom|animal)/i.test(lowerTopic)
+        : /(descriptive|description|building|tourism|landmark|taman sari|simple present)/i.test(lowerTopic);
+      if (!matchesInggris) return null;
       const stimulusText = isSD
         ? 'Read the school canteen price list and dialogue:\n[Menu: Fried Rice Rp10.000 | Chicken Noodle Rp8.000 | Mineral Water Rp3.000 | Orange Juice Rp5.000]\nDina: "Good morning, Ibu. Can I have one Chicken Noodle and one Orange Juice, please?"\nSeller: "Sure, Dina. Anything else?"\nDina: "No, thank you. How much is the total?"\nSeller: "Eight thousand plus five thousand is thirteen thousand rupiahs."'
         : 'Read the Descriptive Text below:\n"Taman Sari Water Castle is a historic royal garden located in Yogyakarta, about 2 kilometers south of the Sultan Palace. Built in the mid-18th century, the complex consists of bathing pools, arched stone gates, and quiet underground passages. High whitewashed walls surround clear turquoise pools where visitors can observe classical Javanese architecture blended with European arch details."';
@@ -273,6 +281,12 @@ export function buildExtendedSubjectFixture(
     // Bahasa Indonesia (SD / SMP / SMA / SMK)
     const isSDAwal = grade.gradeBand === 'sd_awal';
     const isSDAtas = grade.gradeBand === 'sd_atas';
+    const matchesBIndo = isSDAwal
+      ? /(cerita|kalimat|kapital|titik|membaca|fakta|ungkapan|petunjuk)/i.test(lowerTopic)
+      : isSDAtas
+      ? /(paragraf|gagasan pokok|kalimat utama|penjelas|prosedur|surat|dongeng)/i.test(lowerTopic)
+      : /(deskripsi|citraan|identifikasi|pantai|observasi|lho)/i.test(lowerTopic);
+    if (!matchesBIndo) return null;
     const stimulusText = isSDAwal
       ? 'Bacalah cerita pendek ini:\n"Pagi ini Siti menyiram bunga melati di halaman sekolah sebelum bel berbunyi. Budi membantu membawakan ember air bersih. Bunga melati tampak segar dan wangi karena disiram setiap pagi."'
       : isSDAtas
@@ -424,6 +438,9 @@ export function buildExtendedSubjectFixture(
   // =========================================================================
   if (family === 'sosial_sejarah') {
     if (lowerMapel.includes('ekonomi')) {
+      if (!/(permintaan|penawaran|keseimbangan|pasar|qd|qs|harga)/i.test(lowerTopic)) {
+        return null;
+      }
       const stimulusText =
         'Pada pasar buah lokal, fungsi permintaan jeruk dinyatakan sebagai Qd = 100 − 2P dan fungsi penawaran jeruk Qs = 20 + 2P (dengan P = harga dalam ribuan rupiah per kg dan Q = jumlah dalam kg). Tentukan harga keseimbangan pasar (P*) dan jumlah keseimbangan (Q*), lalu analisis apa yang terjadi di pasar bila harga ditetapkan Rp25.000/kg (P = 25)!';
       return {
@@ -530,6 +547,13 @@ export function buildExtendedSubjectFixture(
     }
 
     if (lowerMapel.includes('sejarah')) {
+      if (
+        !/(pergerakan|kronologi|sumber primer|sekunder|budi utomo|sumpah pemuda|proklamasi|kemerdekaan)/i.test(
+          lowerTopic
+        )
+      ) {
+        return null;
+      }
       const stimulusText =
         'Perhatikan catatan linimasa dan dua sumber peristiwa sejarah berikut:\n[Linimasa] 1908: Berdirinya Budi Utomo | 1928: Kongres Pemuda II / Sumpah Pemuda | 17 Agustus 1945: Pembacaan Teks Proklamasi Kemerdekaan.\n[Sumber A]: Foto asli pembacaan teks Proklamasi oleh Soekarno di Jalan Pegangsaan Timur 56 pada 17 Agustus 1945 beserta rekaman saksi mata hadirin.\n[Sumber B]: Buku pelajaran Sejarah Indonesia terbitan tahun 2024 yang merangkum bab Pergerakan Nasional.';
       return {
@@ -637,6 +661,12 @@ export function buildExtendedSubjectFixture(
 
     // Geografi / Sosiologi / IPS
     const isGeog = lowerMapel.includes('geografi');
+    const matchesSosialCurated = isGeog
+      ? /(hidrosfer|elevasi|banjir|pesisir|pasang|rob)/i.test(lowerTopic)
+      : /(astronomis|bujur|zona waktu|wib|wita|wit|letak|geografis|interaksi sosial|lembaga sosial)/i.test(
+          lowerTopic
+        );
+    if (!matchesSosialCurated) return null;
     const stimulusText = isGeog
       ? 'Badan penanggulangan pesisir mencatat tinggi pasang maksimum air laut bulan purnama di teluk mencapai +1,20 meter di atas permukaan laut rata-rata (dpl). Data survei elevasi daratan di tiga kelurahan pesisir menunjukkan: Kelurahan Pulo Beras (+0,85 m dpl), Kelurahan Muara Baru (+1,05 m dpl), dan Kelurahan Bukit Indah (+2,40 m dpl).'
       : 'Perhatikan jadwal penerbangan antartiga kota di Indonesia berikut: Pesawat berangkat dari Jakarta (WIB / UTC+7) pukul 07.00 WIB menuju Makassar (WITA / UTC+8) dengan lama penerbangan tepat 2 jam 15 menit. Kota tujuan ketiga adalah Jayapura yang berada di zona WIT (UTC+9). Tentukan pukul berapa pesawat tiba dalam waktu setempat Makassar (WITA) dan berapa selisih waktu antara Jakarta dengan Jayapura!';
@@ -782,6 +812,9 @@ export function buildExtendedSubjectFixture(
     const isPancasila = lowerMapel.includes('pancasila') || lowerMapel.includes('ppkn');
 
     if (isQuranHadis) {
+      if (!/(nun sukun|tanwin|tajwid|izhar|idgham|iqlab|ikhfa|mim sukun|tartil)/i.test(lowerTopic)) {
+        return null;
+      }
       const stimulusText =
         'Perhatikan empat contoh potongan lafaz Arab berharakat dengan pertemuan Nun Sukun (نْ) atau Tanwin (ـًـٍـٌ) dan huruf sesudahnya:\n(1) مِنْ خَوْفٍ (Min khaufin -> Nun sukun bertemu huruf خ)\n(2) مَنْ يَقُولُ (Man yaquulu -> Nun sukun bertemu huruf ي)\n(3) سَمِيعٌ بَصِيرٌ (Samii’un bashiirun -> Tanwin bertemu huruf ب)\n(4) عَنْ صَلَاتِهِمْ (‘An shalaatihim -> Nun sukun bertemu huruf ص)\nIdentifikasi hukum bacaan masing-masing contoh berdasarkan huruf setelah nun sukun/tanwin dan jelaskan cara melafalkannya dengan tartil!';
       return {
@@ -892,6 +925,9 @@ export function buildExtendedSubjectFixture(
     }
 
     if (isFikih) {
+      if (!/(jual beli|muamalah|gharar|riba|khiyar|thaharah)/i.test(lowerTopic)) {
+        return null;
+      }
       const stimulusText =
         'Perhatikan dua skenario transaksi muamalah berikut:\n[Transaksi A]: Rina membeli sebuah kalkulator di toko alat tulis seharga Rp85.000. Penjual mengizinkan Rina mencoba menyalakan dan mengecek tombolnya. Rina setuju, menyerahkan uang tunai, dan menerima barang tersebut.\n[Transaksi B]: Dito membeli "paket kotak kejutan alat tulis tertutup" seharga Rp30.000 lewat pesan daring tanpa mengetahui isi, jumlah, atau jenis barang di dalamnya, hanya diberitahu "isinya rahasia dan tidak bisa ditukar bila kosong atau rusak".\nPeriksa keabsahan kedua transaksi berdasarkan rukun dan syarat jual beli (kejelasan barang, harga, ijab qabul, dan prinsip menghindari gharar)!';
       return {
@@ -999,6 +1035,14 @@ export function buildExtendedSubjectFixture(
     }
 
     // Pendidikan Pancasila / PAI / Akidah Akhlak / SKI
+    const matchesPancasilaAgama = isPancasila
+      ? /(sila|pancasila|norma|musyawarah|gotong royong|hak dan kewajiban|keberagaman|toleransi)/i.test(
+          lowerTopic
+        )
+      : /(adab|kejujuran|shiddiq|ghibah|hasad|tabayyun|perilaku tercela|menuntut ilmu|thaharah|akhlak)/i.test(
+          lowerTopic
+        );
+    if (!matchesPancasilaAgama) return null;
     const stimulusText = isPancasila
       ? 'Situasi di Kelas: Menjelang kerja bakti kebun kelas, ketua kelas langsung memutuskan bahwa kelompok siswa laki-laki memikul pot berat sendirian sedangkan kelompok siswa perempuan membersihkan kaca, tanpa berdiskusi. Dua siswa mengeluh karena kondisi kesehatan salah satu siswa tidak memungkinkan mengangkat beban berat, dan mereka merasa tidak pernah diajak bermusyawarah untuk mencari cara berbagi tugas yang aman dan adil.'
       : 'Situasi di Grup Kelas: Beredar tangkapan layar yang menuduh salah satu pengurus OSIS mengambil uang kas tanpa bukti kwitansi atau penjelasan bendahara. Beberapa siswa langsung meneruskan pesan itu dengan komentar mengejek ke grup lain sebelum memeriksa kebenarannya.';
@@ -1127,6 +1171,10 @@ export function buildExtendedSubjectFixture(
   // =========================================================================
   if (family === 'informatika_kejuruan') {
     const isPKK = lowerMapel.includes('pkk') || lowerMapel.includes('kewirausahaan');
+    const matchesInfPKK = isPKK
+      ? /(peluang|usaha|swot|k3lh|5r|sop|mutu|bep|hpp|biaya|produksi)/i.test(lowerTopic)
+      : /(algoritma|trace|dekomposisi|percabangan|variabel|debug|bug|if)/i.test(lowerTopic);
+    if (!matchesInfPKK) return null;
     const stimulusText = isPKK
       ? 'Perhatikan hasil inspeksi kondisi ruang praktik bengkel sebelum produksi:\n(1) Kabel ekstensi listrik melintang di lantai jalur lewat tanpa penutup kabel.\n(2) Botol cairan pembersih mudah menguap diletakkan tanpa label tutup dekat gerinda.\n(3) Siswa menggerinda besi tanpa memakai kacamata pelindung (safety goggles).\n(4) Alat ukur dan kunci pas berserakan tercampur di meja kerja.\nAudit pelanggaran K3LH serta prinsip 5R dari keempat temuan di atas dan tetapkan tindakan koreksinya!'
       : 'Perhatikan potongan algoritma penentuan kelulusan nilai rapor (KKTP = 75) berikut:\n1. Baca input nilai\n2. JIKA nilai > 75 MAKA status = "Tuntas"\n3. SELAIN ITU status = "Perlu Bimbingan"\n4. Cetak status\nGuru menetapkan aturan: siswa dengan nilai TEPAT 75 atau lebih dinyatakan "Tuntas". Lakukan penelusuran (trace) untuk input 60, 75, dan 88 lalu temukan kesalahan logika (bug) pada baris nomor 2!';

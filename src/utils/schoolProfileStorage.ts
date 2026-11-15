@@ -1,4 +1,13 @@
 import type { JenjangFase } from '../types/assessment';
+import {
+  SCHOOL_ID_STORAGE_KEY,
+  V2_BACKUP_STORAGE_PREFIXES,
+  buildCustomTPScopeKey,
+  generateNewSchoolId,
+  getPersistedActiveSchoolId,
+  normalizeNamespaceSegment,
+  type AcademicProfileLike,
+} from './storageIdentity';
 
 export interface SubTPItem {
   id: string;
@@ -21,6 +30,7 @@ export type TPReviewStatus = 'draft' | 'ditinjau' | 'disetujui';
 
 export interface CustomTPItem {
   id: string;
+  legacyTpId?: string;
   kode: string;
   elemen: string;
   materiPokok: string;
@@ -39,13 +49,24 @@ export interface CustomTPItem {
   subTP?: SubTPItem[];
 }
 
-export function computeTPContentHash(tp: Pick<CustomTPItem, 'kode' | 'elemen' | 'materiPokok' | 'tujuanPembelajaran' | 'alokasiJP'>): string {
+export function computeTPContentHash(
+  tp: Pick<CustomTPItem, 'kode' | 'elemen' | 'materiPokok' | 'tujuanPembelajaran' | 'alokasiJP'> &
+    Partial<Pick<CustomTPItem, 'arahanRangkuman' | 'kompetensiInti' | 'prasyarat' | 'subTP'>>
+): string {
+  const subTpSignature = Array.isArray(tp.subTP)
+    ? tp.subTP.map((s) => `${s.kode}:${s.kompetensi}:${s.fokusMateri}:${s.buktiKetercapaian}`).join(';')
+    : '';
+  const prasyaratSignature = Array.isArray(tp.prasyarat) ? tp.prasyarat.join(';') : '';
   const payload = [
     tp.kode || '',
     tp.elemen || '',
     tp.materiPokok || '',
     tp.tujuanPembelajaran || '',
     String(tp.alokasiJP || ''),
+    tp.arahanRangkuman || '',
+    tp.kompetensiInti || '',
+    prasyaratSignature,
+    subTpSignature,
   ].join('|');
   let hash = 5381;
   for (let i = 0; i < payload.length; i++) {
@@ -55,6 +76,7 @@ export function computeTPContentHash(tp: Pick<CustomTPItem, 'kode' | 'elemen' | 
 }
 
 export interface SchoolProfile {
+  schoolId?: string;
   instansiDinas: string;
   namaSekolah: string;
   alamatSekolah: string;
@@ -76,6 +98,7 @@ export interface SchoolProfile {
 
 const PROFILE_STORAGE_KEY = 'asesmerdeka_school_profile_v1';
 const CUSTOM_TP_STORAGE_KEY = 'asesmerdeka_custom_tp_map_v1';
+const CUSTOM_TP_STORAGE_V2_KEY = 'asesmerdeka_custom_tp_v2';
 const ONBOARDING_CONFIRMED_KEY = 'asesmerdeka_onboarding_confirmed_v1';
 
 export function hasConfirmedClassSetup(): boolean {
@@ -149,6 +172,12 @@ export function getSchoolProfile(): SchoolProfile {
       ...DEFAULT_PROFILE,
       ...parsed,
     };
+    if (!merged.schoolId) {
+      const persistedId = getPersistedActiveSchoolId();
+      if (persistedId) {
+        merged.schoolId = persistedId;
+      }
+    }
     if (!Array.isArray(merged.daftarRombel) || merged.daftarRombel.length === 0) {
       const rom = angkaKeRomawiKelas(merged.kelasUtama || '8');
       merged.daftarRombel = [`${rom} A`, `${rom} B`];
@@ -161,39 +190,58 @@ export function getSchoolProfile(): SchoolProfile {
 }
 
 export function saveSchoolProfile(profile: SchoolProfile): SchoolProfile {
+  let profileToSave: SchoolProfile = profile;
   try {
     const prev = getSchoolProfile();
-    const oldCleanSchool = (prev.namaSekolah || 'sekolah').replace(/[^a-zA-Z0-9]/g, '_');
-    const newCleanSchool = (profile.namaSekolah || 'sekolah').replace(/[^a-zA-Z0-9]/g, '_');
+    const isSwitchingToDistinctExplicitSchool =
+      Boolean(profile.schoolId && prev.schoolId && profile.schoolId.trim() !== prev.schoolId.trim());
 
-    // Migrasi otomatis data kelas harian jika nama sekolah diubah agar data presensi/nilai tidak hilang
-    if (oldCleanSchool !== newCleanSchool) {
-      const oldPrefix = `asesmerdeka_harian_${oldCleanSchool}_`;
-      const newPrefix = `asesmerdeka_harian_${newCleanSchool}_`;
-      const keysToMigrate: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(oldPrefix)) {
-          keysToMigrate.push(k);
+    const resolvedSchoolId =
+      (profile.schoolId && profile.schoolId.trim()) ||
+      (prev.schoolId && prev.schoolId.trim()) ||
+      getPersistedActiveSchoolId() ||
+      generateNewSchoolId();
+
+    profileToSave = {
+      ...profile,
+      schoolId: resolvedSchoolId,
+    };
+
+    localStorage.setItem(SCHOOL_ID_STORAGE_KEY, resolvedSchoolId);
+
+    // Migrasi otomatis key harian legacy jika nama sekolah diubah dalam sekolah yang sama (kompatibilitas AUD-004)
+    if (!isSwitchingToDistinctExplicitSchool) {
+      const oldCleanSchool = (prev.namaSekolah || 'sekolah').replace(/[^a-zA-Z0-9]/g, '_');
+      const newCleanSchool = (profile.namaSekolah || 'sekolah').replace(/[^a-zA-Z0-9]/g, '_');
+
+      if (oldCleanSchool !== newCleanSchool) {
+        const oldPrefix = `asesmerdeka_harian_${oldCleanSchool}_`;
+        const newPrefix = `asesmerdeka_harian_${newCleanSchool}_`;
+        const keysToMigrate: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith(oldPrefix)) {
+            keysToMigrate.push(k);
+          }
         }
-      }
-      for (const oldKey of keysToMigrate) {
-        const suffix = oldKey.slice(oldPrefix.length);
-        const newKey = `${newPrefix}${suffix}`;
-        if (!localStorage.getItem(newKey)) {
-          const val = localStorage.getItem(oldKey);
-          if (val) {
-            localStorage.setItem(newKey, val);
+        for (const oldKey of keysToMigrate) {
+          const suffix = oldKey.slice(oldPrefix.length);
+          const newKey = `${newPrefix}${suffix}`;
+          if (!localStorage.getItem(newKey)) {
+            const val = localStorage.getItem(oldKey);
+            if (val) {
+              localStorage.setItem(newKey, val);
+            }
           }
         }
       }
     }
 
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profileToSave));
   } catch (e) {
     console.error('Gagal menyimpan profil sekolah:', e);
   }
-  return profile;
+  return profileToSave;
 }
 
 export function jenjangToDefaultFase(
@@ -219,22 +267,53 @@ export function jenjangToDefaultFase(
 export function getCustomTPStorageKey(
   mataPelajaran: string,
   kelas: string,
-  semester: string
+  semester: string,
+  profile?: AcademicProfileLike
 ): string {
+  if (profile) {
+    return buildCustomTPScopeKey({
+      ...profile,
+      mataPelajaranUtama: mataPelajaran,
+      kelasUtama: kelas,
+      semester,
+    });
+  }
   return `${mataPelajaran.toLowerCase().trim()}__kls_${kelas.trim()}__sem_${semester.startsWith('2') ? '2' : '1'}`;
 }
 
 export function getSavedCustomTPList(
   mataPelajaran: string,
   kelas: string,
-  semester: string
+  semester: string,
+  profile?: AcademicProfileLike
 ): CustomTPItem[] | null {
   try {
+    const rawV2 = localStorage.getItem(CUSTOM_TP_STORAGE_V2_KEY);
+    if (rawV2) {
+      const v2Map = JSON.parse(rawV2) as Record<string, CustomTPItem[]>;
+      const v2Key = buildCustomTPScopeKey({
+        ...(profile || {}),
+        mataPelajaranUtama: mataPelajaran,
+        kelasUtama: kelas,
+        semester,
+      });
+      if (Array.isArray(v2Map[v2Key]) && v2Map[v2Key].length > 0) {
+        return v2Map[v2Key];
+      }
+    }
+
+    // Fallback aman ke key legacy hanya bila belum ada entri v2 dan bukan profil sekolah eksplisit berbeda
+    const hasExplicitDifferentSchool =
+      Boolean(profile?.schoolId && profile.schoolId.trim() && profile.schoolId !== getPersistedActiveSchoolId());
+    if (hasExplicitDifferentSchool) {
+      return null;
+    }
+
     const raw = localStorage.getItem(CUSTOM_TP_STORAGE_KEY);
     if (!raw) return null;
     const allMap = JSON.parse(raw) as Record<string, CustomTPItem[]>;
-    const key = getCustomTPStorageKey(mataPelajaran, kelas, semester);
-    return allMap[key] || null;
+    const legacyKey = getCustomTPStorageKey(mataPelajaran, kelas, semester);
+    return allMap[legacyKey] || null;
   } catch {
     return null;
   }
@@ -244,14 +323,20 @@ export function saveCustomTPList(
   mataPelajaran: string,
   kelas: string,
   semester: string,
-  items: CustomTPItem[]
+  items: CustomTPItem[],
+  profile?: AcademicProfileLike
 ): void {
   try {
-    const raw = localStorage.getItem(CUSTOM_TP_STORAGE_KEY);
-    const allMap: Record<string, CustomTPItem[]> = raw ? JSON.parse(raw) : {};
-    const key = getCustomTPStorageKey(mataPelajaran, kelas, semester);
-    allMap[key] = items;
-    localStorage.setItem(CUSTOM_TP_STORAGE_KEY, JSON.stringify(allMap));
+    const rawV2 = localStorage.getItem(CUSTOM_TP_STORAGE_V2_KEY);
+    const v2Map: Record<string, CustomTPItem[]> = rawV2 ? JSON.parse(rawV2) : {};
+    const v2Key = buildCustomTPScopeKey({
+      ...(profile || {}),
+      mataPelajaranUtama: mataPelajaran,
+      kelasUtama: kelas,
+      semester,
+    });
+    v2Map[v2Key] = items;
+    localStorage.setItem(CUSTOM_TP_STORAGE_V2_KEY, JSON.stringify(v2Map));
   } catch (e) {
     console.error('Gagal menyimpan daftar TP kustom:', e);
   }
@@ -260,15 +345,30 @@ export function saveCustomTPList(
 export function resetCustomTPList(
   mataPelajaran: string,
   kelas: string,
-  semester: string
+  semester: string,
+  profile?: AcademicProfileLike
 ): void {
   try {
+    const rawV2 = localStorage.getItem(CUSTOM_TP_STORAGE_V2_KEY);
+    if (rawV2) {
+      const v2Map: Record<string, CustomTPItem[]> = JSON.parse(rawV2);
+      const v2Key = buildCustomTPScopeKey({
+        ...(profile || {}),
+        mataPelajaranUtama: mataPelajaran,
+        kelasUtama: kelas,
+        semester,
+      });
+      delete v2Map[v2Key];
+      localStorage.setItem(CUSTOM_TP_STORAGE_V2_KEY, JSON.stringify(v2Map));
+    }
+
     const raw = localStorage.getItem(CUSTOM_TP_STORAGE_KEY);
-    if (!raw) return;
-    const allMap: Record<string, CustomTPItem[]> = JSON.parse(raw);
-    const key = getCustomTPStorageKey(mataPelajaran, kelas, semester);
-    delete allMap[key];
-    localStorage.setItem(CUSTOM_TP_STORAGE_KEY, JSON.stringify(allMap));
+    if (raw) {
+      const allMap: Record<string, CustomTPItem[]> = JSON.parse(raw);
+      const legacyKey = getCustomTPStorageKey(mataPelajaran, kelas, semester);
+      delete allMap[legacyKey];
+      localStorage.setItem(CUSTOM_TP_STORAGE_KEY, JSON.stringify(allMap));
+    }
   } catch {
     // ignore
   }
@@ -277,11 +377,15 @@ export function resetCustomTPList(
 const ALLOWED_BACKUP_PREFIXES = [
   PROFILE_STORAGE_KEY,
   CUSTOM_TP_STORAGE_KEY,
+  CUSTOM_TP_STORAGE_V2_KEY,
   ONBOARDING_CONFIRMED_KEY,
   'asesmerdeka_harian_',
+  'asesmerdeka_supervisi_',
   'asesmerdeka_bank_soal',
   'asesmerdeka_bank_rangkuman',
+  'modul_ajar_',
   'lkpd_',
+  ...V2_BACKUP_STORAGE_PREFIXES,
 ];
 
 function isAllowedBackupKey(key: string): boolean {
@@ -317,28 +421,40 @@ export function exportBackupDataJson(): string {
 
 export function markSavedLKPDDraftsNeedsReview(
   tpId: string,
-  latestTP: CustomTPItem
+  latestTP: CustomTPItem,
+  profile?: AcademicProfileLike
 ): number {
   let updatedCount = 0;
   try {
     if (typeof localStorage === 'undefined') return 0;
-    const prefix = `lkpd_${tpId}_`;
+    const legacyPrefix = `lkpd_${tpId}_`;
+    const normTpMarker = `__tp_${normalizeNamespaceSegment(tpId, 'tp')}__pst_`;
     const newHash = computeTPContentHash(latestTP);
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith(prefix)) {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        try {
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === 'object' && parsed.tpSourceHash !== newHash) {
-            parsed.needsReview = true;
-            localStorage.setItem(key, JSON.stringify(parsed));
-            updatedCount++;
-          }
-        } catch {
-          // ignore malformed saved draft
+      if (!key) continue;
+      const matchesLegacy = key.startsWith(legacyPrefix);
+      const matchesV2 = key.startsWith('asesmerdeka_lkpd_v2__') && key.includes(normTpMarker);
+      if (!matchesLegacy && !matchesV2) continue;
+
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      try {
+        const parsed = JSON.parse(raw);
+        if (
+          profile?.mataPelajaranUtama &&
+          parsed?.mataPelajaran &&
+          parsed.mataPelajaran.trim().toLowerCase() !== profile.mataPelajaranUtama.trim().toLowerCase()
+        ) {
+          continue;
         }
+        if (parsed && typeof parsed === 'object' && parsed.tpSourceHash !== newHash) {
+          parsed.needsReview = true;
+          localStorage.setItem(key, JSON.stringify(parsed));
+          updatedCount++;
+        }
+      } catch {
+        // ignore malformed saved draft
       }
     }
   } catch {
