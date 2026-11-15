@@ -52,6 +52,10 @@ class UpstashDiagnosticSimulator {
   commands: string[][] = [];
   outageMode = false;
   corruptGetOnce = false;
+  keepAfterDel = false;
+  forcedHttpStatusByOp: Record<string, number> = {};
+  forcedResultByOp: Record<string, unknown> = {};
+  timeoutOps = new Set<string>();
 
   async handleFetch(url: string, init?: RequestInit): Promise<Response> {
     if (url !== REDIS_URL) {
@@ -67,6 +71,24 @@ class UpstashDiagnosticSimulator {
     const cmd = JSON.parse(String(init?.body || '[]')) as string[];
     this.commands.push(cmd);
     const op = String(cmd[0] || '').toUpperCase();
+
+    if (this.timeoutOps.has(op)) {
+      const timeoutErr = new Error(`Request timed out contacting ${REDIS_URL} with ${REDIS_TOKEN}`);
+      timeoutErr.name = 'AbortError';
+      throw timeoutErr;
+    }
+
+    if (this.forcedHttpStatusByOp[op]) {
+      const code = this.forcedHttpStatusByOp[op];
+      return new Response(
+        JSON.stringify({ error: `Upstream rejected ${op} token=${REDIS_TOKEN}` }),
+        { status: code }
+      );
+    }
+
+    if (Object.prototype.hasOwnProperty.call(this.forcedResultByOp, op)) {
+      return new Response(JSON.stringify({ result: this.forcedResultByOp[op] }), { status: 200 });
+    }
 
     if (op === 'PING') {
       return new Response(JSON.stringify({ result: 'PONG' }), { status: 200 });
@@ -89,6 +111,9 @@ class UpstashDiagnosticSimulator {
     }
     if (op === 'DEL') {
       const key = String(cmd[1] || '');
+      if (this.keepAfterDel) {
+        return new Response(JSON.stringify({ result: 1 }), { status: 200 });
+      }
       const deleted = this.kv.delete(key) ? 1 : 0;
       return new Response(JSON.stringify({ result: deleted }), { status: 200 });
     }
@@ -120,6 +145,7 @@ describe('Task 7.1.3A — Staging Redis Diagnostics Endpoint & Security Guards',
   afterEach(() => {
     globalThis.fetch = originalFetch;
     process.env = { ...envBackup };
+    vi.restoreAllMocks();
   });
 
   it('1. Environment guard selalu mengembalikan HTTP 404 di Production maupun environment non-preview', async () => {
@@ -215,7 +241,8 @@ describe('Task 7.1.3A — Staging Redis Diagnostics Endpoint & Security Guards',
       headers: { authorization: `Bearer ${CRON_SECRET}` },
     });
     expect(mismatchRes.statusCode).toBe(502);
-    expect(mismatchRes.body.reason).toBe('REDIS_GET_MISMATCH');
+    expect(mismatchRes.body.reason).toBe('REDIS_VALUE_MISMATCH');
+    expect(mismatchRes.body.stage).toBe('redis_compare');
     expect(sim.kv.size).toBe(0);
     expect(sim.commands.map((c) => c[0])).toEqual(['PING', 'SET', 'GET', 'DEL']);
 
@@ -224,7 +251,8 @@ describe('Task 7.1.3A — Staging Redis Diagnostics Endpoint & Security Guards',
       headers: { authorization: `Bearer ${CRON_SECRET}` },
     });
     expect(outageRes.statusCode).toBe(503);
-    expect(outageRes.body.reason).toBe('REDIS_UNAVAILABLE');
+    expect(outageRes.body.reason).toBe('REDIS_PING_FAILED');
+    expect(outageRes.body.stage).toBe('redis_ping');
     const serializedOutage = JSON.stringify(outageRes.body);
     expect(serializedOutage).not.toContain(REDIS_URL);
     expect(serializedOutage).not.toContain(REDIS_TOKEN);
@@ -235,6 +263,7 @@ describe('Task 7.1.3A — Staging Redis Diagnostics Endpoint & Security Guards',
       headers: { authorization: `Bearer ${CRON_SECRET}` },
     });
     expect(missingEnvRes.statusCode).toBe(503);
+    expect(missingEnvRes.body.reason).toBe('REDIS_CREDENTIALS_NOT_CONFIGURED');
     expect(missingEnvRes.body.redisCredentialsConfigured).toBe(false);
   });
 
@@ -250,5 +279,174 @@ describe('Task 7.1.3A — Staging Redis Diagnostics Endpoint & Security Guards',
     });
     expect(cronRes.statusCode).toBe(503);
     expect(cronRes.body.reason).toBe('REDIS_UNAVAILABLE');
+  });
+
+  it('6. Skema redis:// non-HTTPS dan pasangan UPSTASH parsial ditolak sebelum fetch (tidak cross-fallback KV_*)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    // Case A: redis:// TCP URL instead of https:// REST URL
+    process.env.UPSTASH_REDIS_REST_URL = 'redis://default:tcp-secret@example.upstash.io:6379';
+    const tcpSchemeRes = await invokeHandler(diagnosticsHandler, {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(tcpSchemeRes.statusCode).toBe(503);
+    expect(tcpSchemeRes.body.reason).toBe('REDIS_CREDENTIALS_NOT_CONFIGURED');
+    expect(tcpSchemeRes.body.stage).toBe('redis_url_check');
+    expect(tcpSchemeRes.body.urlScheme).toBe('redis:');
+    expect(sim.commands).toHaveLength(0);
+
+    // Case B: partial UPSTASH pair with KV_REST_API_* present must NOT silently mask missing Upstash token
+    process.env.UPSTASH_REDIS_REST_URL = REDIS_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    process.env.KV_REST_API_URL = 'https://kv-should-not-mask.upstash.test';
+    process.env.KV_REST_API_TOKEN = 'kv-token-should-not-mask';
+
+    const partialRes = await invokeHandler(diagnosticsHandler, {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(partialRes.statusCode).toBe(503);
+    expect(partialRes.body.reason).toBe('REDIS_CREDENTIALS_NOT_CONFIGURED');
+    expect(partialRes.body.stage).toBe('redis_credentials_check');
+    expect(partialRes.body.redisCredentialsConfigured).toBe(false);
+    expect(partialRes.body.hasUpstashRestUrl).toBe(true);
+    expect(partialRes.body.hasUpstashRestToken).toBe(false);
+
+    const logText = errSpy.mock.calls.flat().join('\n');
+    expect(logText).not.toContain('tcp-secret');
+    expect(logText).not.toContain(REDIS_URL);
+    expect(logText).not.toContain(CRON_SECRET);
+  });
+
+  it('7. Upstash HTTP 401/403 mengembalikan 503 REDIS_PING_FAILED dan log terstruktur tanpa secret', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    for (const upstreamStatus of [401, 403]) {
+      sim.forcedHttpStatusByOp = { PING: upstreamStatus };
+      const res = await invokeHandler(diagnosticsHandler, {
+        headers: { authorization: `Bearer ${CRON_SECRET}` },
+      });
+      expect(res.statusCode).toBe(503);
+      expect(res.body.reason).toBe('REDIS_PING_FAILED');
+      expect(res.body.stage).toBe('redis_ping');
+      expect(res.body.upstreamHttpStatus).toBe(upstreamStatus);
+      expect(res.body.safeErrorCode).toBe(`UPSTREAM_HTTP_${upstreamStatus}`);
+
+      const combined = JSON.stringify(res.body) + errSpy.mock.calls.flat().join('\n');
+      expect(combined).not.toContain(REDIS_URL);
+      expect(combined).not.toContain(REDIS_TOKEN);
+      expect(combined).not.toContain(CRON_SECRET);
+    }
+  });
+
+  it('8. Upstash timeout mengembalikan 503 dengan safeErrorCode ETIMEDOUT dan stage spesifik', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sim.timeoutOps.add('PING');
+
+    const res = await invokeHandler(diagnosticsHandler, {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.body.reason).toBe('REDIS_PING_FAILED');
+    expect(res.body.stage).toBe('redis_ping');
+    expect(res.body.safeErrorCode).toBe('ETIMEDOUT');
+
+    const combined = JSON.stringify(res.body) + errSpy.mock.calls.flat().join('\n');
+    expect(combined).not.toContain(REDIS_URL);
+    expect(combined).not.toContain(REDIS_TOKEN);
+    expect(combined).not.toContain(CRON_SECRET);
+  });
+
+  it('9. PING berhasil lalu SET gagal (upstream 500 atau non-OK) mengembalikan REDIS_SET_FAILED', async () => {
+    sim.forcedHttpStatusByOp = { SET: 500 };
+    const upstreamFail = await invokeHandler(diagnosticsHandler, {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(upstreamFail.statusCode).toBe(503);
+    expect(upstreamFail.body.reason).toBe('REDIS_SET_FAILED');
+    expect(upstreamFail.body.stage).toBe('redis_set');
+    expect(upstreamFail.body.upstreamHttpStatus).toBe(500);
+    expect(sim.commands.map((c) => c[0])).toEqual(['PING', 'SET']);
+
+    sim.commands = [];
+    sim.forcedHttpStatusByOp = {};
+    sim.forcedResultByOp = { SET: 'ERR_NOT_OK' };
+    const badReply = await invokeHandler(diagnosticsHandler, {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(badReply.statusCode).toBe(502);
+    expect(badReply.body.reason).toBe('REDIS_SET_FAILED');
+    expect(badReply.body.stage).toBe('redis_set');
+  });
+
+  it('10. GET gagal upstream mengembalikan 503 REDIS_GET_FAILED dan finally cleanup tetap menghapus key', async () => {
+    sim.forcedHttpStatusByOp = { GET: 502 };
+    const res = await invokeHandler(diagnosticsHandler, {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.body.reason).toBe('REDIS_GET_FAILED');
+    expect(res.body.stage).toBe('redis_get');
+    expect(res.body.upstreamHttpStatus).toBe(502);
+    expect(sim.kv.size).toBe(0);
+    expect(sim.commands.map((c) => c[0])).toEqual(['PING', 'SET', 'GET', 'DEL']);
+  });
+
+  it('11. DEL gagal (count !== 1 atau key masih terbaca) mengembalikan 502 REDIS_DELETE_FAILED', async () => {
+    sim.forcedResultByOp = { DEL: 0 };
+    const zeroDel = await invokeHandler(diagnosticsHandler, {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(zeroDel.statusCode).toBe(502);
+    expect(zeroDel.body.reason).toBe('REDIS_DELETE_FAILED');
+    expect(zeroDel.body.stage).toBe('redis_del');
+
+    sim.commands = [];
+    sim.forcedResultByOp = {};
+    sim.keepAfterDel = true;
+    const leftover = await invokeHandler(diagnosticsHandler, {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(leftover.statusCode).toBe(502);
+    expect(leftover.body.reason).toBe('REDIS_DELETE_FAILED');
+    expect(leftover.body.stage).toBe('redis_confirm_deleted');
+  });
+
+  it('12. Internal exception tak terduga mengembalikan 500 DIAGNOSTIC_INTERNAL_ERROR dengan nol kebocoran secret', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const faultyReq: Record<string, unknown> = {
+      method: 'GET',
+      url: '/api/diagnostics/staging-redis',
+      query: {},
+    };
+    Object.defineProperty(faultyReq, 'headers', {
+      get() {
+        throw new Error(`Unexpected crash url=${REDIS_URL} token=${REDIS_TOKEN} cron=${CRON_SECRET}`);
+      },
+    });
+    const out: MockResponse = { statusCode: 200, headers: {}, body: {} };
+    const res = {
+      setHeader(k: string, v: string) {
+        out.headers[k] = v;
+        return this;
+      },
+      status(code: number) {
+        out.statusCode = code;
+        return this;
+      },
+      json(payload: Record<string, unknown>) {
+        out.body = payload;
+        return this;
+      },
+    };
+
+    await diagnosticsHandler(faultyReq as never, res as never);
+
+    expect(out.statusCode).toBe(500);
+    expect(out.body.reason).toBe('DIAGNOSTIC_INTERNAL_ERROR');
+    expect(out.body.stage).toBe('auth_check');
+    const serialized = JSON.stringify(out.body) + errSpy.mock.calls.flat().join('\n');
+    expect(serialized).not.toContain(REDIS_URL);
+    expect(serialized).not.toContain(REDIS_TOKEN);
+    expect(serialized).not.toContain(CRON_SECRET);
   });
 });
