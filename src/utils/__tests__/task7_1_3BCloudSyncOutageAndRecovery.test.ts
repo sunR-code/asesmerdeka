@@ -72,11 +72,17 @@ import { LicenseModal } from '../../components/LicenseModal';
 // @ts-expect-error serverless JS handler tested directly with mock req/res
 import cloudSyncHandler, { clearCloudSyncRateLimitStore, clearLocalDevCloudSyncStore } from '../../../api/cloud-sync.js';
 // @ts-expect-error serverless JS store cleared for isolation
-import { localRevokedLicensesSet, localSeatMemoryStore } from '../../../api/activate-license.js';
+import activateLicenseHandler, {
+  generateStagingLicenseCode,
+  localRevokedLicensesSet,
+  localSeatMemoryStore,
+  localStagingRevokedLicensesSet,
+} from '../../../api/activate-license.js';
 
 const MOCK_REDIS_URL = 'https://staging-sim-redis.upstash.test';
 const MOCK_REDIS_TOKEN = 'synthetic-upstash-token-task713b-do-not-leak';
 const MOCK_PEPPER = 'Stg713B!CloudSyncPepper#2026_Entropy987654321';
+const MOCK_STAGING_SIGNING_SECRET = 'Task713B2_StagingLicenseSigningSecret_32PlusChars_OK';
 
 type RedisFailureMode = 'normal' | 'timeout' | 'http_401' | 'http_403' | 'http_500' | 'corrupt_endpoint_200';
 
@@ -252,6 +258,47 @@ async function invokeCloudSyncApi(body: Record<string, unknown>, ip = '10.71.3.2
   return { statusCode, body: responseBody, headers };
 }
 
+async function invokeActivateLicenseApi(body: Record<string, unknown>, ip = '10.71.3.20') {
+  let statusCode = 200;
+  let responseBody: Record<string, unknown> = {};
+  const headers: Record<string, string> = {};
+  const req = {
+    method: 'POST',
+    headers: { 'x-forwarded-for': ip },
+    body,
+  };
+  const res = {
+    setHeader(k: string, v: string) {
+      headers[k] = v;
+      return this;
+    },
+    status(code: number) {
+      statusCode = code;
+      return this;
+    },
+    json(payload: Record<string, unknown>) {
+      responseBody = payload;
+      return this;
+    },
+  };
+  const savedRedisUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const savedRedisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  delete process.env.UPSTASH_REDIS_REST_URL;
+  delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  try {
+    await activateLicenseHandler(req, res);
+  } finally {
+    if (savedRedisUrl !== undefined) process.env.UPSTASH_REDIS_REST_URL = savedRedisUrl;
+    if (savedRedisToken !== undefined) process.env.UPSTASH_REDIS_REST_TOKEN = savedRedisToken;
+  }
+  return { statusCode, body: responseBody, headers };
+}
+
+async function activateStagingLicenseForTest(code: string) {
+  await licenseManager.verifyMayarLicenseOnline(code);
+  return licenseManager.activateLicense(code);
+}
+
 function seedSyntheticWorkspace(suffix = '001') {
   const profile: SchoolProfile = {
     schoolId: `sch_staging_713b_${suffix}`,
@@ -331,6 +378,7 @@ describe('Task 7.1.3B — Live Contract Audit, Outage & Recovery Matrix, dan Syn
     clearLocalDevCloudSyncStore();
     clearCloudSyncRateLimitStore();
     localRevokedLicensesSet.clear();
+    localStagingRevokedLicensesSet.clear();
     localSeatMemoryStore.clear();
 
     sim = new SimulatedUpstashStore();
@@ -339,9 +387,18 @@ describe('Task 7.1.3B — Live Contract Audit, Outage & Recovery Matrix, dan Syn
     process.env.UPSTASH_REDIS_REST_URL = MOCK_REDIS_URL;
     process.env.UPSTASH_REDIS_REST_TOKEN = MOCK_REDIS_TOKEN;
     process.env.CLOUD_SYNC_PIN_PEPPER = MOCK_PEPPER;
+    process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = MOCK_STAGING_SIGNING_SECRET;
 
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const urlStr = String(input);
+      if (urlStr === '/api/activate-license') {
+        const payload = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        const out = await invokeActivateLicenseApi(payload);
+        return new Response(JSON.stringify(out.body), {
+          status: out.statusCode,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (urlStr === '/api/cloud-sync') {
         if (sim.mode === 'corrupt_endpoint_200') {
           return new Response('<html>502 Corrupted Proxy Payload', {
@@ -370,10 +427,10 @@ describe('Task 7.1.3B — Live Contract Audit, Outage & Recovery Matrix, dan Syn
   });
 
   it('Skenario A, B, C, D, G (Synthetic Harness): Upload -> Cross-session clean restore -> Konflik OCC 409 -> Merge Safe -> Data lokal utuh', async () => {
-    const schoolLicense = licenseManager.computeSerialLicenseCode('SEKOLAH713B');
+    const schoolLicense = generateStagingLicenseCode('SK26', 'SEKOLAH713B');
     const pinGuru = 'GURU_UJI_STAGING:STG99';
     localStorage.setItem('asesmerdeka_device_id', 'DEV-STAGING-LAPTOP');
-    licenseManager.activateLicense(schoolLicense);
+    await activateStagingLicenseForTest(schoolLicense);
     saveTeacherSyncPin(pinGuru);
     localStorage.setItem('unrelated_user_note', 'keep-untouched-local-preference');
 
@@ -401,7 +458,7 @@ describe('Task 7.1.3B — Live Contract Audit, Outage & Recovery Matrix, dan Syn
     clearLocalDevCloudSyncStore();
     localStorage.clear();
     localStorage.setItem('asesmerdeka_device_id', 'DEV-STAGING-HP');
-    licenseManager.activateLicense(schoolLicense);
+    await activateStagingLicenseForTest(schoolLicense);
     saveTeacherSyncPin(pinGuru);
 
     // B & C. Cross-session clean Pull Restore
@@ -470,9 +527,9 @@ describe('Task 7.1.3B — Live Contract Audit, Outage & Recovery Matrix, dan Syn
   });
 
   it('Skenario E & F: User isolation lintas akun/PIN dan penolakan akses tidak sah tanpa kebocoran data', async () => {
-    const schoolLicense = licenseManager.computeSerialLicenseCode('SEKOLAHISO713B');
-    const indivA = licenseManager.computeSerialLicenseCode('STGUSERA713B');
-    const indivB = licenseManager.computeSerialLicenseCode('STGUSERB713B');
+    const schoolLicense = generateStagingLicenseCode('SK26', 'SEKOLAHISO713B');
+    const indivA = generateStagingLicenseCode('GM26', 'STGUSERA713B');
+    const indivB = generateStagingLicenseCode('GM26', 'STGUSERB713B');
 
     // Seed User A and User B on school license + separate individual licenses
     const pushUserA = await invokeCloudSyncApi({
@@ -558,9 +615,9 @@ describe('Task 7.1.3B — Live Contract Audit, Outage & Recovery Matrix, dan Syn
   });
 
   it('Section 4 Outage & Recovery: Timeout, HTTP 401/403, HTTP 5xx, Corrupt Payload, & Recovery aman tanpa hilang data lokal', async () => {
-    const license = licenseManager.computeSerialLicenseCode('OUTAGE713B');
+    const license = generateStagingLicenseCode('GM26', 'OUTAGE713B');
     localStorage.setItem('asesmerdeka_device_id', 'DEV-OUTAGE-TEST');
-    licenseManager.activateLicense(license);
+    await activateStagingLicenseForTest(license);
     seedSyntheticWorkspace('OUT');
 
     // Seed initial Rev #1 while healthy
@@ -612,7 +669,7 @@ describe('Task 7.1.3B — Live Contract Audit, Outage & Recovery Matrix, dan Syn
     expect(getCloudSyncUiStatus()).toBe('synced');
   });
 
-  it('Section 5 UI Status Fidelity: TopHeader & LicenseModal menampilkan seluruh indikator jujur (tidak pernah klaim Tersinkron saat error/unconfigured)', () => {
+  it('Section 5 UI Status Fidelity: TopHeader & LicenseModal menampilkan seluruh indikator jujur (tidak pernah klaim Tersinkron saat error/unconfigured)', async () => {
     const profile = getSchoolProfile();
     const expectedLabels: Array<[HonestCloudStatus, string]> = [
       ['local', 'Tersimpan lokal'],
@@ -639,9 +696,9 @@ describe('Task 7.1.3B — Live Contract Audit, Outage & Recovery Matrix, dan Syn
     }
 
     // Render LicenseModal when cloudConfigured=true and lastSyncAt present vs sync_error
-    const lic = licenseManager.computeSerialLicenseCode('UICHECK713B');
+    const lic = generateStagingLicenseCode('GM26', 'UICHECK713B');
     localStorage.setItem('asesmerdeka_device_id', 'DEV-UI-1');
-    licenseManager.activateLicense(lic);
+    await activateStagingLicenseForTest(lic);
     localStorage.setItem('asesmerdeka_cloud_configured_v1', 'true');
     localStorage.setItem('asesmerdeka_cloud_last_sync_at_v1', '2026-11-15T10:00:00.000Z');
     localStorage.setItem('asesmerdeka_cloud_last_sync_error_v1', 'true');

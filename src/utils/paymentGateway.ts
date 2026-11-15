@@ -510,7 +510,11 @@ export function applyPaymentGatewayCallback(
   const expectSchool = session.planId === 'pro_sekolah' || session.planId === 'sekolah_pro';
   const txIsSchool = serverTx.planType === 'sekolah' || serverTx.planType === 'sekolah_pro';
   const cleanCode = normalizeLicenseCodeInput(callback.licenseCode || serverTx.licenseCode || '');
-  const codeIsSchool = cleanCode.startsWith('ASM-SK26-') || cleanCode.startsWith('ASM-SP26-');
+  const codeIsSchool =
+    cleanCode.startsWith('ASM-SK26-') ||
+    cleanCode.startsWith('ASM-SP26-') ||
+    cleanCode.startsWith('ASM-STG1-SK26-') ||
+    cleanCode.startsWith('ASM-STG1-SP26-');
   if (expectSchool !== txIsSchool || (cleanCode && expectSchool !== codeIsSchool)) {
     return {
       ok: false,

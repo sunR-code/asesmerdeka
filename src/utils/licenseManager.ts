@@ -432,6 +432,22 @@ export function normalizeLicenseCodeInput(rawCode: string): string {
     .toUpperCase();
 }
 
+export function isStagingLicenseCodeFormat(rawCode: string): boolean {
+  const cleanCode = normalizeLicenseCodeInput(rawCode);
+  const parts = cleanCode.split('-');
+  return parts.length === 5 && parts[0] === 'ASM' && /^STG[A-Z0-9]*$/.test(parts[1]);
+}
+
+export function extractPlanPrefixFromLicenseCode(rawCode: string): string {
+  const cleanCode = normalizeLicenseCodeInput(rawCode);
+  const parts = cleanCode.split('-');
+  if (parts.length !== 5 || parts[0] !== 'ASM') return '';
+  if (/^STG[A-Z0-9]*$/.test(parts[1])) {
+    return parts[2] || '';
+  }
+  return parts[1] || '';
+}
+
 export function getMaxDevicesForLicenseCode(rawCode: string): number {
   const cleanCode = normalizeLicenseCodeInput(rawCode);
 
@@ -443,12 +459,12 @@ export function getMaxDevicesForLicenseCode(rawCode: string): number {
 
   const parts = cleanCode.split('-');
 
-  // Format Terenkripsi Baru: ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG>
-  if (parts.length === 5 && parts[0] === 'ASM') {
-    const prefix = parts[1];
-    if (prefix === 'SL26') return 1;
-    if (prefix === 'SK26' || prefix === 'SP26') return DEFAULT_SEKOLAH_MAX_DEVICES;
-    if (prefix === 'GM26' || prefix === 'GP26') return getConfiguredIndividuMaxDevices();
+  // Format Terenkripsi Baru: ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG> atau ASM-STG1-<PREFIX>-<NONCE8>-<SIG16>
+  const planPrefix = extractPlanPrefixFromLicenseCode(cleanCode);
+  if (planPrefix) {
+    if (planPrefix === 'SL26') return 1;
+    if (planPrefix === 'SK26' || planPrefix === 'SP26') return DEFAULT_SEKOLAH_MAX_DEVICES;
+    if (planPrefix === 'GM26' || planPrefix === 'GP26') return getConfiguredIndividuMaxDevices();
   }
 
   // Format 3 segmen adalah kode kunci 1 perangkat (ASM-DV26-XXXXXX)
@@ -463,9 +479,9 @@ export function isCollectiveSchoolLicenseCode(rawCode: string): boolean {
   const cleanCode = normalizeLicenseCodeInput(rawCode);
   const mayarInfo = getMayarVerifiedCodeInfo(cleanCode);
   if (mayarInfo?.planType === 'sekolah') return true;
-  const parts = cleanCode.split('-');
-  if (parts.length === 5 && parts[0] === 'ASM') {
-    return parts[1] === 'SK26' || parts[1] === 'SP26';
+  const planPrefix = extractPlanPrefixFromLicenseCode(cleanCode);
+  if (planPrefix) {
+    return planPrefix === 'SK26' || planPrefix === 'SP26';
   }
   return cleanCode.includes('SEKOLAH') || cleanCode.includes('SMAN') || cleanCode.includes('SMPN') || cleanCode.includes('SDN');
 }
@@ -1268,7 +1284,13 @@ export function isValidLicenseCode(rawCode: string, deviceId: string): boolean {
     return true;
   }
 
-  // 2. Cek format terenkripsi baru: ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG>
+  // 2A. Kode lisensi staging (ASM-STG1-*) TIDAK pernah lolos validasi kripto offline client;
+  // wajib melalui verifikasi server (/api/activate-license) yang menyimpan bukti Mayar/server per perangkat.
+  if (isStagingLicenseCodeFormat(cleanCode)) {
+    return isMayarVerifiedCodeForDevice(cleanCode, deviceId.trim().toUpperCase());
+  }
+
+  // 2. Cek format terenkripsi baru (Production/Legacy): ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG>
   const parts = cleanCode.split('-');
   if (parts.length === 5 && parts[0] === 'ASM') {
     const prefix = parts[1];
@@ -1702,23 +1724,24 @@ export function activateLicense(
     };
   }
 
-  // Deteksi Tier Lisensi dari jenis kode
+  // Deteksi Tier Lisensi dari jenis kode (mendukung format Production & Staging ASM-STG1-*)
+  const tierPlanPrefix = extractPlanPrefixFromLicenseCode(cleanCode);
   let targetTier: LicenseTier = 'guru';
   if (
-    cleanCode.startsWith('ASM-SP26-') ||
+    tierPlanPrefix === 'SP26' ||
     cleanCode.includes('SEKOLAH-PRO') ||
     cleanCode.includes('SCH-PRO')
   ) {
     targetTier = 'sekolah_pro';
   } else if (
-    cleanCode.startsWith('ASM-GP26-') ||
+    tierPlanPrefix === 'GP26' ||
     cleanCode.includes('PRO-AI') ||
     cleanCode.includes('PLUS') ||
     cleanCode.includes('GURU-PRO')
   ) {
     targetTier = 'pro';
   } else if (
-    cleanCode.startsWith('ASM-SK26-') ||
+    tierPlanPrefix === 'SK26' ||
     seatCheck.maxSeats > 5 ||
     cleanCode.includes('SEKOLAH') ||
     cleanCode.includes('SMAN') ||

@@ -647,6 +647,8 @@ export function isSchoolCollectiveLicenseCode(rawCode?: string): boolean {
   return (
     clean.startsWith('ASM-SK26-') ||
     clean.startsWith('ASM-SP26-') ||
+    clean.startsWith('ASM-STG1-SK26-') ||
+    clean.startsWith('ASM-STG1-SP26-') ||
     clean.includes('SEKOLAH') ||
     clean.includes('SMAN') ||
     clean.includes('SMPN') ||

@@ -9,6 +9,8 @@ import {
   getRedisCredentials,
   isLicenseRevokedInRedis,
   verifyInternalSerialOrDeviceCode,
+  validateLicenseEnvironmentBoundary,
+  resolveLicenseRuntimeEnvironment,
 } from './activate-license.js';
 import { OFFICIAL_SEEDED_LICENSES } from './officialSeeds.js';
 
@@ -167,7 +169,10 @@ function isAuthorizedLicense(code, deviceId) {
     .replace(/[^A-Za-z0-9-]/g, '')
     .toUpperCase();
   if (!cleanCode) return false;
+  const envCheck = validateLicenseEnvironmentBoundary(cleanCode, null);
+  if (!envCheck.allowed) return false;
   if (verifyInternalSerialOrDeviceCode(cleanCode, deviceId)) return true;
+  if (resolveLicenseRuntimeEnvironment() === 'preview') return false;
   if (OFFICIAL_SEEDED_LICENSES.some((l) => l.code === cleanCode)) return true;
   return false;
 }

@@ -12,6 +12,7 @@ import {
   buildWebhookTxKey,
   enqueueReconcileJob,
   evalRedisScript,
+  extractLicensePlanPrefix,
   generateOrderLicenseCodeServer,
   getOrderIdByMayarInvoiceId,
   getPaymentOrderRecord,
@@ -22,6 +23,7 @@ import {
   getWebhookEventRecord,
   getWebhookTransactionRecord,
   isLicenseRevokedInRedis,
+  isStagingLicenseCode,
   localMayarInvoiceIndexStore,
   localReconcileQueueStore,
   localWebhookAuditLog,
@@ -36,6 +38,7 @@ import {
   saveSeatRecordToRedis,
   saveWebhookEventRecord,
   saveWebhookTransactionRecord,
+  validateLicenseEnvironmentBoundary,
   verifyInternalSerialOrDeviceCode,
   withDistributedLock,
 } from './activate-license.js';
@@ -199,6 +202,7 @@ local computedLifecycle = (#preservedDevices > 0) and 'active' or 'paid'
 seatObj.licenseCode = seatPatch.licenseCode
 seatObj.planType = seatPatch.planType
 seatObj.tier = seatPatch.tier
+if seatPatch.environment and seatPatch.environment ~= '' then seatObj.environment = seatPatch.environment end
 seatObj.maxSeats = seatObj.maxSeats or seatPatch.maxSeats
 seatObj.devices = preservedDevices
 if seatPatch.hasExpiresAt then seatObj.expiresAt = seatPatch.expiresAt end
@@ -846,8 +850,8 @@ function resolvePlanMetadata({
   const { individuProductId, schoolProductId } = getConfiguredMayarProductIds();
   const normalizedName = String(productName || '').trim().toLowerCase();
   const cleanLicenseUpper = String(rawLicenseCode || '').trim().toUpperCase();
-  const licenseCodeIsSchool =
-    cleanLicenseUpper.startsWith('ASM-SK26-') || cleanLicenseUpper.startsWith('ASM-SP26-');
+  const planPrefix = extractLicensePlanPrefix(cleanLicenseUpper);
+  const licenseCodeIsSchool = planPrefix === 'SK26' || planPrefix === 'SP26';
 
   const isSchool =
     serverOrder?.planType === 'sekolah' ||
@@ -857,14 +861,13 @@ function resolvePlanMetadata({
     productId === schoolProductId ||
     licenseCodeIsSchool;
 
+  const codeIsProAi = planPrefix === 'GP26' || planPrefix === 'SP26';
   const isProAi =
     serverOrder?.planType === 'pro' ||
     serverOrder?.planType === 'sekolah_pro' ||
     (normalizedName.includes('pro') && !normalizedName.includes('guru mandiri')
-      ? normalizedName.includes('ai') ||
-        cleanLicenseUpper.startsWith('ASM-GP26-') ||
-        cleanLicenseUpper.startsWith('ASM-SP26-')
-      : cleanLicenseUpper.startsWith('ASM-GP26-') || cleanLicenseUpper.startsWith('ASM-SP26-'));
+      ? normalizedName.includes('ai') || codeIsProAi
+      : codeIsProAi);
 
   const planType = isSchool
     ? isProAi
@@ -1197,6 +1200,34 @@ async function commitAuthorizedSettlement({
       throw new FencedWriteConflictError();
     }
 
+    const envCheck = validateLicenseEnvironmentBoundary(cleanCode, existingSeatRecord);
+    if (!envCheck.allowed) {
+      return {
+        httpStatus: envCheck.status || 403,
+        body: {
+          ok: false,
+          activated: false,
+          idempotencyStatus: 'terminal_rejected',
+          forbiddenEnvironment: true,
+          reason: envCheck.reason,
+          message: envCheck.message,
+        },
+      };
+    }
+
+    if (isStagingLicenseCode(cleanCode) && !verifyInternalSerialOrDeviceCode(cleanCode)) {
+      return {
+        httpStatus: 403,
+        body: {
+          ok: false,
+          activated: false,
+          idempotencyStatus: 'terminal_rejected',
+          reason: 'INVALID_STAGING_LICENSE_SIGNATURE',
+          message: `Tanda tangan kriptografi lisensi staging ${cleanCode} tidak valid.`,
+        },
+      };
+    }
+
     const txFullyCommitted = Boolean(
       existingTx &&
         existingTx.status === 'paid' &&
@@ -1369,11 +1400,15 @@ async function commitAuthorizedSettlement({
       : null;
 
     const { configured: redisConfigured } = getRedisCredentials();
+    const licenseEnv = isStagingLicenseCode(cleanCode)
+      ? 'staging'
+      : existingSeatRecord?.environment || 'production';
     if (redisConfigured) {
       const seatPatch = {
         licenseCode: cleanCode,
         planType,
         tier,
+        environment: licenseEnv,
         maxSeats: effectiveMaxSeats,
         hasExpiresAt: Boolean(expiresAt),
         expiresAt: expiresAt || null,
@@ -1397,6 +1432,7 @@ async function commitAuthorizedSettlement({
           label: buyerLabel,
           planType: resolvedPlanType,
           tier,
+          environment: licenseEnv,
           maxSeats: effectiveMaxSeats,
           createdAt: nowIso,
           updatedAt: nowIso,
@@ -1537,6 +1573,7 @@ async function commitAuthorizedSettlement({
         licenseCode: cleanCode,
         planType,
         tier,
+        environment: licenseEnv,
         maxSeats: effectiveMaxSeats,
         devices: preservedDevices,
         ...(preservedTeacherSeats ? { teacherSeats: preservedTeacherSeats } : {}),
@@ -2140,6 +2177,30 @@ export default async function handler(req, res) {
         ''
     ).trim();
 
+    if (extractLicenseCandidate) {
+      const candidateCode = normalizeLicenseCode(extractLicenseCandidate);
+      const candidateEnvCheck = validateLicenseEnvironmentBoundary(candidateCode, null);
+      if (!candidateEnvCheck.allowed) {
+        return res.status(candidateEnvCheck.status || 403).json({
+          ok: false,
+          activated: false,
+          idempotencyStatus: 'terminal_rejected',
+          forbiddenEnvironment: true,
+          reason: candidateEnvCheck.reason,
+          message: candidateEnvCheck.message,
+        });
+      }
+      if (isStagingLicenseCode(candidateCode) && !verifyInternalSerialOrDeviceCode(candidateCode)) {
+        return res.status(403).json({
+          ok: false,
+          activated: false,
+          idempotencyStatus: 'terminal_rejected',
+          reason: 'INVALID_STAGING_LICENSE_SIGNATURE',
+          message: `Tanda tangan kriptografi lisensi staging ${candidateCode} tidak valid.`,
+        });
+      }
+    }
+
     if (isFailedEvent) {
       if (effectiveInvoiceId) {
         const priorOrder = serverOrder || (await getPaymentOrderRecord(effectiveInvoiceId));
@@ -2158,16 +2219,21 @@ export default async function handler(req, res) {
       if (extractLicenseCandidate) {
         const cleanFailedCode = normalizeLicenseCode(extractLicenseCandidate);
         const priorSeat = await getSeatRecordFromRedis(cleanFailedCode);
+        const failedEnvCheck = validateLicenseEnvironmentBoundary(cleanFailedCode, priorSeat);
         if (
-          !priorSeat ||
-          (priorSeat.lifecycleState !== 'paid' &&
-            priorSeat.lifecycleState !== 'active' &&
-            (priorSeat.lifecycleState === 'pending_payment' ||
-              priorSeat.lifecycleState === 'payment_failed'))
+          failedEnvCheck.allowed &&
+          (!priorSeat ||
+            (priorSeat.lifecycleState !== 'paid' &&
+              priorSeat.lifecycleState !== 'active' &&
+              (priorSeat.lifecycleState === 'pending_payment' ||
+                priorSeat.lifecycleState === 'payment_failed')))
         ) {
           await saveSeatRecordToRedis(cleanFailedCode, {
             ...(priorSeat || {}),
             licenseCode: cleanFailedCode,
+            environment: isStagingLicenseCode(cleanFailedCode)
+              ? 'staging'
+              : priorSeat?.environment || 'production',
             devices: Array.isArray(priorSeat?.devices) ? priorSeat.devices : [],
             maxSeats: priorSeat?.maxSeats || 2,
             lifecycleState: 'payment_failed',

@@ -52,6 +52,240 @@ globalThis.__ASESMERDEKA_SERVER_PAYMENT_AUTHORITY__ = {
 };
 
 const MAX_DEVICES_PER_SCHOOL_TEACHER = 2;
+export const STAGING_LICENSE_FORMAT_VERSION = 'STG1';
+export const MIN_STAGING_SIGNING_SECRET_LENGTH = 32;
+
+const LEGACY_PLAN_PREFIXES = ['GM26', 'SK26', 'GP26', 'SP26', 'SL26'];
+const STAGING_PLAN_SPECS = {
+  GM26: { planType: 'individu', tier: 'guru', maxSeats: 2 },
+  SK26: { planType: 'sekolah', tier: 'sekolah', maxSeats: 25 },
+  GP26: { planType: 'individu', tier: 'pro', maxSeats: 2 },
+  SP26: { planType: 'sekolah_pro', tier: 'sekolah_pro', maxSeats: 25 },
+  SL26: { planType: 'individu', tier: 'guru', maxSeats: 1 },
+};
+
+const KNOWN_WEAK_SECRET_VALUES = new Set([
+  'changeme',
+  'change-me',
+  'default',
+  'dev-secret',
+  'dev-only-secret-change-in-production',
+  'staging-secret',
+  'staging-secret-placeholder',
+  'test-secret',
+  'secret',
+  'asesmerdeka_2026_master',
+  '4b3a2918_key',
+]);
+
+export function resolveLicenseRuntimeEnvironment() {
+  const vercelEnv = String(process.env.VERCEL_ENV || '').trim().toLowerCase();
+  const nodeEnv = String(process.env.NODE_ENV || '').trim().toLowerCase();
+  if (vercelEnv === 'production') return 'production';
+  if (vercelEnv === 'preview') return 'preview';
+  if (vercelEnv === 'development') return 'development';
+  if (nodeEnv === 'production') return 'production';
+  return 'local';
+}
+
+export function getStagingSigningSecretConfig() {
+  const secret = String(process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET || '').trim();
+  if (!secret) {
+    return { configured: false, reason: 'MISSING_SECRET' };
+  }
+  if (secret.length < MIN_STAGING_SIGNING_SECRET_LENGTH) {
+    return { configured: false, reason: 'SECRET_TOO_SHORT' };
+  }
+  const lowerSecret = secret.toLowerCase();
+  if (
+    KNOWN_WEAK_SECRET_VALUES.has(lowerSecret) ||
+    lowerSecret.includes('placeholder') ||
+    lowerSecret.includes('change-in-production') ||
+    lowerSecret.startsWith('dev-only') ||
+    new Set(secret).size < 6
+  ) {
+    return { configured: false, reason: 'WEAK_SECRET' };
+  }
+  return { configured: true, secret };
+}
+
+function timingSafeHexOrAsciiEqual(a, b) {
+  const strA = String(a || '');
+  const strB = String(b || '');
+  if (!strA || strA.length !== strB.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(strA, 'utf8'), Buffer.from(strB, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+function computeStagingLicenseHmac(secret, planPrefix, nonce, envClaim = 'staging') {
+  const canonicalPayload = `ASESMERDEKA:LICENSE:ENV_BOUND:V1|env=${envClaim}|plan=${planPrefix}|nonce=${nonce}`;
+  return crypto
+    .createHmac('sha256', secret)
+    .update(canonicalPayload, 'utf8')
+    .digest('hex')
+    .slice(0, 16)
+    .toUpperCase();
+}
+
+export function isStagingLicenseCode(rawCode) {
+  const cleanCode = normalizeLicenseCode(rawCode);
+  if (!cleanCode) return false;
+  const parts = cleanCode.split('-');
+  return parts[0] === 'ASM' && /^STG[A-Z0-9]*$/.test(parts[1] || '');
+}
+
+export function extractLicensePlanPrefix(rawCode) {
+  const cleanCode = normalizeLicenseCode(rawCode);
+  if (!cleanCode) return '';
+  const parts = cleanCode.split('-');
+  if (parts.length === 5 && parts[0] === 'ASM') {
+    if (/^STG[A-Z0-9]*$/.test(parts[1] || '')) {
+      return STAGING_PLAN_SPECS[parts[2]] ? parts[2] : '';
+    }
+    return LEGACY_PLAN_PREFIXES.includes(parts[1]) ? parts[1] : '';
+  }
+  return '';
+}
+
+export function generateStagingLicenseCode(planPrefix = 'GM26', deterministicSeed = '') {
+  const runtimeEnv = resolveLicenseRuntimeEnvironment();
+  if (runtimeEnv === 'production') {
+    const err = new Error('Pencetakan kode lisensi staging dilarang pada environment Production.');
+    err.statusCode = 403;
+    err.reason = 'STAGING_SIGNING_FORBIDDEN_IN_PRODUCTION';
+    throw err;
+  }
+
+  const secretCfg = getStagingSigningSecretConfig();
+  if (!secretCfg.configured) {
+    const err = new Error(
+      'ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET wajib dikonfigurasi (min. 32 karakter) untuk menerbitkan lisensi staging.'
+    );
+    err.statusCode = 503;
+    err.reason = 'STAGING_SIGNING_SECRET_NOT_CONFIGURED';
+    throw err;
+  }
+
+  const upperPrefix = String(planPrefix || 'GM26').trim().toUpperCase();
+  const cleanPlan = STAGING_PLAN_SPECS[upperPrefix] ? upperPrefix : 'GM26';
+  const cleanSeed = String(deterministicSeed || '').trim().toUpperCase();
+  const nonce = cleanSeed
+    ? crypto
+        .createHash('sha256')
+        .update(`ASM_STG1_NONCE:${cleanPlan}:${cleanSeed}`)
+        .digest('hex')
+        .slice(0, 8)
+        .toUpperCase()
+    : crypto.randomBytes(4).toString('hex').toUpperCase();
+
+  const sig = computeStagingLicenseHmac(secretCfg.secret, cleanPlan, nonce, 'staging');
+  return `ASM-${STAGING_LICENSE_FORMAT_VERSION}-${cleanPlan}-${nonce}-${sig}`;
+}
+
+export function verifyStagingLicenseCode(rawCode, options = {}) {
+  const runtimeEnv = options.runtimeEnv || resolveLicenseRuntimeEnvironment();
+  if (runtimeEnv === 'production') {
+    return null;
+  }
+
+  const cleanCode = normalizeLicenseCode(rawCode);
+  if (!cleanCode) return null;
+
+  const parts = cleanCode.split('-');
+  if (parts.length !== 5 || parts[0] !== 'ASM' || parts[1] !== STAGING_LICENSE_FORMAT_VERSION) {
+    return null;
+  }
+
+  const planPrefix = parts[2];
+  const nonce = parts[3];
+  const providedSig = parts[4];
+  const planSpec = STAGING_PLAN_SPECS[planPrefix];
+  if (!planSpec || !/^[A-Z0-9]{8}$/.test(nonce) || !/^[A-F0-9]{16}$/.test(providedSig)) {
+    return null;
+  }
+
+  const secretCfg = getStagingSigningSecretConfig();
+  if (!secretCfg.configured) {
+    return null;
+  }
+
+  const expectedSig = computeStagingLicenseHmac(secretCfg.secret, planPrefix, nonce, 'staging');
+  if (!timingSafeHexOrAsciiEqual(providedSig, expectedSig)) {
+    return null;
+  }
+
+  return {
+    valid: true,
+    planType: planSpec.planType,
+    tier: planSpec.tier,
+    maxSeats: planSpec.maxSeats,
+    prefix: planPrefix,
+    environment: 'staging',
+    formatVersion: STAGING_LICENSE_FORMAT_VERSION,
+  };
+}
+
+export function validateLicenseEnvironmentBoundary(rawCode, seatRecord = null, options = {}) {
+  const runtimeEnv = options.runtimeEnv || resolveLicenseRuntimeEnvironment();
+  const cleanCode = normalizeLicenseCode(rawCode);
+  const recordEnv = String(seatRecord?.environment || seatRecord?.licenseEnvironment || '')
+    .trim()
+    .toLowerCase();
+  const codeIsStaging = isStagingLicenseCode(cleanCode);
+
+  if (runtimeEnv === 'production') {
+    if (codeIsStaging || recordEnv === 'staging') {
+      return {
+        allowed: false,
+        status: 403,
+        reason: 'STAGING_LICENSE_FORBIDDEN_IN_PRODUCTION',
+        message: 'Kode lisensi lingkungan Staging/Preview ditolak pada sistem Production.',
+      };
+    }
+    return { allowed: true, runtimeEnv, expectedCodeEnv: 'production' };
+  }
+
+  if (runtimeEnv === 'preview') {
+    if ((cleanCode && !codeIsStaging) || recordEnv === 'production') {
+      return {
+        allowed: false,
+        status: 403,
+        reason: 'PRODUCTION_LICENSE_FORBIDDEN_IN_PREVIEW',
+        message:
+          'Lingkungan Preview Staging hanya menerima kode lisensi bertanda staging (ASM-STG1-...).',
+      };
+    }
+    if (!getStagingSigningSecretConfig().configured) {
+      return {
+        allowed: false,
+        status: 503,
+        reason: 'STAGING_SIGNING_SECRET_NOT_CONFIGURED',
+        message:
+          'ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET belum dikonfigurasi pada runtime Preview.',
+      };
+    }
+    return { allowed: true, runtimeEnv, expectedCodeEnv: 'staging' };
+  }
+
+  if (codeIsStaging && !getStagingSigningSecretConfig().configured) {
+    return {
+      allowed: false,
+      status: 503,
+      reason: 'STAGING_SIGNING_SECRET_NOT_CONFIGURED',
+      message:
+        'ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET wajib dikonfigurasi untuk memverifikasi kode staging.',
+    };
+  }
+
+  return {
+    allowed: true,
+    runtimeEnv,
+    expectedCodeEnv: codeIsStaging ? 'staging' : 'production',
+  };
+}
 
 function computeHash36(input) {
   let h1 = 0xdeadbeef ^ input.length;
@@ -86,11 +320,9 @@ export function isLicenseExpired(expiresAt, nowMs = Date.now()) {
 export function isSchoolLicenseCodeServer(cleanCode, maxSeats = 0, existingRecord = null) {
   if (Number(maxSeats) >= 25 || Number(existingRecord?.maxSeats) >= 25) return true;
   if (existingRecord?.planType === 'sekolah' || existingRecord?.planType === 'sekolah_pro') return true;
-  return (
-    cleanCode.startsWith('ASM-SK26-') ||
-    cleanCode.startsWith('ASM-SP26-') ||
-    cleanCode.includes('SEKOLAH')
-  );
+  const planPrefix = extractLicensePlanPrefix(cleanCode);
+  if (planPrefix === 'SK26' || planPrefix === 'SP26') return true;
+  return cleanCode.includes('SEKOLAH');
 }
 
 export function normalizeTeacherKeyServer(teacherPinOrId, deviceId) {
@@ -1224,6 +1456,11 @@ export function generateOrderLicenseCodeServer(planType, seedId) {
       ? 'GP26'
       : 'GM26';
   const cleanSeed = String(seedId || 'DEFAULT').trim().toUpperCase();
+
+  if (resolveLicenseRuntimeEnvironment() === 'preview') {
+    return generateStagingLicenseCode(prefix, `ORD_${cleanSeed}`);
+  }
+
   const cipher1 = computeHash36(`ASM_ORD_SEED_V1:${prefix}:${cleanSeed}`)
     .replace(/[^A-Z0-9]/g, '')
     .padStart(4, 'A')
@@ -1287,14 +1524,44 @@ export async function getVerifiedTxRecordForOrder(txId, invoiceId, orderRecord =
 }
 
 const REVOKED_REDIS_KEY = 'asesmerdeka:admin:revoked_licenses:v1';
+const REVOKED_STAGING_REDIS_KEY = 'asesmerdeka:admin:revoked_licenses:staging:v1';
 export const localRevokedLicensesSet = new Set();
+export const localStagingRevokedLicensesSet = new Set();
+
+function resolveRevocationScope(code) {
+  if (isStagingLicenseCode(code) || resolveLicenseRuntimeEnvironment() === 'preview') {
+    return {
+      isStagingScope: true,
+      redisKey: REVOKED_STAGING_REDIS_KEY,
+      localSet: localStagingRevokedLicensesSet,
+    };
+  }
+  return {
+    isStagingScope: false,
+    redisKey: REVOKED_REDIS_KEY,
+    localSet: localRevokedLicensesSet,
+  };
+}
 
 export async function isLicenseRevokedInRedis(cleanCode) {
   const code = normalizeLicenseCode(cleanCode);
   if (!code) return false;
 
-  if (localRevokedLicensesSet.has(code)) return true;
-  const localRegDeleted = localLicenseRegistryStore.some((l) => l.code === code && l.deleted);
+  const runtimeEnv = resolveLicenseRuntimeEnvironment();
+  // Pada Production, kode staging ditolak karena environment-bound, bukan karena pencabutan Production.
+  if (runtimeEnv === 'production' && isStagingLicenseCode(code)) {
+    return false;
+  }
+
+  const scope = resolveRevocationScope(code);
+  if (scope.localSet.has(code)) return true;
+
+  const localRegDeleted = localLicenseRegistryStore.some(
+    (l) =>
+      l.code === code &&
+      l.deleted &&
+      (!l.environment || l.environment === (scope.isStagingScope ? 'staging' : 'production'))
+  );
   if (localRegDeleted) return true;
 
   const { configured } = getRedisCredentials();
@@ -1302,8 +1569,8 @@ export async function isLicenseRevokedInRedis(cleanCode) {
     return false;
   }
 
-  // 1. Cek daftar hitam eksplisit (REVOKED_REDIS_KEY) — fail closed on Redis outage
-  const revokedRes = await fetchRedisJson(REVOKED_REDIS_KEY);
+  // 1. Cek daftar hitam eksplisit sesuai scope environment — fail closed on Redis outage
+  const revokedRes = await fetchRedisJson(scope.redisKey);
   if (Array.isArray(revokedRes.value) && revokedRes.value.includes(code)) {
     return true;
   }
@@ -1312,7 +1579,11 @@ export async function isLicenseRevokedInRedis(cleanCode) {
   const regRes = await fetchRedisJson(REGISTRY_REDIS_KEY);
   if (Array.isArray(regRes.value)) {
     const item = regRes.value.find((l) => l && l.code === code);
-    if (item && item.deleted) {
+    if (
+      item &&
+      item.deleted &&
+      (!item.environment || item.environment === (scope.isStagingScope ? 'staging' : 'production'))
+    ) {
       return true;
     }
   }
@@ -1324,27 +1595,55 @@ export async function revokeLicenseInRedis(cleanCode) {
   const code = normalizeLicenseCode(cleanCode);
   if (!code) return;
 
-  localRevokedLicensesSet.add(code);
+  const scope = resolveRevocationScope(code);
+  scope.localSet.add(code);
 
   const { configured } = getRedisCredentials();
   if (!configured) return;
 
-  const existingRes = await fetchRedisJson(REVOKED_REDIS_KEY);
+  const existingRes = await fetchRedisJson(scope.redisKey);
   const list = Array.isArray(existingRes.value) ? [...existingRes.value] : [];
   if (!list.includes(code)) {
     list.push(code);
   }
-  await writeRedisJson(REVOKED_REDIS_KEY, list);
+  await writeRedisJson(scope.redisKey, list);
 }
 
 export async function checkAndClaimServerSeat(cleanCode, deviceId, maxSeats, options = {}) {
+  const normalizedCode = normalizeLicenseCode(cleanCode);
+  const preEnvCheck = validateLicenseEnvironmentBoundary(normalizedCode, null);
+  if (!preEnvCheck.allowed) {
+    return {
+      allowed: false,
+      status: preEnvCheck.status || 403,
+      forbiddenEnvironment: true,
+      reason: preEnvCheck.reason,
+      usedSeats: 0,
+      maxSeats: Number(maxSeats) || 2,
+      message: preEnvCheck.message,
+    };
+  }
+
   const cleanDev = String(deviceId || '').trim().toUpperCase();
   const teacherPinOrId = String(options.teacherPin || options.teacherId || '').trim();
 
   return await withDistributedLock(
-    [`seat:${cleanCode}`],
+    [`seat:${normalizedCode}`],
     async ({ lockKeys, ownerToken, fenceToken }) => {
-      const existing = await getSeatRecordFromRedis(cleanCode);
+      const existing = await getSeatRecordFromRedis(normalizedCode);
+
+      const postEnvCheck = validateLicenseEnvironmentBoundary(normalizedCode, existing);
+      if (!postEnvCheck.allowed) {
+        return {
+          allowed: false,
+          status: postEnvCheck.status || 403,
+          forbiddenEnvironment: true,
+          reason: postEnvCheck.reason,
+          usedSeats: 0,
+          maxSeats: Number(existing?.maxSeats) || Number(maxSeats) || 2,
+          message: postEnvCheck.message,
+        };
+      }
 
       if (existing) {
         if (isLicenseExpired(existing.expiresAt)) {
@@ -1487,7 +1786,8 @@ export async function checkAndClaimServerSeat(cleanCode, deviceId, maxSeats, opt
 
           const updatedRecord = {
             ...(existing || {}),
-            licenseCode: cleanCode,
+            licenseCode: normalizedCode,
+            environment: isStagingLicenseCode(normalizedCode) ? 'staging' : existing?.environment || 'production',
             planType: existing?.planType || 'sekolah',
             maxSeats: effectiveMaxSeats,
             maxDevicesPerTeacher: MAX_DEVICES_PER_SCHOOL_TEACHER,
@@ -1571,7 +1871,8 @@ export async function checkAndClaimServerSeat(cleanCode, deviceId, maxSeats, opt
         const unionDevices = getActiveTeacherDevicesUnionServer(teacherSeats);
         const updatedRecord = {
           ...(existing || {}),
-          licenseCode: cleanCode,
+          licenseCode: normalizedCode,
+          environment: isStagingLicenseCode(normalizedCode) ? 'staging' : existing?.environment || 'production',
           planType: existing?.planType || 'sekolah',
           maxSeats: effectiveMaxSeats,
           maxDevicesPerTeacher: MAX_DEVICES_PER_SCHOOL_TEACHER,
@@ -1666,7 +1967,8 @@ export async function checkAndClaimServerSeat(cleanCode, deviceId, maxSeats, opt
       const nowIso = new Date().toISOString();
       const updatedRecord = {
         ...(existing || {}),
-        licenseCode: cleanCode,
+        licenseCode: normalizedCode,
+        environment: isStagingLicenseCode(normalizedCode) ? 'staging' : existing?.environment || 'production',
         maxSeats: effectiveMaxSeats,
         devices,
         usedSeats: devices.length,
@@ -1736,15 +2038,22 @@ export async function autoRegisterLicenseInAdminRegistry({
   const cleanCode = normalizeLicenseCode(code);
   if (!cleanCode) return;
 
+  const envCheck = validateLicenseEnvironmentBoundary(cleanCode, null);
+  if (!envCheck.allowed) {
+    return;
+  }
+  const codeEnvironment = isStagingLicenseCode(cleanCode) ? 'staging' : 'production';
+  const planPrefix = extractLicensePlanPrefix(cleanCode);
+
   const derivedPlanType =
     planType ||
-    (cleanCode.startsWith('ASM-SP26-')
+    (planPrefix === 'SP26'
       ? 'sekolah_pro'
-      : cleanCode.startsWith('ASM-SK26-') || maxSeats >= 25
+      : planPrefix === 'SK26' || maxSeats >= 25
       ? 'sekolah'
-      : cleanCode.startsWith('ASM-GP26-')
+      : planPrefix === 'GP26'
       ? 'pro'
-      : cleanCode.startsWith('ASM-SL26-')
+      : planPrefix === 'SL26'
       ? 'solo'
       : 'individu');
 
@@ -1793,6 +2102,7 @@ export async function autoRegisterLicenseInAdminRegistry({
         typeof explicitUsedSeats === 'number' ? explicitUsedSeats : deviceId ? 1 : 0;
       list.unshift({
         code: cleanCode,
+        environment: codeEnvironment,
         label: label || `Aktivasi Mandiri (${deviceId || 'Perangkat'})`,
         planType: derivedPlanType,
         tier: derivedTier,
@@ -1841,6 +2151,7 @@ export async function autoRegisterLicenseInAdminRegistry({
     lifecycleState: resolvedLifecycle,
     newEntry: {
       code: cleanCode,
+      environment: codeEnvironment,
       label: label || `Aktivasi Mandiri (${deviceId || 'Perangkat'})`,
       planType: derivedPlanType,
       tier: derivedTier,
@@ -1860,26 +2171,31 @@ export async function autoRegisterLicenseInAdminRegistry({
   await evalRedisScript(LUA_UPSERT_ADMIN_REGISTRY_SCRIPT, [REGISTRY_REDIS_KEY], [JSON.stringify(patchPayload)]);
 }
 
-export function verifyInternalSerialOrDeviceCode(cleanCode, deviceId) {
-  if (!cleanCode) return null;
+export function verifyLegacyProductionSerialOrDeviceCode(cleanCode, deviceId) {
+  const normalized = normalizeLicenseCode(cleanCode);
+  if (!normalized) return null;
 
   // Tolak permanen seluruh kode lama (PRO-MERDEKA-... atau ASES-...)
-  if (cleanCode.startsWith('PRO-MERDEKA-') || cleanCode.startsWith('ASES-')) {
+  if (normalized.startsWith('PRO-MERDEKA-') || normalized.startsWith('ASES-')) {
+    return null;
+  }
+
+  // Tolak secara eksplisit format lisensi khusus staging (ASM-STG1-...) agar tidak pernah lolos verifier legacy
+  if (isStagingLicenseCode(normalized)) {
     return null;
   }
 
   if (deviceId) {
     const cleanDev = String(deviceId).trim().toUpperCase();
     const expectedDevCheck = computeHash36(`ASESMERDEKA-PRO-DEVICE:${cleanDev}:2026`).slice(0, 6);
-    if (cleanCode === `ASM-DV26-${expectedDevCheck}`) {
-      return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 1 };
+    if (normalized === `ASM-DV26-${expectedDevCheck}`) {
+      return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 1, environment: 'production', formatVersion: 'DV26' };
     }
   }
 
-  const parts = cleanCode.split('-');
+  const parts = normalized.split('-');
 
-  // Format Terenkripsi Baru: ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG>
-  // Contoh: ASM-GM26-1TAT-1QBM-133R (Tidak menampilkan nomor urut MAYAR001 agar tidak bisa ditebak)
+  // Format Terenkripsi Legacy/Production: ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG>
   if (parts.length === 5 && parts[0] === 'ASM') {
     const prefix = parts[1];
     const cipher1 = parts[2];
@@ -1887,7 +2203,7 @@ export function verifyInternalSerialOrDeviceCode(cleanCode, deviceId) {
     const providedSig = parts[4];
 
     if (
-      ['GM26', 'SK26', 'GP26', 'SP26', 'SL26'].includes(prefix) &&
+      LEGACY_PLAN_PREFIXES.includes(prefix) &&
       cipher1.length === 4 &&
       cipher2.length === 4 &&
       providedSig.length === 4
@@ -1903,23 +2219,50 @@ export function verifyInternalSerialOrDeviceCode(cleanCode, deviceId) {
 
       if (cipher2 === expectedCipher2 && providedSig === expectedSig) {
         if (prefix === 'SK26') {
-          return { valid: true, planType: 'sekolah', tier: 'sekolah', maxSeats: 25 };
+          return { valid: true, planType: 'sekolah', tier: 'sekolah', maxSeats: 25, environment: 'production', formatVersion: 'V2' };
         }
         if (prefix === 'SP26') {
-          return { valid: true, planType: 'sekolah', tier: 'sekolah_pro', maxSeats: 25 };
+          return { valid: true, planType: 'sekolah', tier: 'sekolah_pro', maxSeats: 25, environment: 'production', formatVersion: 'V2' };
         }
         if (prefix === 'GP26') {
-          return { valid: true, planType: 'individu', tier: 'pro', maxSeats: 2 };
+          return { valid: true, planType: 'individu', tier: 'pro', maxSeats: 2, environment: 'production', formatVersion: 'V2' };
         }
         if (prefix === 'SL26') {
-          return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 1 };
+          return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 1, environment: 'production', formatVersion: 'V2' };
         }
-        return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 2 };
+        return { valid: true, planType: 'individu', tier: 'guru', maxSeats: 2, environment: 'production', formatVersion: 'V2' };
       }
     }
   }
 
   return null;
+}
+
+export function verifyInternalSerialOrDeviceCode(cleanCode, deviceId, options = {}) {
+  const normalized = normalizeLicenseCode(cleanCode);
+  if (!normalized) return null;
+
+  const runtimeEnv = options.runtimeEnv || resolveLicenseRuntimeEnvironment();
+
+  if (runtimeEnv === 'production') {
+    if (isStagingLicenseCode(normalized)) {
+      return null;
+    }
+    return verifyLegacyProductionSerialOrDeviceCode(normalized, deviceId);
+  }
+
+  if (runtimeEnv === 'preview') {
+    if (!isStagingLicenseCode(normalized)) {
+      return null;
+    }
+    return verifyStagingLicenseCode(normalized, { runtimeEnv });
+  }
+
+  if (isStagingLicenseCode(normalized)) {
+    return verifyStagingLicenseCode(normalized, { runtimeEnv });
+  }
+
+  return verifyLegacyProductionSerialOrDeviceCode(normalized, deviceId);
 }
 
 export default async function handler(req, res) {
@@ -2192,6 +2535,17 @@ export default async function handler(req, res) {
       const finalLicenseCode = txLicense || normalizeLicenseCode(order?.licenseCode || '') || rawCode;
       let seatClaim = null;
       if (finalLicenseCode) {
+        const orderEnvCheck = validateLicenseEnvironmentBoundary(finalLicenseCode, null);
+        if (!orderEnvCheck.allowed) {
+          return res.status(orderEnvCheck.status || 403).json({
+            ok: false,
+            verified: false,
+            activated: false,
+            forbiddenEnvironment: true,
+            reason: orderEnvCheck.reason,
+            message: orderEnvCheck.message,
+          });
+        }
         if (await isLicenseRevokedInRedis(finalLicenseCode)) {
           return res.status(403).json({
             ok: false,
@@ -2278,6 +2632,17 @@ export default async function handler(req, res) {
       return res.status(400).json({ valid: false, message: 'Kode lisensi tidak boleh kosong.' });
     }
 
+    const preEnvCheck = validateLicenseEnvironmentBoundary(rawCode, null);
+    if (!preEnvCheck.allowed) {
+      return res.status(preEnvCheck.status || 403).json({
+        valid: false,
+        ok: false,
+        forbiddenEnvironment: true,
+        reason: preEnvCheck.reason,
+        message: preEnvCheck.message,
+      });
+    }
+
     // Tolak permanen jika lisensi ini telah dihapus atau dicabut oleh Administrator
     if (await isLicenseRevokedInRedis(rawCode)) {
       return res.status(403).json({
@@ -2291,6 +2656,25 @@ export default async function handler(req, res) {
     // Action: check_status untuk memvalidasi apakah perangkat / guru pengguna masih sah dan aktif di server
     if (action === 'check_status') {
       const seatRecord = await getSeatRecordFromRedis(rawCode);
+      const seatEnvCheck = validateLicenseEnvironmentBoundary(rawCode, seatRecord);
+      if (!seatEnvCheck.allowed) {
+        return res.status(seatEnvCheck.status || 403).json({
+          valid: false,
+          forbiddenEnvironment: true,
+          reason: seatEnvCheck.reason,
+          message: seatEnvCheck.message,
+        });
+      }
+      if (
+        (isStagingLicenseCode(rawCode) || resolveLicenseRuntimeEnvironment() === 'preview') &&
+        !verifyInternalSerialOrDeviceCode(rawCode, _deviceId)
+      ) {
+        return res.status(403).json({
+          valid: false,
+          reason: 'INVALID_STAGING_LICENSE_SIGNATURE',
+          message: 'Tanda tangan kode lisensi staging tidak valid.',
+        });
+      }
       if (seatRecord && isLicenseExpired(seatRecord.expiresAt)) {
         return res.status(403).json({
           valid: false,
@@ -2373,10 +2757,22 @@ export default async function handler(req, res) {
         return res.status(403).json({ ok: false, message: 'PIN Admin tidak valid.' });
       }
       const prevRecord = await getSeatRecordFromRedis(rawCode);
+      const resetEnvCheck = validateLicenseEnvironmentBoundary(rawCode, prevRecord);
+      if (!resetEnvCheck.allowed) {
+        return res.status(resetEnvCheck.status || 403).json({
+          ok: false,
+          forbiddenEnvironment: true,
+          reason: resetEnvCheck.reason,
+          message: resetEnvCheck.message,
+        });
+      }
+      const prefixFromCode = extractLicensePlanPrefix(rawCode);
+      const isSchoolReset = prefixFromCode === 'SK26' || prefixFromCode === 'SP26';
       await saveSeatRecordToRedis(rawCode, {
         ...(prevRecord || {}),
         licenseCode: rawCode,
-        maxSeats: prevRecord?.maxSeats || (rawCode.startsWith('ASM-SK26-') || rawCode.startsWith('ASM-SP26-') ? 25 : 2),
+        environment: isStagingLicenseCode(rawCode) ? 'staging' : prevRecord?.environment || 'production',
+        maxSeats: prevRecord?.maxSeats || (isSchoolReset ? 25 : 2),
         devices: [],
         ...(prevRecord?.teacherSeats ? { teacherSeats: {} } : {}),
         usedSeats: 0,
@@ -2426,6 +2822,8 @@ export default async function handler(req, res) {
           seatLimitExceeded: Boolean(seatCheck.seatLimitExceeded || seatCheck.teacherDeviceLimitExceeded),
           teacherDeviceLimitExceeded: Boolean(seatCheck.teacherDeviceLimitExceeded),
           teacherSeatDisabled: Boolean(seatCheck.teacherSeatDisabled),
+          forbiddenEnvironment: Boolean(seatCheck.forbiddenEnvironment),
+          reason: seatCheck.reason || null,
           expired: Boolean(seatCheck.expired),
           suspended: Boolean(seatCheck.suspended),
           paymentUnverified: Boolean(seatCheck.paymentUnverified),
@@ -2442,6 +2840,7 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         valid: true,
+        environment: internalMatch.environment || 'production',
         planType: internalMatch.planType,
         tier: internalMatch.tier,
         usedSeats: seatCheck.usedSeats,
@@ -2452,10 +2851,20 @@ export default async function handler(req, res) {
         lifecycleState: seatCheck.lifecycleState || 'active',
         expiresAt: seatCheck.expiresAt ?? null,
         message:
-          internalMatch.planType === 'sekolah'
+          internalMatch.planType === 'sekolah' || internalMatch.planType === 'sekolah_pro'
             ? `Lisensi Kolektif Sekolah aktif (${seatCheck.usedSeats}/${seatCheck.maxSeats} Kursi Guru${seatCheck.teacherUsedDevices ? ` • Perangkat Anda: ${seatCheck.teacherUsedDevices}/${seatCheck.teacherMaxDevices}` : ''}).`
             : `Lisensi Guru Mandiri aktif (${seatCheck.usedSeats}/${seatCheck.maxSeats} Perangkat).`,
         details: rawCode,
+      });
+    }
+
+    if (rawCode.startsWith('ASM-')) {
+      return res.status(403).json({
+        valid: false,
+        reason: isStagingLicenseCode(rawCode)
+          ? 'INVALID_STAGING_LICENSE_SIGNATURE'
+          : 'INVALID_LICENSE_SIGNATURE',
+        message: 'Kode lisensi tidak sah atau tanda tangan kriptografis tidak cocok.',
       });
     }
 

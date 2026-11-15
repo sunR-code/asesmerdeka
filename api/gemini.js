@@ -16,16 +16,21 @@ import {
   isLicenseExpired,
   isSchoolLicenseCodeServer,
   normalizeTeacherKeyServer,
+  validateLicenseEnvironmentBoundary,
+  extractLicensePlanPrefix,
+  isStagingLicenseCode,
+  resolveLicenseRuntimeEnvironment,
 } from './activate-license.js';
 
 export function resolveLicenseEntitlementServer(cleanCode, seatRecord, cleanDev = '') {
   const internalMatch = verifyInternalSerialOrDeviceCode(cleanCode, cleanDev);
+  const planPrefix = extractLicensePlanPrefix(cleanCode);
   const effectiveTier = seatRecord?.tier || internalMatch?.tier || '';
   const isProEntitled =
     effectiveTier === 'pro' ||
     effectiveTier === 'sekolah_pro' ||
-    cleanCode.startsWith('ASM-GP26-') ||
-    cleanCode.startsWith('ASM-SP26-');
+    planPrefix === 'GP26' ||
+    planPrefix === 'SP26';
   const isSchoolEntitled =
     effectiveTier === 'sekolah' ||
     effectiveTier === 'sekolah_pro' ||
@@ -82,6 +87,16 @@ export default async function handler(req, res) {
         });
       }
 
+      const preEnvCheck = validateLicenseEnvironmentBoundary(cleanCode, null);
+      if (!preEnvCheck.allowed) {
+        return res.status(preEnvCheck.status || 403).json({
+          error: preEnvCheck.message,
+          code: preEnvCheck.reason,
+          forbiddenEnvironment: true,
+          valid: false,
+        });
+      }
+
       if (await isLicenseRevokedInRedis(cleanCode)) {
         return res.status(403).json({
           error: 'Lisensi telah dicabut oleh Administrator.',
@@ -92,6 +107,15 @@ export default async function handler(req, res) {
       }
 
       const seatRecord = await getSeatRecordFromRedis(cleanCode);
+      const seatEnvCheck = validateLicenseEnvironmentBoundary(cleanCode, seatRecord);
+      if (!seatEnvCheck.allowed) {
+        return res.status(seatEnvCheck.status || 403).json({
+          error: seatEnvCheck.message,
+          code: seatEnvCheck.reason,
+          forbiddenEnvironment: true,
+          valid: false,
+        });
+      }
       if (seatRecord && isLicenseExpired(seatRecord.expiresAt)) {
         return res.status(403).json({
           error: 'Masa berlaku lisensi telah berakhir.',
@@ -155,7 +179,12 @@ export default async function handler(req, res) {
       }
 
       const entitlement = resolveLicenseEntitlementServer(cleanCode, seatRecord, cleanDev);
-      if (!seatRecord && !entitlement.internalMatch) {
+      const requiresCryptographicVerification =
+        isStagingLicenseCode(cleanCode) || resolveLicenseRuntimeEnvironment() === 'preview';
+      if (
+        (!seatRecord && !entitlement.internalMatch) ||
+        (requiresCryptographicVerification && !entitlement.internalMatch)
+      ) {
         return res.status(403).json({
           error: 'Kode lisensi tidak terdaftar atau tidak sah.',
           code: 'LICENSE_INVALID',

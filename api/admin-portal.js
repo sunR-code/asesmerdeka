@@ -11,6 +11,11 @@ import {
   normalizeTeacherKeyServer,
   getActiveTeacherDevicesUnionServer,
   isSchoolLicenseCodeServer,
+  resolveLicenseRuntimeEnvironment,
+  getStagingSigningSecretConfig,
+  generateStagingLicenseCode,
+  isStagingLicenseCode,
+  validateLicenseEnvironmentBoundary,
 } from './activate-license.js';
 import { OFFICIAL_SEEDED_LICENSES } from './officialSeeds.js';
 
@@ -193,7 +198,8 @@ async function getRegistryFromRedis() {
     }
   }
 
-  // Gabungkan OFFICIAL_SEEDED_LICENSES dengan redisList
+  const runtimeEnv = resolveLicenseRuntimeEnvironment();
+  // Gabungkan OFFICIAL_SEEDED_LICENSES dengan redisList hanya pada non-preview
   const map = new Map();
   // 1. Masukkan lisensi dari Redis / Store dinamis terlebih dahulu
   for (const item of redisList) {
@@ -202,15 +208,23 @@ async function getRegistryFromRedis() {
     }
   }
 
-  // 2. Masukkan master seeds resmi jika belum ada di peta
-  for (const seed of OFFICIAL_SEEDED_LICENSES) {
-    if (!map.has(seed.code)) {
-      map.set(seed.code, { ...seed });
+  // 2. Masukkan master seeds resmi jika belum ada di peta (dilarang pada Preview staging)
+  if (runtimeEnv !== 'preview') {
+    for (const seed of OFFICIAL_SEEDED_LICENSES) {
+      if (!map.has(seed.code)) {
+        map.set(seed.code, { ...seed });
+      }
     }
   }
 
-  // Filter out any explicitly deleted items
-  return Array.from(map.values()).filter((item) => !item.deleted);
+  // Filter out any explicitly deleted items or cross-environment leakage
+  return Array.from(map.values()).filter((item) => {
+    if (!item || item.deleted) return false;
+    const itemIsStaging = isStagingLicenseCode(item.code) || item.environment === 'staging';
+    if (runtimeEnv === 'production' && itemIsStaging) return false;
+    if (runtimeEnv === 'preview' && !itemIsStaging) return false;
+    return true;
+  });
 }
 
 async function saveRegistryToRedis(registryList) {
@@ -374,6 +388,34 @@ export default async function handler(req, res) {
 
     // 3. Action: create_license
     if (action === 'create_license') {
+      const runtimeEnv = resolveLicenseRuntimeEnvironment();
+      const requestedTargetEnv = String(body.targetEnvironment || '')
+        .trim()
+        .toLowerCase();
+      if (requestedTargetEnv === 'staging' && runtimeEnv === 'production') {
+        return res.status(403).json({
+          ok: false,
+          errorCode: 'STAGING_SIGNING_FORBIDDEN_IN_PRODUCTION',
+          forbiddenEnvironment: true,
+          message: 'Pencetakan lisensi staging ditolak pada environment Production.',
+        });
+      }
+
+      const useStagingFormat =
+        runtimeEnv === 'preview' || (runtimeEnv === 'local' && requestedTargetEnv === 'staging');
+      if (useStagingFormat) {
+        const stagingSecret = getStagingSigningSecretConfig();
+        if (!stagingSecret.configured) {
+          return res.status(503).json({
+            ok: false,
+            errorCode: 'STAGING_SIGNING_SECRET_UNAVAILABLE',
+            message:
+              stagingSecret.error ||
+              'ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET belum dikonfigurasi pada Preview (minimal 32 karakter).',
+          });
+        }
+      }
+
       const planType = String(body.planType || 'individu').trim().toLowerCase();
       const label = String(body.label || '').trim() || 'Umum';
       const count = Math.max(1, Math.min(100, Number(body.count) || 1));
@@ -417,13 +459,17 @@ export default async function handler(req, res) {
       for (let i = 0; i < count; i++) {
         const entropy =
           crypto.randomBytes(4).toString('hex').toUpperCase() + String(i).padStart(2, '0');
-        const code = generateOfficialLicenseCode(prefix, entropy);
+        const code = useStagingFormat
+          ? generateStagingLicenseCode(prefix, entropy)
+          : generateOfficialLicenseCode(prefix, entropy);
+        const licenseEnv = isStagingLicenseCode(code) ? 'staging' : 'production';
 
         const licenseItem = {
           code,
           label,
           planType,
           tier,
+          environment: licenseEnv,
           maxSeats: finalMaxSeats,
           createdAt: nowIso,
           updatedAt: nowIso,
@@ -439,6 +485,7 @@ export default async function handler(req, res) {
           licenseCode: code,
           planType,
           tier,
+          environment: licenseEnv,
           maxSeats: finalMaxSeats,
           devices: [],
           lifecycleState: 'paid',
@@ -470,15 +517,29 @@ export default async function handler(req, res) {
 
       const cleanCode = normalizeLicenseCode(rawCode);
       const existingSeat = await getSeatRecordFromRedis(cleanCode);
+      const envCheck = validateLicenseEnvironmentBoundary(cleanCode, existingSeat);
+      if (!envCheck.allowed) {
+        return res.status(envCheck.status || 403).json({
+          ok: false,
+          errorCode: envCheck.reason,
+          forbiddenEnvironment: true,
+          message: envCheck.message,
+        });
+      }
+
       const currentRegistry = await getRegistryFromRedis();
       const regItem = currentRegistry.find((l) => l.code === cleanCode);
 
       const maxSeats = existingSeat?.maxSeats || regItem?.maxSeats || 2;
       const nowIso = new Date().toISOString();
+      const licenseEnv = isStagingLicenseCode(cleanCode)
+        ? 'staging'
+        : existingSeat?.environment || regItem?.environment || 'production';
 
       await saveSeatRecordToRedis(cleanCode, {
         ...(existingSeat || {}),
         licenseCode: cleanCode,
+        environment: licenseEnv,
         maxSeats,
         devices: [],
         ...(existingSeat?.teacherSeats ? { teacherSeats: {} } : {}),
@@ -521,6 +582,15 @@ export default async function handler(req, res) {
       const cleanCode = normalizeLicenseCode(rawCode);
       const teacherKey = normalizeTeacherKeyServer(rawTeacherKey);
       const seatRecord = await getSeatRecordFromRedis(cleanCode);
+      const envCheck = validateLicenseEnvironmentBoundary(cleanCode, seatRecord);
+      if (!envCheck.allowed) {
+        return res.status(envCheck.status || 403).json({
+          ok: false,
+          errorCode: envCheck.reason,
+          forbiddenEnvironment: true,
+          message: envCheck.message,
+        });
+      }
       if (!seatRecord || !seatRecord.teacherSeats || !seatRecord.teacherSeats[teacherKey]) {
         return res.status(404).json({
           ok: false,
@@ -602,13 +672,27 @@ export default async function handler(req, res) {
       const cleanCode = normalizeLicenseCode(rawCode);
       const nowIso = new Date().toISOString();
       const existingSeat = await getSeatRecordFromRedis(cleanCode);
+      const envCheck = validateLicenseEnvironmentBoundary(cleanCode, existingSeat);
+      if (!envCheck.allowed) {
+        return res.status(envCheck.status || 403).json({
+          ok: false,
+          errorCode: envCheck.reason,
+          forbiddenEnvironment: true,
+          message: envCheck.message,
+        });
+      }
+
       const currentRegistry = await getRegistryFromRedis();
       const regItem = currentRegistry.find((l) => l.code === cleanCode);
+      const licenseEnv = isStagingLicenseCode(cleanCode)
+        ? 'staging'
+        : existingSeat?.environment || regItem?.environment || 'production';
 
       if (action === 'suspend_license') {
         const nextSeat = {
           ...(existingSeat || {}),
           licenseCode: cleanCode,
+          environment: licenseEnv,
           maxSeats: existingSeat?.maxSeats || regItem?.maxSeats || 2,
           devices: Array.isArray(existingSeat?.devices) ? existingSeat.devices : [],
           suspended: true,
@@ -642,6 +726,7 @@ export default async function handler(req, res) {
       const nextSeat = {
         ...(existingSeat || {}),
         licenseCode: cleanCode,
+        environment: licenseEnv,
         maxSeats: existingSeat?.maxSeats || regItem?.maxSeats || 2,
         devices: existingDevices,
         suspended: false,
@@ -678,18 +763,32 @@ export default async function handler(req, res) {
       }
 
       const cleanCode = normalizeLicenseCode(rawCode);
+      const existingSeat = await getSeatRecordFromRedis(cleanCode);
+      const envCheck = validateLicenseEnvironmentBoundary(cleanCode, existingSeat);
+      if (!envCheck.allowed) {
+        return res.status(envCheck.status || 403).json({
+          ok: false,
+          errorCode: envCheck.reason,
+          forbiddenEnvironment: true,
+          message: envCheck.message,
+        });
+      }
+
+      const deletedEnv = isStagingLicenseCode(cleanCode)
+        ? 'staging'
+        : existingSeat?.environment || 'production';
 
       // 1. Hapus data kursi di Redis
       await deleteSeatRecordFromRedis(cleanCode);
 
-      // 2. Masukkan ke daftar hitam pencabutan lisensi (revocation blacklist)
+      // 2. Masukkan ke daftar hitam pencabutan lisensi terisolasi (staging vs production)
       await revokeLicenseInRedis(cleanCode);
 
       // 3. Hapus dari registri dan tandai terhapus agar master seeds tidak memunculkan kembali
       const currentRegistry = await getRegistryFromRedis();
       const nextRegistry = currentRegistry
         .filter((l) => l.code !== cleanCode)
-        .concat([{ code: cleanCode, deleted: true }]);
+        .concat([{ code: cleanCode, deleted: true, environment: deletedEnv }]);
       await saveRegistryToRedis(nextRegistry);
 
       return res.status(200).json({

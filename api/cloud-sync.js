@@ -13,13 +13,17 @@
 import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import {
   buildSeatRedisKey,
+  extractLicensePlanPrefix,
   getRedisCredentials,
   isLicenseExpired,
   isLicenseRevokedInRedis,
   isSchoolLicenseCodeServer,
+  isStagingLicenseCode,
   localRevokedLicensesSet,
   localSeatMemoryStore,
   normalizeTeacherKeyServer,
+  resolveLicenseRuntimeEnvironment,
+  validateLicenseEnvironmentBoundary,
   verifyInternalSerialOrDeviceCode,
 } from './activate-license.js';
 
@@ -143,11 +147,15 @@ function normalizeLicenseCode(raw) {
 }
 
 function isSchoolSharedCode(cleanCode) {
+  const prefix = extractLicensePlanPrefix(cleanCode);
+  if (prefix === 'SK26' || prefix === 'SP26') return true;
   return (
     cleanCode.startsWith('ASM_SK26_') ||
     cleanCode.startsWith('ASM-SK26-') ||
     cleanCode.startsWith('ASM_SP26_') ||
     cleanCode.startsWith('ASM-SP26-') ||
+    cleanCode.startsWith('ASM_STG1_SK26_') ||
+    cleanCode.startsWith('ASM_STG1_SP26_') ||
     cleanCode.includes('SEKOLAH') ||
     cleanCode.includes('SMAN') ||
     cleanCode.includes('SMPN') ||
@@ -1206,6 +1214,21 @@ async function authorizeCloudSyncRequest(
     };
   }
 
+  const preEnvCheck = validateLicenseEnvironmentBoundary(cleanCode, null);
+  if (!preEnvCheck.allowed) {
+    return {
+      authorized: false,
+      status: preEnvCheck.status || 403,
+      body: {
+        ok: false,
+        unauthorized: true,
+        forbiddenEnvironment: true,
+        reason: preEnvCheck.reason,
+        message: preEnvCheck.message,
+      },
+    };
+  }
+
   if (await checkLicenseRevocationStrict(cleanCode)) {
     return {
       authorized: false,
@@ -1223,7 +1246,24 @@ async function authorizeCloudSyncRequest(
   const internalMatch = verifyInternalSerialOrDeviceCode(cleanCode, cleanDev);
   const seatRecord = await getSeatRecordStrict(cleanCode);
 
-  if (!internalMatch && !seatRecord) {
+  const seatEnvCheck = validateLicenseEnvironmentBoundary(cleanCode, seatRecord);
+  if (!seatEnvCheck.allowed) {
+    return {
+      authorized: false,
+      status: seatEnvCheck.status || 403,
+      body: {
+        ok: false,
+        unauthorized: true,
+        forbiddenEnvironment: true,
+        reason: seatEnvCheck.reason,
+        message: seatEnvCheck.message,
+      },
+    };
+  }
+
+  const requiresCryptographicVerification =
+    isStagingLicenseCode(cleanCode) || resolveLicenseRuntimeEnvironment() === 'preview';
+  if ((!internalMatch && !seatRecord) || (requiresCryptographicVerification && !internalMatch)) {
     return {
       authorized: false,
       status: 403,
