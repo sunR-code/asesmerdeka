@@ -52,7 +52,10 @@ globalThis.__ASESMERDEKA_SERVER_PAYMENT_AUTHORITY__ = {
 };
 
 const MAX_DEVICES_PER_SCHOOL_TEACHER = 2;
-export const STAGING_LICENSE_FORMAT_VERSION = 'STG1';
+export const STAGING_LICENSE_FORMAT_VERSION = 'STG2';
+export const STAGING_SIGNATURE_BITS = 128;
+export const STAGING_SIGNATURE_HEX_LENGTH = 32;
+export const REQUIRED_STAGING_GIT_BRANCH = 'staging';
 export const MIN_STAGING_SIGNING_SECRET_LENGTH = 32;
 
 const LEGACY_PLAN_PREFIXES = ['GM26', 'SK26', 'GP26', 'SP26', 'SL26'];
@@ -88,6 +91,57 @@ export function resolveLicenseRuntimeEnvironment() {
   return 'local';
 }
 
+export function resolveStagingGitBranch() {
+  return String(process.env.VERCEL_GIT_COMMIT_REF || '').trim();
+}
+
+export function validateStagingBranchContext(options = {}) {
+  const runtimeEnv = options.runtimeEnv || resolveLicenseRuntimeEnvironment();
+  const gitBranch =
+    options.gitBranch !== undefined
+      ? String(options.gitBranch || '').trim()
+      : resolveStagingGitBranch();
+
+  if (runtimeEnv === 'production') {
+    return {
+      allowed: false,
+      status: 403,
+      runtimeEnv,
+      gitBranch,
+      reason: 'STAGING_SIGNING_FORBIDDEN_IN_PRODUCTION',
+      message: 'Operasi lisensi staging dilarang pada environment Production.',
+    };
+  }
+
+  if (runtimeEnv === 'preview') {
+    if (!gitBranch) {
+      return {
+        allowed: false,
+        status: 403,
+        runtimeEnv,
+        gitBranch,
+        reason: 'MISSING_STAGING_BRANCH_METADATA',
+        message:
+          'Operasi lisensi staging pada Vercel Preview ditolak karena metadata branch Git (VERCEL_GIT_COMMIT_REF) kosong.',
+      };
+    }
+    if (gitBranch !== REQUIRED_STAGING_GIT_BRANCH) {
+      return {
+        allowed: false,
+        status: 403,
+        runtimeEnv,
+        gitBranch,
+        reason: 'STAGING_BRANCH_MISMATCH',
+        message: `Operasi lisensi staging pada Preview hanya diizinkan pada branch '${REQUIRED_STAGING_GIT_BRANCH}' (terdeteksi '${gitBranch}').`,
+      };
+    }
+    return { allowed: true, runtimeEnv, gitBranch, isLocalMode: false };
+  }
+
+  // Aturan eksplisit local development / test (tanpa fallback secret Production)
+  return { allowed: true, runtimeEnv, gitBranch, isLocalMode: true };
+}
+
 export function getStagingSigningSecretConfig() {
   const secret = String(process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET || '').trim();
   if (!secret) {
@@ -109,25 +163,54 @@ export function getStagingSigningSecretConfig() {
   return { configured: true, secret };
 }
 
-function timingSafeHexOrAsciiEqual(a, b) {
-  const strA = String(a || '');
-  const strB = String(b || '');
-  if (!strA || strA.length !== strB.length) return false;
+function timingSafeHexSignatureEqual(providedHex, expectedHex) {
+  const cleanProvided = String(providedHex || '').trim().toUpperCase();
+  const cleanExpected = String(expectedHex || '').trim().toUpperCase();
+  const expectedByteLen = STAGING_SIGNATURE_BITS / 8;
+
+  if (
+    cleanProvided.length !== STAGING_SIGNATURE_HEX_LENGTH ||
+    cleanExpected.length !== STAGING_SIGNATURE_HEX_LENGTH ||
+    !/^[A-F0-9]{32}$/.test(cleanProvided) ||
+    !/^[A-F0-9]{32}$/.test(cleanExpected)
+  ) {
+    return false;
+  }
+
   try {
-    return crypto.timingSafeEqual(Buffer.from(strA, 'utf8'), Buffer.from(strB, 'utf8'));
+    const providedBuf = Buffer.from(cleanProvided, 'hex');
+    const expectedBuf = Buffer.from(cleanExpected, 'hex');
+    if (providedBuf.length !== expectedByteLen || expectedBuf.length !== expectedByteLen) {
+      return false;
+    }
+    return crypto.timingSafeEqual(providedBuf, expectedBuf);
   } catch {
     return false;
   }
 }
 
-function computeStagingLicenseHmac(secret, planPrefix, nonce, envClaim = 'staging') {
-  const canonicalPayload = `ASESMERDEKA:LICENSE:ENV_BOUND:V1|env=${envClaim}|plan=${planPrefix}|nonce=${nonce}`;
+function computeStagingLicenseHmac(
+  secret,
+  planPrefix,
+  nonce,
+  envClaim = 'staging',
+  branchClaim = REQUIRED_STAGING_GIT_BRANCH
+) {
+  const canonicalPayload = `ASESMERDEKA:LICENSE:ENV_BOUND:V2|env=${envClaim}|branch=${branchClaim}|plan=${planPrefix}|nonce=${nonce}`;
   return crypto
     .createHmac('sha256', secret)
     .update(canonicalPayload, 'utf8')
-    .digest('hex')
-    .slice(0, 16)
+    .digest()
+    .subarray(0, STAGING_SIGNATURE_BITS / 8)
+    .toString('hex')
     .toUpperCase();
+}
+
+export function isDeprecatedStagingLicenseCode(rawCode) {
+  const cleanCode = normalizeLicenseCode(rawCode);
+  if (!cleanCode) return false;
+  const parts = cleanCode.split('-');
+  return parts[0] === 'ASM' && parts[1] === 'STG1';
 }
 
 export function isStagingLicenseCode(rawCode) {
@@ -142,20 +225,23 @@ export function extractLicensePlanPrefix(rawCode) {
   if (!cleanCode) return '';
   const parts = cleanCode.split('-');
   if (parts.length === 5 && parts[0] === 'ASM') {
-    if (/^STG[A-Z0-9]*$/.test(parts[1] || '')) {
+    if (parts[1] === STAGING_LICENSE_FORMAT_VERSION) {
       return STAGING_PLAN_SPECS[parts[2]] ? parts[2] : '';
+    }
+    if (/^STG[A-Z0-9]*$/.test(parts[1] || '')) {
+      return '';
     }
     return LEGACY_PLAN_PREFIXES.includes(parts[1]) ? parts[1] : '';
   }
   return '';
 }
 
-export function generateStagingLicenseCode(planPrefix = 'GM26', deterministicSeed = '') {
-  const runtimeEnv = resolveLicenseRuntimeEnvironment();
-  if (runtimeEnv === 'production') {
-    const err = new Error('Pencetakan kode lisensi staging dilarang pada environment Production.');
-    err.statusCode = 403;
-    err.reason = 'STAGING_SIGNING_FORBIDDEN_IN_PRODUCTION';
+export function generateStagingLicenseCode(planPrefix = 'GM26', deterministicSeed = '', options = {}) {
+  const branchCheck = validateStagingBranchContext(options);
+  if (!branchCheck.allowed) {
+    const err = new Error(branchCheck.message);
+    err.statusCode = branchCheck.status || 403;
+    err.reason = branchCheck.reason;
     throw err;
   }
 
@@ -175,19 +261,25 @@ export function generateStagingLicenseCode(planPrefix = 'GM26', deterministicSee
   const nonce = cleanSeed
     ? crypto
         .createHash('sha256')
-        .update(`ASM_STG1_NONCE:${cleanPlan}:${cleanSeed}`)
+        .update(`ASM_STG2_NONCE:${cleanPlan}:${cleanSeed}`)
         .digest('hex')
         .slice(0, 8)
         .toUpperCase()
     : crypto.randomBytes(4).toString('hex').toUpperCase();
 
-  const sig = computeStagingLicenseHmac(secretCfg.secret, cleanPlan, nonce, 'staging');
+  const sig = computeStagingLicenseHmac(
+    secretCfg.secret,
+    cleanPlan,
+    nonce,
+    'staging',
+    REQUIRED_STAGING_GIT_BRANCH
+  );
   return `ASM-${STAGING_LICENSE_FORMAT_VERSION}-${cleanPlan}-${nonce}-${sig}`;
 }
 
 export function verifyStagingLicenseCode(rawCode, options = {}) {
-  const runtimeEnv = options.runtimeEnv || resolveLicenseRuntimeEnvironment();
-  if (runtimeEnv === 'production') {
+  const branchCheck = validateStagingBranchContext(options);
+  if (!branchCheck.allowed) {
     return null;
   }
 
@@ -203,7 +295,12 @@ export function verifyStagingLicenseCode(rawCode, options = {}) {
   const nonce = parts[3];
   const providedSig = parts[4];
   const planSpec = STAGING_PLAN_SPECS[planPrefix];
-  if (!planSpec || !/^[A-Z0-9]{8}$/.test(nonce) || !/^[A-F0-9]{16}$/.test(providedSig)) {
+  if (
+    !planSpec ||
+    !/^[A-Z0-9]{8}$/.test(nonce) ||
+    providedSig.length !== STAGING_SIGNATURE_HEX_LENGTH ||
+    !/^[A-F0-9]{32}$/.test(providedSig)
+  ) {
     return null;
   }
 
@@ -212,8 +309,14 @@ export function verifyStagingLicenseCode(rawCode, options = {}) {
     return null;
   }
 
-  const expectedSig = computeStagingLicenseHmac(secretCfg.secret, planPrefix, nonce, 'staging');
-  if (!timingSafeHexOrAsciiEqual(providedSig, expectedSig)) {
+  const expectedSig = computeStagingLicenseHmac(
+    secretCfg.secret,
+    planPrefix,
+    nonce,
+    'staging',
+    REQUIRED_STAGING_GIT_BRANCH
+  );
+  if (!timingSafeHexSignatureEqual(providedSig, expectedSig)) {
     return null;
   }
 
@@ -224,7 +327,9 @@ export function verifyStagingLicenseCode(rawCode, options = {}) {
     maxSeats: planSpec.maxSeats,
     prefix: planPrefix,
     environment: 'staging',
+    branch: REQUIRED_STAGING_GIT_BRANCH,
     formatVersion: STAGING_LICENSE_FORMAT_VERSION,
+    signatureBits: STAGING_SIGNATURE_BITS,
   };
 }
 
@@ -235,6 +340,7 @@ export function validateLicenseEnvironmentBoundary(rawCode, seatRecord = null, o
     .trim()
     .toLowerCase();
   const codeIsStaging = isStagingLicenseCode(cleanCode);
+  const codeIsDeprecatedStg1 = isDeprecatedStagingLicenseCode(cleanCode);
 
   if (runtimeEnv === 'production') {
     if (codeIsStaging || recordEnv === 'staging') {
@@ -249,15 +355,40 @@ export function validateLicenseEnvironmentBoundary(rawCode, seatRecord = null, o
   }
 
   if (runtimeEnv === 'preview') {
+    const branchCheck = validateStagingBranchContext({ ...options, runtimeEnv });
+    if (!branchCheck.allowed) {
+      return {
+        allowed: false,
+        status: branchCheck.status || 403,
+        runtimeEnv,
+        gitBranch: branchCheck.gitBranch,
+        reason: branchCheck.reason,
+        message: branchCheck.message,
+      };
+    }
+
     if ((cleanCode && !codeIsStaging) || recordEnv === 'production') {
       return {
         allowed: false,
         status: 403,
         reason: 'PRODUCTION_LICENSE_FORBIDDEN_IN_PREVIEW',
         message:
-          'Lingkungan Preview Staging hanya menerima kode lisensi bertanda staging (ASM-STG1-...).',
+          'Lingkungan Preview Staging hanya menerima kode lisensi bertanda staging (ASM-STG2-...).',
       };
     }
+
+    if (
+      codeIsDeprecatedStg1 ||
+      (codeIsStaging && cleanCode.split('-')[1] !== STAGING_LICENSE_FORMAT_VERSION)
+    ) {
+      return {
+        allowed: false,
+        status: 403,
+        reason: 'DEPRECATED_STG1_FORMAT_REJECTED',
+        message: 'Format kode lisensi staging STG1 sudah tidak berlaku. Gunakan format ASM-STG2-....',
+      };
+    }
+
     if (!getStagingSigningSecretConfig().configured) {
       return {
         allowed: false,
@@ -267,7 +398,24 @@ export function validateLicenseEnvironmentBoundary(rawCode, seatRecord = null, o
           'ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET belum dikonfigurasi pada runtime Preview.',
       };
     }
-    return { allowed: true, runtimeEnv, expectedCodeEnv: 'staging' };
+    return {
+      allowed: true,
+      runtimeEnv,
+      gitBranch: branchCheck.gitBranch,
+      expectedCodeEnv: 'staging',
+    };
+  }
+
+  if (
+    codeIsDeprecatedStg1 ||
+    (codeIsStaging && cleanCode.split('-')[1] !== STAGING_LICENSE_FORMAT_VERSION)
+  ) {
+    return {
+      allowed: false,
+      status: 403,
+      reason: 'DEPRECATED_STG1_FORMAT_REJECTED',
+      message: 'Format kode lisensi staging STG1 sudah tidak berlaku. Gunakan format ASM-STG2-....',
+    };
   }
 
   if (codeIsStaging && !getStagingSigningSecretConfig().configured) {
@@ -2180,7 +2328,7 @@ export function verifyLegacyProductionSerialOrDeviceCode(cleanCode, deviceId) {
     return null;
   }
 
-  // Tolak secara eksplisit format lisensi khusus staging (ASM-STG1-...) agar tidak pernah lolos verifier legacy
+  // Tolak secara eksplisit seluruh format lisensi staging (ASM-STG1-* / ASM-STG2-*) agar tidak pernah lolos verifier legacy
   if (isStagingLicenseCode(normalized)) {
     return null;
   }
@@ -2255,11 +2403,11 @@ export function verifyInternalSerialOrDeviceCode(cleanCode, deviceId, options = 
     if (!isStagingLicenseCode(normalized)) {
       return null;
     }
-    return verifyStagingLicenseCode(normalized, { runtimeEnv });
+    return verifyStagingLicenseCode(normalized, { ...options, runtimeEnv });
   }
 
   if (isStagingLicenseCode(normalized)) {
-    return verifyStagingLicenseCode(normalized, { runtimeEnv });
+    return verifyStagingLicenseCode(normalized, { ...options, runtimeEnv });
   }
 
   return verifyLegacyProductionSerialOrDeviceCode(normalized, deviceId);
@@ -3061,6 +3209,17 @@ export default async function handler(req, res) {
         activated: false,
         lockContention: true,
         reason: error.reason || 'LOCK_CONTENTION_TIMEOUT',
+        message: error.message,
+      });
+    }
+    if (error?.statusCode === 403 || error?.statusCode === 503) {
+      return res.status(error.statusCode).json({
+        ok: false,
+        valid: false,
+        verified: false,
+        activated: false,
+        forbiddenEnvironment: error.statusCode === 403,
+        reason: error.reason || (error.statusCode === 403 ? 'FORBIDDEN_ENVIRONMENT' : 'SERVICE_UNAVAILABLE'),
         message: error.message,
       });
     }

@@ -513,8 +513,8 @@ export function applyPaymentGatewayCallback(
   const codeIsSchool =
     cleanCode.startsWith('ASM-SK26-') ||
     cleanCode.startsWith('ASM-SP26-') ||
-    cleanCode.startsWith('ASM-STG1-SK26-') ||
-    cleanCode.startsWith('ASM-STG1-SP26-');
+    cleanCode.startsWith('ASM-STG2-SK26-') ||
+    cleanCode.startsWith('ASM-STG2-SP26-');
   if (expectSchool !== txIsSchool || (cleanCode && expectSchool !== codeIsSchool)) {
     return {
       ok: false,

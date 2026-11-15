@@ -40,6 +40,8 @@ import { OFFICIAL_SEEDED_LICENSES } from '../../data/officialSeeds';
 // @ts-expect-error serverless JS tested directly
 import activateLicenseHandler, {
   STAGING_LICENSE_FORMAT_VERSION,
+  STAGING_SIGNATURE_BITS,
+  STAGING_SIGNATURE_HEX_LENGTH,
   checkAndClaimServerSeat,
   extractLicensePlanPrefix,
   generateOrderLicenseCodeServer,
@@ -63,6 +65,7 @@ import activateLicenseHandler, {
   savePaymentOrderRecord,
   saveSeatRecordToRedis,
   validateLicenseEnvironmentBoundary,
+  validateStagingBranchContext,
   verifyInternalSerialOrDeviceCode,
   verifyStagingLicenseCode,
 } from '../../../api/activate-license.js';
@@ -171,12 +174,16 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     vi.restoreAllMocks();
   });
 
-  it('Test 1: Preview dengan ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET menerbitkan ASM-STG1-* dan lulus aktivasi, Cloud Sync, AI entitlement, & shared curriculum', async () => {
+  it('Test 1: Preview/staging dengan ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET menerbitkan ASM-STG2-* (128-bit SIG32) dan lulus aktivasi, Cloud Sync, AI entitlement, & shared curriculum', async () => {
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.NODE_ENV = 'production';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
 
     expect(resolveLicenseRuntimeEnvironment()).toBe('preview');
+    expect(STAGING_LICENSE_FORMAT_VERSION).toBe('STG2');
+    expect(STAGING_SIGNATURE_BITS).toBe(128);
+    expect(STAGING_SIGNATURE_HEX_LENGTH).toBe(32);
 
     const createdRes = await callHandler(adminPortalHandler, 'POST', {
       adminPin: TEST_ADMIN_PIN,
@@ -190,11 +197,18 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     const createdList = createdRes.body.created as Array<Record<string, unknown>>;
     expect(createdList).toHaveLength(1);
     const stgCode = String(createdList[0].code);
-    expect(stgCode).toMatch(new RegExp(`^ASM-${STAGING_LICENSE_FORMAT_VERSION}-GP26-[A-Z0-9]{8}-[A-F0-9]{16}$`));
+    expect(stgCode).toMatch(new RegExp(`^ASM-${STAGING_LICENSE_FORMAT_VERSION}-GP26-[A-Z0-9]{8}-[A-F0-9]{32}$`));
+    expect(stgCode.split('-')[4]).toHaveLength(32);
     expect(createdList[0].environment).toBe('staging');
 
+    const verifiedMeta = verifyStagingLicenseCode(stgCode);
+    expect(verifiedMeta?.valid).toBe(true);
+    expect(verifiedMeta?.formatVersion).toBe('STG2');
+    expect(verifiedMeta?.signatureBits).toBe(128);
+    expect(verifiedMeta?.branch).toBe('staging');
+
     const orderStgCode = generateOrderLicenseCodeServer('sekolah_pro', 'ORD-STG-001');
-    expect(orderStgCode).toMatch(/^ASM-STG1-SP26-[A-Z0-9]{8}-[A-F0-9]{16}$/);
+    expect(orderStgCode).toMatch(/^ASM-STG2-SP26-[A-Z0-9]{8}-[A-F0-9]{32}$/);
 
     const actRes = await callHandler(activateLicenseHandler, 'POST', {
       action: 'verify',
@@ -241,8 +255,9 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     expect(shareRes.body.ok).toBe(true);
   });
 
-  it('Test 2: Production menolak keras semua lisensi staging (ASM-STG1-* maupun record environment=staging) di semua endpoint meskipun secret sama disetel', async () => {
+  it('Test 2: Production menolak keras semua lisensi staging (ASM-STG2-* maupun record environment=staging) di semua endpoint meskipun secret sama disetel', async () => {
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
     const validStagingCode = generateStagingLicenseCode('SK26', 'PRODVSSG01');
 
@@ -308,7 +323,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     });
     expect(shareProd.statusCode).toBe(403);
 
-    // 6. /api/admin-portal menolak create_license target staging & aksi pada ASM-STG1-*
+    // 6. /api/admin-portal menolak create_license target staging & aksi pada ASM-STG2-*
     const adminCreateStgInProd = await callHandler(adminPortalHandler, 'POST', {
       adminPin: TEST_ADMIN_PIN,
       action: 'create_license',
@@ -324,7 +339,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     });
     expect(adminDeleteStgInProd.statusCode).toBe(403);
 
-    // 7. Record legacy/non-STG1 yang ditandai environment='staging' juga ditolak di Production
+    // 7. Record legacy/non-STG2 yang ditandai environment='staging' juga ditolak di Production
     const disguisedCode = licenseManager.computeSerialLicenseCode('DISGUISED01');
     await saveSeatRecordToRedis(disguisedCode, {
       licenseCode: disguisedCode,
@@ -380,8 +395,9 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     }
   });
 
-  it('Test 4: Signature ASM-STG1-* yang dimodifikasi ditolak di Preview, Local, maupun Production', async () => {
+  it('Test 4: Signature ASM-STG2-* yang dimodifikasi ditolak di Preview, Local, maupun Production', async () => {
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
     const valid = generateStagingLicenseCode('GM26', 'TAMPER01');
     const parts = valid.split('-');
@@ -392,9 +408,11 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     for (const envMode of ['preview', 'production', 'local'] as const) {
       if (envMode === 'local') {
         delete process.env.VERCEL_ENV;
+        delete process.env.VERCEL_GIT_COMMIT_REF;
         process.env.NODE_ENV = 'test';
       } else {
         process.env.VERCEL_ENV = envMode;
+        process.env.VERCEL_GIT_COMMIT_REF = envMode === 'preview' ? 'staging' : 'main';
         process.env.NODE_ENV = 'production';
       }
 
@@ -416,6 +434,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
   it('Test 5: Klaim environment yang dimodifikasi (PRD1, PROD, DEV1) ditolak semua endpoint', async () => {
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     const valid = generateStagingLicenseCode('GM26', 'ENVSWAP01');
     const parts = valid.split('-');
 
@@ -423,6 +442,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
       const forged = `ASM-${fakeEnvTag}-${parts[2]}-${parts[3]}-${parts[4]}`;
       for (const targetEnv of ['preview', 'production'] as const) {
         process.env.VERCEL_ENV = targetEnv;
+        process.env.VERCEL_GIT_COMMIT_REF = targetEnv === 'preview' ? 'staging' : 'main';
         const act = await callHandler(activateLicenseHandler, 'POST', {
           action: 'verify',
           licenseCode: forged,
@@ -443,6 +463,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
 
   it('Test 6: Preview fail-closed bila ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET kosong, <32 karakter, atau placeholder', async () => {
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
     const preSigned = generateStagingLicenseCode('GM26', 'FAILCLOSED1');
 
@@ -492,16 +513,17 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
 
   it('Test 7: Tidak ada fallback ke konstanta client atau kunci master Production (ASESMERDEKA_2026_MASTER / 4B3A2918_KEY)', async () => {
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
 
     const forgeWithKey = (plan: string, nonce: string, key: string) => {
       const sig = crypto
         .createHmac('sha256', key)
-        .update(`ASESMERDEKA:LICENSE:ENV_BOUND:V1|env=staging|plan=${plan}|nonce=${nonce}`)
+        .update(`ASESMERDEKA:LICENSE:ENV_BOUND:V2|env=staging|branch=staging|plan=${plan}|nonce=${nonce}`)
         .digest('hex')
-        .slice(0, 16)
+        .slice(0, 32)
         .toUpperCase();
-      return `ASM-STG1-${plan}-${nonce}-${sig}`;
+      return `ASM-STG2-${plan}-${nonce}-${sig}`;
     };
 
     for (const masterConstant of [
@@ -581,6 +603,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     }) as typeof fetch;
 
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
     const stgCode = generateStagingLicenseCode('GM26', 'DELSTG01');
 
@@ -628,6 +651,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
 
   it('Test 9: Serangan swap prefix/plan (GM26 -> SK26 atau SP26) dengan nonce & signature sama ditolak', async () => {
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
 
     const indivStg = generateStagingLicenseCode('GM26', 'PLANSWAP');
@@ -663,8 +687,9 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     }
   });
 
-  it('Test 11: Multi-guru (25 guru) dan batas 2 perangkat per guru berjalan normal untuk ASM-STG1-SK26-* di Preview', async () => {
+  it('Test 11: Multi-guru (25 guru) dan batas 2 perangkat per guru berjalan normal untuk ASM-STG2-SK26-* di Preview/staging', async () => {
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
 
     const schoolStg = generateStagingLicenseCode('SK26', 'SCH25SEAT');
@@ -722,8 +747,9 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     expect(g26.body.seatLimitExceeded).toBe(true);
   });
 
-  it('Test 12: Preview menolak serial Production maupun OFFICIAL_SEEDED_LICENSES, dan admin-portal Preview menyembunyikan stok seeded Production', async () => {
+  it('Test 12: Preview/staging menolak serial Production maupun OFFICIAL_SEEDED_LICENSES, dan admin-portal Preview menyembunyikan stok seeded Production', async () => {
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.NODE_ENV = 'production';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
 
@@ -758,7 +784,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     expect(listedCodes).not.toContain(prodSeeded);
   });
 
-  it('Test 13: Mode local dev / test mengarahkan ASM-STG1-* strictly ke verifier staging tanpa membuka celah pada Production', async () => {
+  it('Test 13: Mode local dev / test mengarahkan ASM-STG2-* strictly ke verifier staging tanpa membuka celah pada Production', async () => {
     delete process.env.VERCEL_ENV;
     process.env.NODE_ENV = 'test';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
@@ -796,8 +822,9 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     expect(cloudSyncSource).not.toContain('ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET');
   });
 
-  it('Test 15: Mayar Webhook & renewal menegakkan batas environment (Preview hanya ASM-STG1-*, Production tolak ASM-STG1-*)', async () => {
+  it('Test 15: Mayar Webhook & renewal menegakkan batas environment (Preview hanya ASM-STG2-*, Production tolak ASM-STG2-*)', async () => {
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
     const validStgForWebhook = generateStagingLicenseCode('GP26', 'WHSTG001');
     const tamperedStgForWebhook = `${validStgForWebhook.slice(0, -1)}${validStgForWebhook.endsWith('F') ? 'E' : 'F'}`;
@@ -811,7 +838,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
       });
     };
 
-    // 1. Production menolak keras webhook untuk ASM-STG1-* dengan 403 sebelum antre rekonsiliasi
+    // 1. Production menolak keras webhook untuk ASM-STG2-* dengan 403 sebelum antre rekonsiliasi
     process.env.VERCEL_ENV = 'production';
     const prodRejectStgWebhook = await postWebhook({
       event: 'license.renewed',
@@ -827,7 +854,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     expect(prodRejectStgWebhook.statusCode).toBe(403);
     expect(prodRejectStgWebhook.body.forbiddenEnvironment).toBe(true);
 
-    // 2. Preview menolak webhook untuk kode ASM-STG1-* yang signature-nya dimanipulasi
+    // 2. Preview menolak webhook untuk kode ASM-STG2-* yang signature-nya dimanipulasi
     process.env.VERCEL_ENV = 'preview';
     const previewRejectTamperedWebhook = await postWebhook({
       event: 'license.renewed',
@@ -915,5 +942,282 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     expect(previewValidWebhook.body.code).toBe(validStgForWebhook);
     const savedSeat = await getSeatRecordFromRedis(validStgForWebhook);
     expect(savedSeat?.environment).toBe('staging');
+  });
+
+  it('Test 16: Strict Branch Binding — Preview pada branch selain staging (feature/*, main, Staging, staging-v2) menolak cetak, verifikasi, aktivasi, seat claim, Cloud Sync, AI entitlement, shared curriculum, & webhook', async () => {
+    process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
+    process.env.NODE_ENV = 'production';
+    process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
+
+    const validStg2 = generateStagingLicenseCode('SP26', 'BRANCHBIND01');
+    const prodSerial = (() => {
+      process.env.VERCEL_ENV = 'production';
+      const s = generateOrderLicenseCodeServer('pro', 'BRANCH-PROD-CHK');
+      process.env.VERCEL_ENV = 'preview';
+      return s;
+    })();
+
+    for (const nonStagingBranch of ['feature/new-ui', 'main', 'Staging', 'staging-v2']) {
+      process.env.VERCEL_ENV = 'preview';
+      process.env.VERCEL_GIT_COMMIT_REF = nonStagingBranch;
+      process.env.NODE_ENV = 'production';
+
+      const ctx = validateStagingBranchContext();
+      expect(ctx.allowed, nonStagingBranch).toBe(false);
+      expect(ctx.reason, nonStagingBranch).toBe('STAGING_BRANCH_MISMATCH');
+
+      expect(() => generateStagingLicenseCode('GM26', 'BLOCKME'), nonStagingBranch).toThrow();
+      expect(() => generateOrderLicenseCodeServer('pro', 'ORD-NONSTG'), nonStagingBranch).toThrow();
+      expect(verifyStagingLicenseCode(validStg2), nonStagingBranch).toBeNull();
+      expect(verifyInternalSerialOrDeviceCode(validStg2, 'DEV-BRANCH-1'), nonStagingBranch).toBeNull();
+      expect(validateLicenseEnvironmentBoundary(validStg2).allowed, nonStagingBranch).toBe(false);
+
+      const adminCreate = await callHandler(adminPortalHandler, 'POST', {
+        adminPin: TEST_ADMIN_PIN,
+        action: 'create_license',
+        planType: 'pro',
+      });
+      expect(adminCreate.statusCode, nonStagingBranch).toBe(403);
+      expect(adminCreate.body.forbiddenEnvironment, nonStagingBranch).toBe(true);
+
+      const act = await callHandler(activateLicenseHandler, 'POST', {
+        action: 'verify',
+        licenseCode: validStg2,
+        deviceId: 'DEV-BRANCH-1',
+        teacherPin: 'GURU1:1234',
+      });
+      expect(act.statusCode, nonStagingBranch).toBe(403);
+      expect(act.body.valid, nonStagingBranch).toBe(false);
+
+      const claim = await checkAndClaimServerSeat(validStg2, 'DEV-BRANCH-1', 25, {
+        teacherPin: 'GURU1:1234',
+      });
+      expect(claim.allowed, nonStagingBranch).toBe(false);
+      expect(claim.status, nonStagingBranch).toBe(403);
+
+      const sync = await callHandler(cloudSyncHandler, 'POST', {
+        action: 'pull',
+        licenseCode: validStg2,
+        deviceId: 'DEV-BRANCH-1',
+        teacherPin: 'GURU1:1234',
+      });
+      expect(sync.statusCode, nonStagingBranch).toBe(403);
+
+      const ai = await callHandler(geminiHandler, 'POST', {
+        licenseCode: validStg2,
+        deviceId: 'DEV-BRANCH-1',
+        teacherPin: 'GURU1:1234',
+        prompt: 'Halo',
+      });
+      expect(ai.statusCode, nonStagingBranch).toBe(403);
+
+      const share = await callHandler(sharedCurriculumHandler, 'POST', {
+        licenseCode: validStg2,
+        deviceId: 'DEV-BRANCH-1',
+        type: 'modul',
+        jenjang: 'SMP',
+        kelas: '8',
+        mapel: 'Matematika',
+        tpKode: 'TP-1',
+        materiPokok: 'Aljabar Linear',
+        data: VALID_CURRICULUM_DRAFT,
+      });
+      expect(share.statusCode, nonStagingBranch).toBe(403);
+
+      const whBody = {
+        event: 'license.renewed',
+        data: { id: `ev-${nonStagingBranch}`, licenseCode: validStg2, status: 'SUCCESS', amount: 1499000 },
+      };
+      const whSig = computeMayarHmacSignature(JSON.stringify(whBody), TEST_WEBHOOK_SECRET);
+      const wh = await callHandler(mayarWebhookHandler, 'POST', whBody, {
+        'x-callback-token': TEST_WEBHOOK_SECRET,
+        'x-mayar-signature': whSig,
+      });
+      expect(wh.statusCode, nonStagingBranch).toBe(403);
+
+      // Pastikan Preview non-staging juga tidak menerima kode Production
+      const prodOnNonStaging = await callHandler(activateLicenseHandler, 'POST', {
+        action: 'verify',
+        licenseCode: prodSerial,
+        deviceId: 'DEV-BRANCH-PROD',
+      });
+      expect(prodOnNonStaging.statusCode, nonStagingBranch).toBe(403);
+    }
+  });
+
+  it('Test 17: Preview dengan metadata branch kosong (VERCEL_GIT_COMMIT_REF kosong/undefined) ditolak fail-closed', async () => {
+    process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
+    process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
+    const validStg2 = generateStagingLicenseCode('GM26', 'EMPTYBRANCH');
+
+    for (const emptyMode of ['undefined', 'empty_string', 'whitespace'] as const) {
+      process.env.VERCEL_ENV = 'preview';
+      process.env.NODE_ENV = 'production';
+      if (emptyMode === 'undefined') delete process.env.VERCEL_GIT_COMMIT_REF;
+      else if (emptyMode === 'empty_string') process.env.VERCEL_GIT_COMMIT_REF = '';
+      else process.env.VERCEL_GIT_COMMIT_REF = '   ';
+
+      const ctx = validateStagingBranchContext();
+      expect(ctx.allowed, emptyMode).toBe(false);
+      expect(ctx.reason, emptyMode).toBe('MISSING_STAGING_BRANCH_METADATA');
+
+      expect(() => generateStagingLicenseCode('GM26', 'FAIL_EMPTY_BR'), emptyMode).toThrow();
+      expect(verifyStagingLicenseCode(validStg2), emptyMode).toBeNull();
+      expect(validateLicenseEnvironmentBoundary(validStg2).allowed, emptyMode).toBe(false);
+
+      const act = await callHandler(activateLicenseHandler, 'POST', {
+        action: 'verify',
+        licenseCode: validStg2,
+        deviceId: 'DEV-EMPTY-BR',
+      });
+      expect(act.statusCode, emptyMode).toBe(403);
+
+      const adminCreate = await callHandler(adminPortalHandler, 'POST', {
+        adminPin: TEST_ADMIN_PIN,
+        action: 'create_license',
+        planType: 'individu',
+      });
+      expect(adminCreate.statusCode, emptyMode).toBe(403);
+    }
+  });
+
+  it('Test 18: Format STG1 lama selalu ditolak secara eksplisit di Preview/staging, Local, Production, dan Client helper (tanpa fallback STG1)', async () => {
+    process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
+    process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
+
+    const stg1Sig16 = crypto
+      .createHmac('sha256', TEST_STAGING_SECRET)
+      .update('ASESMERDEKA:LICENSE:ENV_BOUND:V1|env=staging|plan=GP26|nonce=1234ABCD')
+      .digest('hex')
+      .slice(0, 16)
+      .toUpperCase();
+    const legacyStg1Code = `ASM-STG1-GP26-1234ABCD-${stg1Sig16}`;
+
+    expect(licenseManager.isStagingLicenseCodeFormat(legacyStg1Code)).toBe(false);
+    expect(licenseManager.isValidLicenseCode(legacyStg1Code, 'DEV-STG1-CLIENT')).toBe(false);
+    expect(extractLicensePlanPrefix(legacyStg1Code)).toBe('');
+
+    for (const envMode of ['preview', 'production', 'local'] as const) {
+      if (envMode === 'local') {
+        delete process.env.VERCEL_ENV;
+        delete process.env.VERCEL_GIT_COMMIT_REF;
+        process.env.NODE_ENV = 'test';
+      } else {
+        process.env.VERCEL_ENV = envMode;
+        process.env.VERCEL_GIT_COMMIT_REF = envMode === 'preview' ? 'staging' : 'main';
+        process.env.NODE_ENV = 'production';
+      }
+
+      expect(verifyStagingLicenseCode(legacyStg1Code), envMode).toBeNull();
+      expect(verifyInternalSerialOrDeviceCode(legacyStg1Code, 'DEV-STG1'), envMode).toBeNull();
+      expect(validateLicenseEnvironmentBoundary(legacyStg1Code).allowed, envMode).toBe(false);
+
+      const act = await callHandler(activateLicenseHandler, 'POST', {
+        action: 'verify',
+        licenseCode: legacyStg1Code,
+        deviceId: 'DEV-STG1',
+      });
+      expect(act.statusCode, envMode).toBe(403);
+      expect(act.body.valid, envMode).toBe(false);
+
+      const sync = await callHandler(cloudSyncHandler, 'POST', {
+        action: 'pull',
+        licenseCode: legacyStg1Code,
+        deviceId: 'DEV-STG1',
+      });
+      expect(sync.statusCode, envMode).toBe(403);
+
+      const ai = await callHandler(geminiHandler, 'POST', {
+        licenseCode: legacyStg1Code,
+        deviceId: 'DEV-STG1',
+        prompt: 'Tes STG1',
+      });
+      expect(ai.statusCode, envMode).toBe(403);
+
+      const adminReset = await callHandler(adminPortalHandler, 'POST', {
+        adminPin: TEST_ADMIN_PIN,
+        action: 'reset_license_seats',
+        licenseCode: legacyStg1Code,
+      });
+      expect(adminReset.statusCode, envMode).toBe(403);
+    }
+  });
+
+  it('Test 19: Penguatan signature 128-bit (SIG32) — 32 hex diterima, pemotongan 1 karakter / penambahan 1 karakter / secret berbeda ditolak', async () => {
+    process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
+    process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
+
+    const valid = generateStagingLicenseCode('GP26', 'SIG128CHECK');
+    const parts = valid.split('-');
+    expect(parts[1]).toBe('STG2');
+    expect(parts[4]).toHaveLength(32);
+    expect(verifyStagingLicenseCode(valid)?.signatureBits).toBe(128);
+
+    // 1. Potong 1 karakter (31 hex) -> ditolak
+    const truncatedByOne = `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}-${parts[4].slice(0, 31)}`;
+    expect(truncatedByOne.split('-')[4]).toHaveLength(31);
+    expect(verifyStagingLicenseCode(truncatedByOne)).toBeNull();
+    expect(licenseManager.isStagingLicenseCodeFormat(truncatedByOne)).toBe(false);
+
+    // 2. Tambah 1 karakter (33 hex) -> ditolak
+    const extendedByOne = `${valid}A`;
+    expect(verifyStagingLicenseCode(extendedByOne)).toBeNull();
+
+    // 3. Karakter non-hex dalam 32 karakter -> ditolak
+    const nonHex = `${parts[0]}-${parts[1]}-${parts[2]}-${parts[3]}-Z${parts[4].slice(1)}`;
+    expect(verifyStagingLicenseCode(nonHex)).toBeNull();
+
+    // 4. Signed dengan secret valid lain >=32 karakter -> ditolak
+    process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET =
+      'AnotherStrongSecret_713B21_CompletelyDifferent_64HexChars!!';
+    const wrongSecretSigned = generateStagingLicenseCode('GP26', 'SIG128CHECK');
+    process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
+    expect(verifyStagingLicenseCode(wrongSecretSigned)).toBeNull();
+
+    for (const badCode of [truncatedByOne, extendedByOne, nonHex, wrongSecretSigned]) {
+      const act = await callHandler(activateLicenseHandler, 'POST', {
+        action: 'verify',
+        licenseCode: badCode,
+        deviceId: 'DEV-SIG-HARD',
+      });
+      expect(act.statusCode).toBe(403);
+      expect(act.body.valid).toBe(false);
+    }
+  });
+
+  it('Test 20: Staging license STG2 tidak pernah dapat mengakses entitlement PRO Production maupun Cloud Sync Production', async () => {
+    process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
+    process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
+    const stgPro = generateStagingLicenseCode('SP26', 'ENTITLEMENT20');
+
+    process.env.VERCEL_ENV = 'production';
+    process.env.VERCEL_GIT_COMMIT_REF = 'main';
+    process.env.NODE_ENV = 'production';
+    process.env.GEMINI_API_KEY = 'dummy-key-never-called';
+
+    const aiProAttempt = await callHandler(geminiHandler, 'POST', {
+      licenseCode: stgPro,
+      deviceId: 'DEV-PROD-ENT',
+      tier: 'sekolah_pro',
+      enforceLicense: true,
+      prompt: 'Tes entitlement PRO',
+    });
+    expect(aiProAttempt.statusCode).toBe(403);
+    expect(aiProAttempt.body.forbiddenEnvironment).toBe(true);
+
+    const syncAttempt = await callHandler(cloudSyncHandler, 'POST', {
+      action: 'push',
+      licenseCode: stgPro,
+      deviceId: 'DEV-PROD-ENT',
+      baseRevision: 0,
+      entries: { a: 1 },
+    });
+    expect(syncAttempt.statusCode).toBe(403);
+    expect(syncAttempt.body.forbiddenEnvironment).toBe(true);
   });
 });

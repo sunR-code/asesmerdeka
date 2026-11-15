@@ -32,6 +32,7 @@ import {
   normalizeLicenseCode,
   parseMayarV2ResponseEnvelope,
   removeReconcileJob,
+  resolveLicenseRuntimeEnvironment,
   resolveMayarApiV2Config,
   saveMayarInvoiceIndex,
   savePaymentOrderRecord,
@@ -39,6 +40,7 @@ import {
   saveWebhookEventRecord,
   saveWebhookTransactionRecord,
   validateLicenseEnvironmentBoundary,
+  validateStagingBranchContext,
   verifyInternalSerialOrDeviceCode,
   withDistributedLock,
 } from './activate-license.js';
@@ -2176,6 +2178,20 @@ export default async function handler(req, res) {
         data.serialNumber ||
         ''
     ).trim();
+
+    if (resolveLicenseRuntimeEnvironment() === 'preview') {
+      const branchCheck = validateStagingBranchContext({ runtimeEnv: 'preview' });
+      if (!branchCheck.allowed) {
+        return res.status(branchCheck.status || 403).json({
+          ok: false,
+          activated: false,
+          idempotencyStatus: 'terminal_rejected',
+          forbiddenEnvironment: true,
+          reason: branchCheck.reason,
+          message: branchCheck.message,
+        });
+      }
+    }
 
     if (extractLicenseCandidate) {
       const candidateCode = normalizeLicenseCode(extractLicenseCandidate);

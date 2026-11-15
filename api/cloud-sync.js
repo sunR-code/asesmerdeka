@@ -154,8 +154,8 @@ function isSchoolSharedCode(cleanCode) {
     cleanCode.startsWith('ASM-SK26-') ||
     cleanCode.startsWith('ASM_SP26_') ||
     cleanCode.startsWith('ASM-SP26-') ||
-    cleanCode.startsWith('ASM_STG1_SK26_') ||
-    cleanCode.startsWith('ASM_STG1_SP26_') ||
+    cleanCode.startsWith('ASM_STG2_SK26_') ||
+    cleanCode.startsWith('ASM_STG2_SP26_') ||
     cleanCode.includes('SEKOLAH') ||
     cleanCode.includes('SMAN') ||
     cleanCode.includes('SMPN') ||

@@ -383,6 +383,7 @@ describe('Task 7.1.3B — Live Contract Audit, Outage & Recovery Matrix, dan Syn
 
     sim = new SimulatedUpstashStore();
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.NODE_ENV = 'production';
     process.env.UPSTASH_REDIS_REST_URL = MOCK_REDIS_URL;
     process.env.UPSTASH_REDIS_REST_TOKEN = MOCK_REDIS_TOKEN;

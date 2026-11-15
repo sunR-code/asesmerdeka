@@ -432,20 +432,33 @@ export function normalizeLicenseCodeInput(rawCode: string): string {
     .toUpperCase();
 }
 
+export const STAGING_LICENSE_FORMAT_VERSION = 'STG2';
+const STAGING_PLAN_PREFIXES = ['GM26', 'SK26', 'GP26', 'SP26', 'SL26'];
+
 export function isStagingLicenseCodeFormat(rawCode: string): boolean {
   const cleanCode = normalizeLicenseCodeInput(rawCode);
   const parts = cleanCode.split('-');
-  return parts.length === 5 && parts[0] === 'ASM' && /^STG[A-Z0-9]*$/.test(parts[1]);
+  return (
+    parts.length === 5 &&
+    parts[0] === 'ASM' &&
+    parts[1] === STAGING_LICENSE_FORMAT_VERSION &&
+    STAGING_PLAN_PREFIXES.includes(parts[2] || '') &&
+    /^[A-Z0-9]{8}$/.test(parts[3] || '') &&
+    /^[A-F0-9]{32}$/.test(parts[4] || '')
+  );
 }
 
 export function extractPlanPrefixFromLicenseCode(rawCode: string): string {
   const cleanCode = normalizeLicenseCodeInput(rawCode);
   const parts = cleanCode.split('-');
   if (parts.length !== 5 || parts[0] !== 'ASM') return '';
-  if (/^STG[A-Z0-9]*$/.test(parts[1])) {
-    return parts[2] || '';
+  if (parts[1] === STAGING_LICENSE_FORMAT_VERSION) {
+    return STAGING_PLAN_PREFIXES.includes(parts[2] || '') ? parts[2] : '';
   }
-  return parts[1] || '';
+  if (/^STG[A-Z0-9]*$/.test(parts[1] || '')) {
+    return '';
+  }
+  return STAGING_PLAN_PREFIXES.includes(parts[1] || '') ? parts[1] : '';
 }
 
 export function getMaxDevicesForLicenseCode(rawCode: string): number {
@@ -459,7 +472,7 @@ export function getMaxDevicesForLicenseCode(rawCode: string): number {
 
   const parts = cleanCode.split('-');
 
-  // Format Terenkripsi Baru: ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG> atau ASM-STG1-<PREFIX>-<NONCE8>-<SIG16>
+  // Format Terenkripsi Baru: ASM-<PREFIX>-<CIPHER1>-<CIPHER2>-<SIG> atau ASM-STG2-<PREFIX>-<NONCE8>-<SIG32>
   const planPrefix = extractPlanPrefixFromLicenseCode(cleanCode);
   if (planPrefix) {
     if (planPrefix === 'SL26') return 1;
@@ -1284,7 +1297,7 @@ export function isValidLicenseCode(rawCode: string, deviceId: string): boolean {
     return true;
   }
 
-  // 2A. Kode lisensi staging (ASM-STG1-*) TIDAK pernah lolos validasi kripto offline client;
+  // 2A. Kode lisensi staging (ASM-STG2-*) TIDAK pernah lolos validasi kripto offline client;
   // wajib melalui verifikasi server (/api/activate-license) yang menyimpan bukti Mayar/server per perangkat.
   if (isStagingLicenseCodeFormat(cleanCode)) {
     return isMayarVerifiedCodeForDevice(cleanCode, deviceId.trim().toUpperCase());
@@ -1724,7 +1737,7 @@ export function activateLicense(
     };
   }
 
-  // Deteksi Tier Lisensi dari jenis kode (mendukung format Production & Staging ASM-STG1-*)
+  // Deteksi Tier Lisensi dari jenis kode (mendukung format Production & Staging ASM-STG2-*)
   const tierPlanPrefix = extractPlanPrefixFromLicenseCode(cleanCode);
   let targetTier: LicenseTier = 'guru';
   if (

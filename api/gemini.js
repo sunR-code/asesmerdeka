@@ -72,27 +72,29 @@ export default async function handler(req, res) {
 
     const cleanCode = normalizeLicenseCode(licenseCode || '');
     const cleanDev = String(deviceId || '').trim().toUpperCase();
+    const vercelEnvLower = String(process.env.VERCEL_ENV || '').trim().toLowerCase();
     const shouldValidateLicense =
       Boolean(cleanCode) ||
       licenseCode !== undefined ||
       Boolean(enforceLicense) ||
-      String(process.env.VERCEL_ENV || '').trim().toLowerCase() === 'production';
+      vercelEnvLower === 'production' ||
+      vercelEnvLower === 'preview';
 
     if (shouldValidateLicense) {
-      if (!cleanCode || tier === 'free') {
-        return res.status(403).json({
-          error: 'Fitur Generator AI memerlukan lisensi PRO atau Kolektif Sekolah yang aktif.',
-          code: 'LICENSE_REQUIRED',
-          valid: false,
-        });
-      }
-
       const preEnvCheck = validateLicenseEnvironmentBoundary(cleanCode, null);
       if (!preEnvCheck.allowed) {
         return res.status(preEnvCheck.status || 403).json({
           error: preEnvCheck.message,
           code: preEnvCheck.reason,
           forbiddenEnvironment: true,
+          valid: false,
+        });
+      }
+
+      if (!cleanCode || tier === 'free') {
+        return res.status(403).json({
+          error: 'Fitur Generator AI memerlukan lisensi PRO atau Kolektif Sekolah yang aktif.',
+          code: 'LICENSE_REQUIRED',
           valid: false,
         });
       }

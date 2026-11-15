@@ -12,9 +12,11 @@ import {
   getActiveTeacherDevicesUnionServer,
   isSchoolLicenseCodeServer,
   resolveLicenseRuntimeEnvironment,
+  validateStagingBranchContext,
   getStagingSigningSecretConfig,
   generateStagingLicenseCode,
   isStagingLicenseCode,
+  isDeprecatedStagingLicenseCode,
   validateLicenseEnvironmentBoundary,
 } from './activate-license.js';
 import { OFFICIAL_SEEDED_LICENSES } from './officialSeeds.js';
@@ -199,6 +201,10 @@ async function getRegistryFromRedis() {
   }
 
   const runtimeEnv = resolveLicenseRuntimeEnvironment();
+  if (runtimeEnv === 'preview' && !validateStagingBranchContext({ runtimeEnv }).allowed) {
+    return [];
+  }
+
   // Gabungkan OFFICIAL_SEEDED_LICENSES dengan redisList hanya pada non-preview
   const map = new Map();
   // 1. Masukkan lisensi dari Redis / Store dinamis terlebih dahulu
@@ -217,9 +223,10 @@ async function getRegistryFromRedis() {
     }
   }
 
-  // Filter out any explicitly deleted items or cross-environment leakage
+  // Filter out any explicitly deleted items, deprecated STG1, or cross-environment leakage
   return Array.from(map.values()).filter((item) => {
     if (!item || item.deleted) return false;
+    if (isDeprecatedStagingLicenseCode(item.code)) return false;
     const itemIsStaging = isStagingLicenseCode(item.code) || item.environment === 'staging';
     if (runtimeEnv === 'production' && itemIsStaging) return false;
     if (runtimeEnv === 'preview' && !itemIsStaging) return false;
@@ -401,8 +408,20 @@ export default async function handler(req, res) {
         });
       }
 
+      if (runtimeEnv === 'preview') {
+        const branchCheck = validateStagingBranchContext({ runtimeEnv });
+        if (!branchCheck.allowed) {
+          return res.status(branchCheck.status || 403).json({
+            ok: false,
+            errorCode: branchCheck.reason,
+            forbiddenEnvironment: true,
+            message: branchCheck.message,
+          });
+        }
+      }
+
       const useStagingFormat =
-        runtimeEnv === 'preview' || (runtimeEnv === 'local' && requestedTargetEnv === 'staging');
+        runtimeEnv === 'preview' || (runtimeEnv !== 'production' && requestedTargetEnv === 'staging');
       if (useStagingFormat) {
         const stagingSecret = getStagingSigningSecretConfig();
         if (!stagingSecret.configured) {
