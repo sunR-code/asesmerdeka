@@ -71,7 +71,7 @@ export default async function handler(req, res) {
 
     const isProd =
       process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production';
-    if (isProd && !getRedisCredentials()) {
+    if (isProd && !getRedisCredentials().configured) {
       return res.status(503).json({
         ok: false,
         reason: 'REDIS_UNAVAILABLE',
