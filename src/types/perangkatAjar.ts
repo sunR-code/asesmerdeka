@@ -315,7 +315,9 @@ export interface ATPDokumen {
   referensiCP?: CPReferenceMeta;
   tanggalDisusun?: string;
   versi?: number;
-  statusPenyusunan?: 'draft' | 'disetujui';
+  statusPenyusunan?: 'draft' | 'disetujui' | 'perlu_ditinjau';
+  alasanTinjauUlang?: string[];
+  disetujuiPada?: string;
   sertakanPemetaanDiDocx?: boolean;
   peringatanValidasi?: string[];
   totalJPPerSemester?: { semester1: number; semester2: number };

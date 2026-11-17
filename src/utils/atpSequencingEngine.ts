@@ -527,3 +527,33 @@ export function recommendATPAssessmentPlan(
     isEditedByGuru: false,
   };
 }
+
+/**
+ * Menggabungkan pesan duplikat pada banner ringkasan validasi (khususnya siklus prasyarat
+ * yang tercatat per simpul anggota siklus pada `issuesByTpId`), tanpa menghilangkan peringatan berbeda.
+ */
+export function deduplicateATPValidationIssues(
+  issues: ATPDependencyIssue[]
+): ATPDependencyIssue[] {
+  const seenKeys = new Set<string>();
+  const deduped: ATPDependencyIssue[] = [];
+
+  for (const iss of issues) {
+    let key: string;
+    if (iss.kind === 'circular_dependency') {
+      const cycleMembers =
+        Array.isArray(iss.relatedTpIds) && iss.relatedTpIds.length > 0
+          ? [...iss.relatedTpIds].sort().join('|')
+          : iss.message;
+      key = `circular_dependency::${cycleMembers}::${iss.message}`;
+    } else {
+      key = `${iss.kind}::${iss.tpId}::${iss.message}`;
+    }
+
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    deduped.push(iss);
+  }
+
+  return deduped;
+}

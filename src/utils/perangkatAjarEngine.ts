@@ -7,11 +7,13 @@ import {
 import { resolveCPStatusLabel, getSavedCPEntries, cpEntryToReferenceMeta } from './cpStorage';
 import {
   analyzeATPDependencyGraph,
+  deduplicateATPValidationIssues,
   isSameFase,
   recommendATPAssessmentPlan,
 } from './atpSequencingEngine';
 import {
   collectPhaseTPItems,
+  evaluatePhaseATPApproval,
   getSavedPhaseATPPlan,
   resolveSemesterTPListFromPhaseATP,
   type ATPAllocationMapping,
@@ -436,9 +438,10 @@ export function buildSmartATP(
     0
   );
 
-  const peringatanValidasi: string[] = graphAnalysis.issues
-    .filter((iss) => iss.severity !== 'info')
-    .map((iss) => iss.message);
+  const dedupedGraphIssues = deduplicateATPValidationIssues(
+    graphAnalysis.issues.filter((iss) => iss.severity !== 'info')
+  );
+  const peringatanValidasi: string[] = dedupedGraphIssues.map((iss) => iss.message);
 
   if (kapSem1 > 0 && sem1JP > kapSem1) {
     peringatanValidasi.push(
@@ -456,6 +459,14 @@ export function buildSmartATP(
     savedPhasePlan?.referensiCP ||
     orderedTpList.find((t) => t.referensiCP)?.referensiCP ||
     semesterPlan.referensiCP;
+
+  const approvalEvaluation = evaluatePhaseATPApproval({
+    profile,
+    plan: savedPhasePlan,
+    orderedTpIds: orderedTpList.map((t) => t.id),
+    tpById,
+    savedCPs,
+  });
 
   const cpFaseText =
     savedCPs.length > 0
@@ -484,7 +495,11 @@ export function buildSmartATP(
     referensiCP: resolvedRefCP,
     tanggalDisusun: savedPhasePlan?.tanggalDisusun || new Date().toISOString(),
     versi: savedPhasePlan?.versi || 1,
-    statusPenyusunan: savedPhasePlan?.statusPenyusunan || 'draft',
+    statusPenyusunan: approvalEvaluation.effectiveStatus,
+    alasanTinjauUlang: approvalEvaluation.isStaleApproval
+      ? approvalEvaluation.reasons
+      : undefined,
+    disetujuiPada: approvalEvaluation.isApprovedValid ? savedPhasePlan?.approvedAt : undefined,
     sertakanPemetaanDiDocx: options?.includeAllocationColumn ?? Boolean(savedPhasePlan),
     peringatanValidasi: peringatanValidasi.length > 0 ? peringatanValidasi : undefined,
     totalJPPerSemester: { semester1: sem1JP, semester2: sem2JP },

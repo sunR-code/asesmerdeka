@@ -20,6 +20,7 @@ import { requireActiveLicenseForAction } from '../../utils/licenseManager';
 import { resolveCPStatusLabel } from '../../utils/cpStorage';
 import {
   analyzeATPDependencyGraph,
+  deduplicateATPValidationIssues,
   recommendATPAssessmentPlan,
   recommendATPOrder,
   reorderTpIdsByStep,
@@ -29,8 +30,11 @@ import {
 import {
   allocateTPToScheduleAndPersist,
   applyPhaseOrderAndPersist,
+  approvePhaseATPPlan,
   collectPhaseTPItems,
+  evaluatePhaseATPApproval,
   initializeOrSyncPhaseATPPlan,
+  invalidatePhaseATPApprovalIfChanged,
   savePhaseATPPlan,
   updatePhaseTPItemInOriginScope,
   type ATPAllocationMapping,
@@ -67,7 +71,15 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
   const [tpRevision, setTpRevision] = useState(0);
 
   useEffect(() => {
-    setPhasePlan(initializeOrSyncPhaseATPPlan(schoolProfile, tpList));
+    const synced = initializeOrSyncPhaseATPPlan(schoolProfile, tpList);
+    const localCollected = collectPhaseTPItems(schoolProfile, tpList, synced.fase);
+    const { plan: reconciled } = invalidatePhaseATPApprovalIfChanged({
+      profile: schoolProfile,
+      plan: synced,
+      orderedTpIds: synced.orderedTpIds,
+      tpById: localCollected.tpById,
+    });
+    setPhasePlan(reconciled);
     setRecommendationPreview(null);
   }, [
     schoolProfile.schoolId,
@@ -209,24 +221,30 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
     }
   };
 
-  const handleTogglePrereq = (targetTpId: string, prereqTpId: string) => {
+  const handleSavePrereqs = (targetTpId: string, nextPrereqIds: string[]) => {
     const targetTp = collected.tpById.get(targetTpId);
     if (!targetTp) return;
-    const existing = Array.isArray(targetTp.prasyaratTpIds) ? targetTp.prasyaratTpIds : [];
-    const nextPrereqIds = existing.includes(prereqTpId)
-      ? existing.filter((id) => id !== prereqTpId)
-      : [...existing, prereqTpId];
 
+    const cleanedIds = Array.from(new Set(nextPrereqIds.filter((id) => id && id !== targetTpId)));
     commitSingleTPMutation(targetTpId, (item) => ({
       ...item,
-      prasyaratTpIds: nextPrereqIds,
+      prasyaratTpIds: cleanedIds,
     }));
-    const touched = savePhaseATPPlan(schoolProfile, {
+
+    const updatedMap = new Map(collected.tpById);
+    updatedMap.set(targetTpId, { ...targetTp, prasyaratTpIds: cleanedIds });
+    const touchedBase = savePhaseATPPlan(schoolProfile, {
       ...phasePlan,
       versi: (phasePlan.versi || 1) + 1,
     });
-    setPhasePlan(touched);
-    onToast(`Relasi prasyarat TP ${targetTp.kode} diperbarui.`);
+    const { plan: checkedPlan } = invalidatePhaseATPApprovalIfChanged({
+      profile: schoolProfile,
+      plan: touchedBase,
+      orderedTpIds: orderedPhaseTPs.map((t) => t.id),
+      tpById: updatedMap,
+    });
+    setPhasePlan(checkedPlan);
+    onToast(`Relasi prasyarat TP ${targetTp.kode} disimpan.`);
   };
 
   const handleSaveAssessment = (
@@ -235,10 +253,28 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
     deskripsi: string,
     edited: boolean
   ) => {
+    const targetTp = collected.tpById.get(tpId);
+    const nextAssess = edited
+      ? { bentukUtama, deskripsi, isEditedByGuru: true }
+      : undefined;
+
     commitSingleTPMutation(tpId, (item) => ({
       ...item,
-      rencanaAsesmen: edited ? { bentukUtama, deskripsi, isEditedByGuru: true } : undefined,
+      rencanaAsesmen: nextAssess,
     }));
+
+    if (targetTp) {
+      const updatedMap = new Map(collected.tpById);
+      updatedMap.set(tpId, { ...targetTp, rencanaAsesmen: nextAssess });
+      const { plan: checkedPlan } = invalidatePhaseATPApprovalIfChanged({
+        profile: schoolProfile,
+        plan: phasePlan,
+        orderedTpIds: orderedPhaseTPs.map((t) => t.id),
+        tpById: updatedMap,
+      });
+      setPhasePlan(checkedPlan);
+    }
+
     onToast(edited ? 'Rencana asesmen TP disimpan.' : 'Rencana asesmen dikembalikan ke rekomendasi.');
   };
 
@@ -256,22 +292,71 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
     onToast('Pemetaan kelas/tahun/semester ATP disimpan.');
   };
 
+  const approvalEval = useMemo(
+    () =>
+      evaluatePhaseATPApproval({
+        profile: schoolProfile,
+        plan: phasePlan,
+        orderedTpIds: orderedPhaseTPs.map((t) => t.id),
+        tpById: collected.tpById,
+      }),
+    [schoolProfile, phasePlan, orderedPhaseTPs, collected.tpById]
+  );
+
   const handleToggleApproveATP = () => {
-    const nextStatus = phasePlan.statusPenyusunan === 'disetujui' ? 'draft' : 'disetujui';
-    const saved = savePhaseATPPlan(schoolProfile, {
-      ...phasePlan,
-      statusPenyusunan: nextStatus,
-      versi: (phasePlan.versi || 1) + 1,
+    if (approvalEval.effectiveStatus === 'disetujui') {
+      const saved = savePhaseATPPlan(schoolProfile, {
+        ...phasePlan,
+        statusPenyusunan: 'draft',
+        needsReapprovalReview: false,
+        staleApprovalReasons: undefined,
+        versi: (phasePlan.versi || 1) + 1,
+      });
+      setPhasePlan(saved);
+      onToast('ATP Fase dikembalikan ke status Draf.');
+      return;
+    }
+
+    const res = approvePhaseATPPlan({
+      profile: schoolProfile,
+      plan: phasePlan,
+      orderedTpIds: orderedPhaseTPs.map((t) => t.id),
+      tpById: collected.tpById,
+      hasBlockingValidation:
+        graphAnalysis.hasBlockingCycle ||
+        graphAnalysis.hasMissingTargets ||
+        graphAnalysis.hasCrossPhase,
     });
-    setPhasePlan(saved);
-    onToast(
-      nextStatus === 'disetujui'
-        ? 'ATP Fase ditandai Disetujui Guru.'
-        : 'ATP Fase dikembalikan ke status Draf.'
-    );
+    if (!res.ok) {
+      onToast(res.error || 'ATP belum dapat disetujui karena validasi prasyarat masih bermasalah.');
+      return;
+    }
+    setPhasePlan(res.updatedPlan);
+    onToast('ATP Fase disetujui guru (snapshot substansi tersimpan).');
   };
 
-  const blockingOrWarnIssues = graphAnalysis.issues.filter((i) => i.severity !== 'info');
+  const blockingOrWarnIssues = useMemo(
+    () =>
+      deduplicateATPValidationIssues(
+        graphAnalysis.issues.filter((i) => i.severity !== 'info')
+      ),
+    [graphAnalysis.issues]
+  );
+
+  const phaseClassCount = useMemo(() => {
+    const classes = new Set<string>();
+    for (const it of atpDoc.items) {
+      if (it.alokasiKelas) classes.add(it.alokasiKelas.trim());
+    }
+    return Math.max(1, classes.size);
+  }, [atpDoc.items]);
+
+  const effectiveBadgeStatus = approvalEval.effectiveStatus;
+  const activePrereqTp = openPrereqTpId ? collected.tpById.get(openPrereqTpId) : undefined;
+  const activeAssessTp = openAssessTpId ? collected.tpById.get(openAssessTpId) : undefined;
+  const activeAssessRec = activeAssessTp
+    ? recommendATPAssessmentPlan(activeAssessTp, schoolProfile.mataPelajaranUtama)
+    : null;
 
   return (
     <div key="atp">
@@ -298,26 +383,45 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
                 fontWeight: 700,
                 padding: '2px 8px',
                 borderRadius: 999,
-                background: phasePlan.statusPenyusunan === 'disetujui' ? '#f0fdf4' : '#fffbeb',
+                background:
+                  effectiveBadgeStatus === 'disetujui'
+                    ? '#f0fdf4'
+                    : effectiveBadgeStatus === 'perlu_ditinjau'
+                    ? '#fff7ed'
+                    : '#fffbeb',
                 border:
-                  phasePlan.statusPenyusunan === 'disetujui'
+                  effectiveBadgeStatus === 'disetujui'
                     ? '1px solid #86efac'
+                    : effectiveBadgeStatus === 'perlu_ditinjau'
+                    ? '1px solid #fb923c'
                     : '1px solid #fcd34d',
-                color: phasePlan.statusPenyusunan === 'disetujui' ? '#166534' : '#92400e',
+                color:
+                  effectiveBadgeStatus === 'disetujui'
+                    ? '#166534'
+                    : effectiveBadgeStatus === 'perlu_ditinjau'
+                    ? '#9a3412'
+                    : '#92400e',
               }}
             >
-              {phasePlan.statusPenyusunan === 'disetujui' ? 'Disetujui Guru' : 'Draf'} · v
-              {phasePlan.versi || 1}
+              {effectiveBadgeStatus === 'disetujui'
+                ? 'Disetujui Guru'
+                : effectiveBadgeStatus === 'perlu_ditinjau'
+                ? 'Perlu Ditinjau Ulang'
+                : 'Draf'}{' '}
+              · v{phasePlan.versi || 1}
             </span>
           </div>
           <h2 style={{ fontSize: 18, fontWeight: 900, color: '#0f172a', margin: 0 }}>
             ATP {atpDoc.mataPelajaran} — {atpDoc.jenjangFase}
           </h2>
-          <p className="tabular-nums" style={{ fontSize: 12.5, color: '#64748b', marginTop: 3 }}>
-            {orderedPhaseTPs.length} TP pada fase ini • Total {atpDoc.totalJP} JP (Sem 1:{' '}
-            {atpDoc.totalJPPerSemester?.semester1 ?? 0} JP · Sem 2:{' '}
-            {atpDoc.totalJPPerSemester?.semester2 ?? 0} JP) • TA {atpDoc.tahunAjaran}
+          <p className="tabular-nums" style={{ fontSize: 12.5, color: '#475569', marginTop: 3 }}>
+            <strong>Total ATP Fase ({orderedPhaseTPs.length} TP · {phaseClassCount} kelas): {atpDoc.totalJP} JP</strong> •{' '}
+            Semester 1 (seluruh kelas dalam fase): {atpDoc.totalJPPerSemester?.semester1 ?? 0} JP · Semester 2 (seluruh kelas dalam fase):{' '}
+            {atpDoc.totalJPPerSemester?.semester2 ?? 0} JP • TA {atpDoc.tahunAjaran}
           </p>
+          <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 1 }}>
+            Cakupan JP ATP menghitung seluruh kelas dalam fase, sedangkan Prota &amp; Promes menghitung TP kelas aktif (Kelas {schoolProfile.kelasUtama}).
+          </div>
           {atpDoc.referensiCP && (
             <div style={{ fontSize: 11.5, color: '#475569', marginTop: 2 }}>
               <strong>Referensi CP:</strong>{' '}
@@ -363,7 +467,11 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
             onClick={handleToggleApproveATP}
           >
             <CheckCircle2 size={13} aria-hidden="true" />{' '}
-            {phasePlan.statusPenyusunan === 'disetujui' ? 'Ubah ke Draf' : 'Setujui ATP'}
+            {effectiveBadgeStatus === 'disetujui'
+              ? 'Ubah ke Draf'
+              : effectiveBadgeStatus === 'perlu_ditinjau'
+              ? 'Setujui Ulang ATP'
+              : 'Setujui ATP'}
           </button>
           <button
             type="button"
@@ -425,6 +533,48 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
         </strong>
         {atpDoc.capaianPembelajaranFase}
       </div>
+
+      {/* Peringatan Persetujuan Kedaluwarsa / Perlu Ditinjau Ulang */}
+      {effectiveBadgeStatus === 'perlu_ditinjau' && (
+        <div
+          role="alert"
+          style={{
+            background: '#fff7ed',
+            border: '1.5px solid #fb923c',
+            color: '#9a3412',
+            borderRadius: 10,
+            padding: '10px 14px',
+            marginBottom: 12,
+            fontSize: 12.5,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ flex: '1 1 280px' }}>
+              <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <AlertTriangle size={15} aria-hidden="true" />
+                Perlu Ditinjau Ulang — Persetujuan ATP Sebelumnya Tidak Lagi Berlaku
+              </strong>
+              <p style={{ margin: '0 0 6px', lineHeight: 1.45 }}>
+                Isi TP, prasyarat, atau pemetaan ATP telah berubah setelah persetujuan terakhir. Tinjau kembali dokumen dan lakukan persetujuan ulang sebelum digunakan sebagai ATP final.
+              </p>
+              {approvalEval.reasons.length > 0 && (
+                <ul style={{ margin: '0 0 0 18px', padding: 0, fontSize: 12 }}>
+                  {approvalEval.reasons.map((r, rIdx) => (
+                    <li key={rIdx}>{r}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary no-print"
+              onClick={handleToggleApproveATP}
+            >
+              <CheckCircle2 size={13} aria-hidden="true" /> Setujui Ulang ATP
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Validasi Graf Prasyarat & Kapasitas */}
       {blockingOrWarnIssues.length > 0 && (
@@ -491,7 +641,7 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
           </p>
 
           {!recommendationPreview.hasBlockingCycle && recommendationPreview.changes.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, background: '#ffffff', padding: 10, borderRadius: 8, border: '1px solid #bfdbfe' }}>
+            <div className="ws-two-col" style={{ gap: 10, background: '#ffffff', padding: 10, borderRadius: 8, border: '1px solid #bfdbfe' }}>
               <div>
                 <strong style={{ fontSize: 11.5, color: '#64748b' }}>Urutan Awal:</strong>
                 <ol style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12 }}>
@@ -566,13 +716,6 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
                 (iss) => iss.severity !== 'info'
               );
               const dependents = graphAnalysis.dependentsMap[tpId] || [];
-              const assessRec = tpObj
-                ? recommendATPAssessmentPlan(tpObj, schoolProfile.mataPelajaranUtama)
-                : {
-                    bentukUtama: (it.bentukAsesmen || ['Observasi']) as ATPAssessmentForm[],
-                    deskripsi: it.asesmen,
-                    isEditedByGuru: false,
-                  };
 
               return (
                 <React.Fragment key={tpId}>
@@ -668,9 +811,10 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
                           type="button"
                           className="btn btn-sm btn-outline no-print"
                           style={{ fontSize: 11, padding: '2px 7px', marginTop: 4 }}
-                          onClick={() =>
-                            setOpenPrereqTpId(openPrereqTpId === tpObj.id ? null : tpObj.id)
-                          }
+                          onClick={() => {
+                            setOpenAssessTpId(null);
+                            setOpenPrereqTpId(openPrereqTpId === tpObj.id ? null : tpObj.id);
+                          }}
                         >
                           <GitBranch size={11} aria-hidden="true" /> Atur Prasyarat
                         </button>
@@ -699,9 +843,10 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
                           type="button"
                           className="btn btn-sm btn-outline no-print"
                           style={{ fontSize: 11, padding: '2px 7px', marginTop: 4 }}
-                          onClick={() =>
-                            setOpenAssessTpId(openAssessTpId === tpObj.id ? null : tpObj.id)
-                          }
+                          onClick={() => {
+                            setOpenPrereqTpId(null);
+                            setOpenAssessTpId(openAssessTpId === tpObj.id ? null : tpObj.id);
+                          }}
                         >
                           <Edit3 size={11} aria-hidden="true" /> Edit Asesmen
                         </button>
@@ -711,41 +856,34 @@ export const ATPSubTab: React.FC<ATPSubTabProps> = ({
                       {it.alokasiJP}
                     </td>
                   </tr>
-
-                  {tpObj && openPrereqTpId === tpObj.id && (
-                    <tr className="no-print">
-                      <td colSpan={9} style={{ padding: '6px 10px' }}>
-                        <TPPrerequisiteEditor
-                          tp={tpObj}
-                          allPhaseTPs={orderedPhaseTPs}
-                          dependents={dependents}
-                          tpById={collected.tpById}
-                          onTogglePrereq={handleTogglePrereq}
-                          onClose={() => setOpenPrereqTpId(null)}
-                        />
-                      </td>
-                    </tr>
-                  )}
-
-                  {tpObj && openAssessTpId === tpObj.id && (
-                    <tr className="no-print">
-                      <td colSpan={9} style={{ padding: '6px 10px' }}>
-                        <TPAssessmentEditor
-                          tp={tpObj}
-                          currentBentuk={assessRec.bentukUtama}
-                          currentDeskripsi={assessRec.deskripsi}
-                          onSaveAssessment={handleSaveAssessment}
-                          onClose={() => setOpenAssessTpId(null)}
-                        />
-                      </td>
-                    </tr>
-                  )}
                 </React.Fragment>
               );
             })}
           </tbody>
         </table>
       </div>
+
+      {/* Modal Responsif Editor Prasyarat & Asesmen (di luar .ws-table-wrap agar bebas clipping di mobile) */}
+      {activePrereqTp && (
+        <TPPrerequisiteEditor
+          tp={activePrereqTp}
+          allPhaseTPs={orderedPhaseTPs}
+          dependents={graphAnalysis.dependentsMap[activePrereqTp.id] || []}
+          tpById={collected.tpById}
+          onSavePrereqs={handleSavePrereqs}
+          onClose={() => setOpenPrereqTpId(null)}
+        />
+      )}
+
+      {activeAssessTp && activeAssessRec && (
+        <TPAssessmentEditor
+          tp={activeAssessTp}
+          currentBentuk={activeAssessRec.bentukUtama}
+          currentDeskripsi={activeAssessRec.deskripsi}
+          onSaveAssessment={handleSaveAssessment}
+          onClose={() => setOpenAssessTpId(null)}
+        />
+      )}
     </div>
   );
 };

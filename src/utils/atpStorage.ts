@@ -1,10 +1,11 @@
 import type { JenjangFase } from '../types/assessment';
-import { getSavedCPEntries, cpEntryToReferenceMeta } from './cpStorage';
+import { getSavedCPEntries, cpEntryToReferenceMeta, type SavedCPEntry } from './cpStorage';
 import { isSameFase, normalizeFaseShortLabel } from './atpSequencingEngine';
 import {
   type CPReferenceMeta,
   type CustomTPItem,
   type SchoolProfile,
+  computeTPContentHash,
   getSavedCustomTPList,
   jenjangToDefaultFase,
   saveCustomTPList,
@@ -26,6 +27,27 @@ export interface ATPAllocationMapping {
   alokasiJP?: number;
 }
 
+export interface PhaseATPApprovalSummary {
+  scopeKey: string;
+  cpFingerprint: string;
+  orderedTpIds: string[];
+  tpSubstantiveHashes: Record<string, string>;
+  prasyaratHashByTpId: Record<string, string>;
+  assessHashByTpId: Record<string, string>;
+  allocationHash: string;
+}
+
+export type EffectiveATPApprovalStatus = 'draft' | 'disetujui' | 'perlu_ditinjau';
+
+export interface ATPApprovalEvaluation {
+  effectiveStatus: EffectiveATPApprovalStatus;
+  currentFingerprint: string;
+  currentSummary: PhaseATPApprovalSummary;
+  isApprovedValid: boolean;
+  isStaleApproval: boolean;
+  reasons: string[];
+}
+
 export interface PhaseATPPlan {
   id: string;
   schoolId?: string;
@@ -43,6 +65,11 @@ export interface PhaseATPPlan {
   tanggalDisusun: string;
   updatedAt: string;
   catatanGuru?: string;
+  approvedContentHash?: string;
+  approvedAt?: string;
+  approvedSummary?: PhaseATPApprovalSummary;
+  needsReapprovalReview?: boolean;
+  staleApprovalReasons?: string[];
 }
 
 export function listGradeLevelsInFase(jenjang: string, fase: string): string[] {
@@ -315,13 +342,21 @@ export function applyPhaseOrderAndPersist(params: {
   const rank = new Map<string, number>();
   nextOrderedTpIds.forEach((id, idx) => rank.set(id, idx));
 
-  const updatedPlan = savePhaseATPPlan(profile, {
+  const saved = savePhaseATPPlan(profile, {
     ...currentPlan,
     previousOrderedTpIds: savePreviousForUndo
       ? [...currentPlan.orderedTpIds]
       : currentPlan.previousOrderedTpIds,
     orderedTpIds: nextOrderedTpIds,
     versi: (currentPlan.versi || 1) + 1,
+  });
+
+  const collected = collectPhaseTPItems(profile, activeTpList, saved.fase);
+  const { plan: updatedPlan } = invalidatePhaseATPApprovalIfChanged({
+    profile,
+    plan: saved,
+    orderedTpIds: saved.orderedTpIds,
+    tpById: collected.tpById,
   });
 
   // Urutkan ulang TP semester aktif mengikuti urutan ATP fase tanpa mengubah id maupun kodeTP.
@@ -337,23 +372,515 @@ export function applyPhaseOrderAndPersist(params: {
   };
 }
 
+/**
+ * Serialisasi JSON kanonik (urutan key objek deterministik, urutan elemen array tetap terjaga).
+ */
+function canonicalStringify(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalStringify(item)).join(',')}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalStringify(obj[k])}`).join(',')}}`;
+}
+
+/**
+ * Hash deterministik 64-bit (dua putaran FNV-1a independen -> 16 char hex) agar tahan tabrakan.
+ */
+function hashCanonicalPayload(payload: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x811c9dc5 ^ 0x9e3779b9;
+  for (let i = 0; i < payload.length; i++) {
+    const code = payload.charCodeAt(i);
+    h1 ^= code;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= code + ((i + 1) & 0xff);
+    h2 = Math.imul(h2, 0x01000193);
+  }
+  return `${(h1 >>> 0).toString(16).padStart(8, '0')}${(h2 >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function canonicalCPMeta(meta?: CPReferenceMeta) {
+  if (!meta) return null;
+  return {
+    sumber: (meta.sumber || '').trim(),
+    namaDokumenSumber: (meta.namaDokumenSumber || '').trim(),
+    nomorDokumen: (meta.nomorDokumen || '').trim(),
+    tahunVersiDokumen: (meta.tahunVersiDokumen || '').trim(),
+    elemenCP: (meta.elemenCP || '').trim(),
+    fase: (meta.fase || '').trim(),
+    teksCP: (meta.teksCP || '').trim(),
+    statusVerifikasi: meta.statusVerifikasi || '',
+    terverifikasiResmi: Boolean(meta.terverifikasiResmi),
+    asalCP: meta.asalCP || '',
+    cpEntryId: (meta.cpEntryId || '').trim(),
+    catatan: (meta.catatan || '').trim(),
+  };
+}
+
+export function computePhaseATPApprovalFingerprint(params: {
+  profile: AcademicProfileLike & Pick<SchoolProfile, 'jenjang' | 'mataPelajaranUtama' | 'kelasUtama' | 'tahunAjaran'>;
+  plan: Pick<PhaseATPPlan, 'fase' | 'orderedTpIds' | 'allocations' | 'referensiCP'>;
+  orderedTpIds: string[];
+  tpById: Map<string, CustomTPItem>;
+  savedCPs?: SavedCPEntry[];
+  resolvedRefCP?: CPReferenceMeta;
+}): { fingerprint: string; summary: PhaseATPApprovalSummary } {
+  const { profile, plan, orderedTpIds, tpById, savedCPs, resolvedRefCP } = params;
+  const ctx = resolveAcademicContext(profile, plan.fase);
+  const scopeKey = buildCPScopeKey(profile, plan.fase || ctx.fase);
+  const cpEntries = savedCPs ?? getSavedCPEntries(profile, plan.fase || ctx.fase);
+
+  const effectiveRefCP =
+    (cpEntries[0] ? cpEntryToReferenceMeta(cpEntries[0]) : undefined) ||
+    resolvedRefCP ||
+    plan.referensiCP ||
+    orderedTpIds.map((id) => tpById.get(id)?.referensiCP).find(Boolean);
+
+  const cpPayload = {
+    refCP: canonicalCPMeta(effectiveRefCP),
+    savedCPs: [...cpEntries]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((cp) => ({
+        id: cp.id,
+        elemenCP: (cp.elemenCP || '').trim(),
+        teksCP: (cp.teksCP || '').trim(),
+        namaDokumenSumber: (cp.namaDokumenSumber || '').trim(),
+        asalCP: cp.asalCP || '',
+        statusVerifikasi: cp.statusVerifikasi || '',
+        terverifikasiResmi: Boolean(cp.terverifikasiResmi),
+      })),
+  };
+  const cpFingerprint = hashCanonicalPayload(canonicalStringify(cpPayload));
+
+  const cleanOrderedIds = orderedTpIds.filter((id) => tpById.has(id));
+  const tpSubstantiveHashes: Record<string, string> = {};
+  const prasyaratHashByTpId: Record<string, string> = {};
+  const assessHashByTpId: Record<string, string> = {};
+
+  for (const id of cleanOrderedIds) {
+    const tp = tpById.get(id)!;
+    const tpSubstantiveObj = {
+      id: tp.id,
+      baseHash: computeTPContentHash(tp),
+      kode: (tp.kode || '').trim(),
+      elemen: (tp.elemen || '').trim(),
+      materiPokok: (tp.materiPokok || '').trim(),
+      kompetensiInti: (tp.kompetensiInti || '').trim(),
+      lingkupMateri: ((tp.lingkupMateri || tp.materiPokok) || '').trim(),
+      tujuanPembelajaran: (tp.tujuanPembelajaran || '').trim(),
+      alokasiJP: Number(tp.alokasiJP) || 0,
+      buktiKetercapaian: Array.isArray(tp.buktiKetercapaian)
+        ? tp.buktiKetercapaian.map((b) => String(b || '').trim())
+        : [],
+      prasyarat: Array.isArray(tp.prasyarat)
+        ? tp.prasyarat.map((p) => String(p || '').trim())
+        : [],
+      subTP: Array.isArray(tp.subTP)
+        ? tp.subTP.map((s) => ({
+            kode: (s.kode || '').trim(),
+            kompetensi: (s.kompetensi || '').trim(),
+            fokusMateri: (s.fokusMateri || '').trim(),
+            buktiKetercapaian: (s.buktiKetercapaian || '').trim(),
+          }))
+        : [],
+      refCP: canonicalCPMeta(tp.referensiCP),
+    };
+    tpSubstantiveHashes[id] = hashCanonicalPayload(canonicalStringify(tpSubstantiveObj));
+
+    const normPrereq = Array.from(
+      new Set((Array.isArray(tp.prasyaratTpIds) ? tp.prasyaratTpIds : []).map((p) => String(p).trim()).filter(Boolean))
+    ).sort();
+    prasyaratHashByTpId[id] = hashCanonicalPayload(canonicalStringify(normPrereq));
+
+    const normAssess = tp.rencanaAsesmen
+      ? {
+          bentukUtama: Array.from(
+            new Set((tp.rencanaAsesmen.bentukUtama || []).map((f) => String(f).trim()).filter(Boolean))
+          ).sort(),
+          deskripsi: (tp.rencanaAsesmen.deskripsi || '').trim(),
+          isEditedByGuru: Boolean(tp.rencanaAsesmen.isEditedByGuru),
+        }
+      : null;
+    assessHashByTpId[id] = hashCanonicalPayload(canonicalStringify(normAssess));
+  }
+
+  const orderedSet = new Set(cleanOrderedIds);
+  const normAllocations = (plan.allocations || [])
+    .filter((a) => orderedSet.has(a.tpId))
+    .map((a) => ({
+      tpId: a.tpId,
+      tahunAjaran: (a.tahunAjaran || '').trim(),
+      kelas: (a.kelas || '').trim(),
+      semester: a.semester,
+      alokasiJP: a.alokasiJP !== undefined ? Number(a.alokasiJP) || 0 : null,
+    }))
+    .sort((a, b) => `${a.tpId}::${a.tahunAjaran}`.localeCompare(`${b.tpId}::${b.tahunAjaran}`));
+  const allocationHash = hashCanonicalPayload(canonicalStringify(normAllocations));
+
+  const summary: PhaseATPApprovalSummary = {
+    scopeKey,
+    cpFingerprint,
+    orderedTpIds: cleanOrderedIds,
+    tpSubstantiveHashes,
+    prasyaratHashByTpId,
+    assessHashByTpId,
+    allocationHash,
+  };
+
+  const fullPayload = canonicalStringify({
+    v: 1,
+    scope: {
+      schoolId: (ctx.schoolId || '').trim(),
+      jenjang: (ctx.jenjang || '').trim().toLowerCase(),
+      mataPelajaran: (ctx.mataPelajaran || '').trim().toLowerCase(),
+      fase: normalizeFaseShortLabel(plan.fase || ctx.fase),
+    },
+    summary,
+  });
+
+  return {
+    fingerprint: hashCanonicalPayload(fullPayload),
+    summary,
+  };
+}
+
+function detectChangedATPReasons(
+  prev: PhaseATPApprovalSummary | undefined,
+  curr: PhaseATPApprovalSummary,
+  tpById: Map<string, CustomTPItem>
+): string[] {
+  if (!prev) {
+    return ['Substansi ATP berubah setelah persetujuan terakhir.'];
+  }
+  const reasons: string[] = [];
+
+  if (prev.cpFingerprint !== curr.cpFingerprint) {
+    reasons.push('Referensi atau teks Capaian Pembelajaran (CP) dasar berubah.');
+  }
+  if (canonicalStringify(prev.orderedTpIds) !== canonicalStringify(curr.orderedTpIds)) {
+    const prevSet = new Set(prev.orderedTpIds);
+    const currSet = new Set(curr.orderedTpIds);
+    const addedOrRemoved =
+      prev.orderedTpIds.some((id) => !currSet.has(id)) ||
+      curr.orderedTpIds.some((id) => !prevSet.has(id));
+    reasons.push(
+      addedOrRemoved
+        ? 'Daftar atau jumlah TP dalam fase berubah (penambahan/penghapusan TP).'
+        : 'Urutan Tujuan Pembelajaran (TP) berubah.'
+    );
+  }
+
+  const changedTpCodes: string[] = [];
+  let prereqChanged = false;
+  let assessChanged = false;
+
+  const allIds = new Set([...prev.orderedTpIds, ...curr.orderedTpIds]);
+  for (const id of allIds) {
+    if (prev.tpSubstantiveHashes[id] && curr.tpSubstantiveHashes[id]) {
+      if (prev.tpSubstantiveHashes[id] !== curr.tpSubstantiveHashes[id]) {
+        const kode = tpById.get(id)?.kode;
+        if (kode && !changedTpCodes.includes(kode)) changedTpCodes.push(kode);
+      }
+      if (prev.prasyaratHashByTpId[id] !== curr.prasyaratHashByTpId[id]) {
+        prereqChanged = true;
+      }
+      if (prev.assessHashByTpId[id] !== curr.assessHashByTpId[id]) {
+        assessChanged = true;
+      }
+    }
+  }
+
+  if (changedTpCodes.length > 0) {
+    reasons.push(
+      `Isi Tujuan Pembelajaran, kompetensi, lingkup materi, Sub-TP, atau bukti ketercapaian berubah (TP ${changedTpCodes.join(', ')}).`
+    );
+  }
+  if (prereqChanged) {
+    reasons.push('Relasi prasyarat antar-TP berubah.');
+  }
+  if (assessChanged) {
+    reasons.push('Rencana asesmen TP berubah.');
+  }
+  if (prev.allocationHash !== curr.allocationHash) {
+    reasons.push('Pemetaan kelas, tahun ajaran, semester, atau alokasi JP berubah.');
+  }
+
+  if (reasons.length === 0) {
+    reasons.push('Substansi atau lingkup ATP berubah setelah persetujuan terakhir.');
+  }
+  return reasons;
+}
+
+export function evaluatePhaseATPApproval(params: {
+  profile: SchoolProfile;
+  plan: PhaseATPPlan | null | undefined;
+  orderedTpIds: string[];
+  tpById: Map<string, CustomTPItem>;
+  savedCPs?: SavedCPEntry[];
+  resolvedRefCP?: CPReferenceMeta;
+}): ATPApprovalEvaluation {
+  const { profile, plan, orderedTpIds, tpById, savedCPs, resolvedRefCP } = params;
+  const fallbackPlan: Pick<PhaseATPPlan, 'fase' | 'orderedTpIds' | 'allocations' | 'referensiCP'> =
+    plan || {
+      fase: jenjangToDefaultFase(profile.jenjang, profile.kelasUtama),
+      orderedTpIds,
+      allocations: [],
+      referensiCP: resolvedRefCP,
+    };
+
+  const { fingerprint: currentFingerprint, summary: currentSummary } =
+    computePhaseATPApprovalFingerprint({
+      profile,
+      plan: fallbackPlan,
+      orderedTpIds,
+      tpById,
+      savedCPs,
+      resolvedRefCP,
+    });
+
+  if (!plan) {
+    return {
+      effectiveStatus: 'draft',
+      currentFingerprint,
+      currentSummary,
+      isApprovedValid: false,
+      isStaleApproval: false,
+      reasons: [],
+    };
+  }
+
+  // ATP legacy yang bertanda 'disetujui' tanpa bukti snapshot hash tidak boleh diklaim disetujui
+  if (plan.statusPenyusunan === 'disetujui' && !plan.approvedContentHash) {
+    const legacyReason = [
+      'Snapshot persetujuan ATP belum tersedia pada dokumen lama; harap tinjau dan setujui ulang.',
+    ];
+    return {
+      effectiveStatus: 'perlu_ditinjau',
+      currentFingerprint,
+      currentSummary,
+      isApprovedValid: false,
+      isStaleApproval: true,
+      reasons: legacyReason,
+    };
+  }
+
+  if (plan.statusPenyusunan === 'disetujui' && plan.approvedContentHash) {
+    if (plan.approvedContentHash === currentFingerprint) {
+      return {
+        effectiveStatus: 'disetujui',
+        currentFingerprint,
+        currentSummary,
+        isApprovedValid: true,
+        isStaleApproval: false,
+        reasons: [],
+      };
+    }
+
+    const reasons = detectChangedATPReasons(plan.approvedSummary, currentSummary, tpById);
+    return {
+      effectiveStatus: 'perlu_ditinjau',
+      currentFingerprint,
+      currentSummary,
+      isApprovedValid: false,
+      isStaleApproval: true,
+      reasons,
+    };
+  }
+
+  if (plan.needsReapprovalReview) {
+    return {
+      effectiveStatus: 'perlu_ditinjau',
+      currentFingerprint,
+      currentSummary,
+      isApprovedValid: false,
+      isStaleApproval: true,
+      reasons:
+        plan.staleApprovalReasons && plan.staleApprovalReasons.length > 0
+          ? plan.staleApprovalReasons
+          : ['Substansi ATP berubah setelah persetujuan sebelumnya.'],
+    };
+  }
+
+  return {
+    effectiveStatus: 'draft',
+    currentFingerprint,
+    currentSummary,
+    isApprovedValid: false,
+    isStaleApproval: false,
+    reasons: [],
+  };
+}
+
+export function approvePhaseATPPlan(params: {
+  profile: SchoolProfile;
+  plan: PhaseATPPlan;
+  orderedTpIds: string[];
+  tpById: Map<string, CustomTPItem>;
+  savedCPs?: SavedCPEntry[];
+  resolvedRefCP?: CPReferenceMeta;
+  hasBlockingValidation?: boolean;
+}): { ok: boolean; error?: string; updatedPlan: PhaseATPPlan } {
+  const {
+    profile,
+    plan,
+    orderedTpIds,
+    tpById,
+    savedCPs,
+    resolvedRefCP,
+    hasBlockingValidation,
+  } = params;
+
+  if (hasBlockingValidation) {
+    return {
+      ok: false,
+      error:
+        'ATP belum dapat disetujui karena masih terdapat siklus prasyarat atau relasi error yang harus diperbaiki.',
+      updatedPlan: plan,
+    };
+  }
+
+  const { fingerprint, summary } = computePhaseATPApprovalFingerprint({
+    profile,
+    plan,
+    orderedTpIds,
+    tpById,
+    savedCPs,
+    resolvedRefCP,
+  });
+
+  const saved = savePhaseATPPlan(profile, {
+    ...plan,
+    orderedTpIds: summary.orderedTpIds,
+    statusPenyusunan: 'disetujui',
+    approvedContentHash: fingerprint,
+    approvedAt: new Date().toISOString(),
+    approvedSummary: summary,
+    needsReapprovalReview: false,
+    staleApprovalReasons: undefined,
+    versi: (plan.versi || 1) + 1,
+  });
+
+  return { ok: true, updatedPlan: saved };
+}
+
+/**
+ * Menginvalidasi status persetujuan ATP di penyimpanan apabila substansi berubah.
+ * Bersifat idempoten: hanya menulis bila plan masih berstatus 'disetujui' & snapshot sudah usang.
+ */
+export function invalidatePhaseATPApprovalIfChanged(params: {
+  profile: SchoolProfile;
+  plan: PhaseATPPlan;
+  orderedTpIds: string[];
+  tpById: Map<string, CustomTPItem>;
+  savedCPs?: SavedCPEntry[];
+  resolvedRefCP?: CPReferenceMeta;
+}): { plan: PhaseATPPlan; invalidated: boolean; evaluation: ATPApprovalEvaluation } {
+  const { profile, plan, orderedTpIds, tpById, savedCPs, resolvedRefCP } = params;
+  const evaluation = evaluatePhaseATPApproval({
+    profile,
+    plan,
+    orderedTpIds,
+    tpById,
+    savedCPs,
+    resolvedRefCP,
+  });
+
+  if (plan.statusPenyusunan === 'disetujui' && evaluation.isStaleApproval) {
+    const invalidatedPlan = savePhaseATPPlan(profile, {
+      ...plan,
+      statusPenyusunan: 'draft',
+      needsReapprovalReview: true,
+      staleApprovalReasons: evaluation.reasons,
+      versi: (plan.versi || 1) + 1,
+    });
+    return {
+      plan: invalidatedPlan,
+      invalidated: true,
+      evaluation: {
+        ...evaluation,
+        effectiveStatus: 'perlu_ditinjau',
+        isApprovedValid: false,
+        isStaleApproval: true,
+      },
+    };
+  }
+
+  return {
+    plan,
+    invalidated: false,
+    evaluation,
+  };
+}
+
+/**
+ * Helper terpusat untuk dipanggil setelah mutasi TP, CP, prasyarat, asesmen, atau alokasi
+ * pada suatu scope akademik. Tidak melakukan penulisan ulang bila ATP memang sudah draft.
+ */
+export function reconcilePhaseATPApprovalForScope(
+  profile: SchoolProfile,
+  activeTpList: CustomTPItem[] = [],
+  explicitFase?: string
+): PhaseATPPlan | null {
+  const ctx = resolveAcademicContext(profile, explicitFase);
+  const targetFase = (explicitFase || ctx.fase) as JenjangFase;
+  const existing = getSavedPhaseATPPlan(profile, targetFase);
+  if (!existing || existing.statusPenyusunan !== 'disetujui') {
+    return existing;
+  }
+
+  const collected = collectPhaseTPItems(profile, activeTpList, targetFase);
+  const synced = initializeOrSyncPhaseATPPlan(profile, activeTpList, undefined, targetFase);
+  const { plan: checkedPlan } = invalidatePhaseATPApprovalIfChanged({
+    profile,
+    plan: {
+      ...synced,
+      statusPenyusunan: existing.statusPenyusunan,
+      approvedContentHash: existing.approvedContentHash,
+      approvedSummary: existing.approvedSummary,
+      approvedAt: existing.approvedAt,
+    },
+    orderedTpIds: synced.orderedTpIds,
+    tpById: collected.tpById,
+  });
+
+  return checkedPlan;
+}
+
 export function allocateTPToScheduleAndPersist(params: {
   profile: SchoolProfile;
   currentPlan: PhaseATPPlan;
   allocation: ATPAllocationMapping;
   phaseTPs: CustomTPItem[];
 }): PhaseATPPlan {
-  const { profile, currentPlan, allocation } = params;
+  const { profile, currentPlan, allocation, phaseTPs } = params;
   const filtered = currentPlan.allocations.filter(
     (a) => !(a.tpId === allocation.tpId && a.tahunAjaran === allocation.tahunAjaran)
   );
   filtered.push(allocation);
 
-  return savePhaseATPPlan(profile, {
+  const saved = savePhaseATPPlan(profile, {
     ...currentPlan,
     allocations: filtered,
     versi: (currentPlan.versi || 1) + 1,
   });
+
+  const tpById = new Map<string, CustomTPItem>();
+  const collected = collectPhaseTPItems(profile, phaseTPs, saved.fase);
+  collected.tpItems.forEach((t) => tpById.set(t.id, t));
+  phaseTPs.forEach((t) => tpById.set(t.id, t));
+
+  const { plan: reconciled } = invalidatePhaseATPApprovalIfChanged({
+    profile,
+    plan: saved,
+    orderedTpIds: saved.orderedTpIds,
+    tpById,
+  });
+  return reconciled;
 }
 
 /**
@@ -480,6 +1007,7 @@ export function updatePhaseTPItemInOriginScope(params: {
       nextOrigin,
       originProfile
     );
+    reconcilePhaseATPApprovalForScope(profile, activeTpList);
     return { updatedOrigin: true };
   }
 
@@ -492,6 +1020,7 @@ export function updatePhaseTPItemInOriginScope(params: {
       nextOrigin,
       originProfile
     );
+    reconcilePhaseATPApprovalForScope(profile, activeTpList);
     return { updatedOrigin: true };
   }
 

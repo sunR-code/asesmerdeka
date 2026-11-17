@@ -11,6 +11,7 @@ import {
   markSavedLKPDDraftsNeedsReview,
 } from '../utils/schoolProfileStorage';
 import { createCustomImmutableTPId } from '../utils/storageIdentity';
+import { reconcilePhaseATPApprovalForScope } from '../utils/atpStorage';
 import {
   getPendingAmbiguousLegacyDrafts,
   getPendingLegacyRosterConflicts,
@@ -258,14 +259,18 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       normalizedTP,
       schoolProfile
     );
+    const reconciledATP = reconcilePhaseATPApprovalForScope(schoolProfile, nextList);
     setIsCustomTP(true);
     setEditingTPId(null);
     setDraftTP(null);
     pushWorkspaceToCloud().catch(() => {});
+    const atpNotice = reconciledATP?.needsReapprovalReview
+      ? ' Status persetujuan ATP Fase ditandai perlu ditinjau ulang.'
+      : '';
     triggerToast(
-      affectedLkpdCount > 0
+      (affectedLkpdCount > 0
         ? `TP ${draftTP.kode} disimpan. ${affectedLkpdCount} draf LKPD ditandai perlu tinjau ulang tanpa menimpa editan Anda.`
-        : `Materi Bab/TP ${draftTP.kode} berhasil disimpan.`
+        : `Materi Bab/TP ${draftTP.kode} berhasil disimpan.`) + atpNotice
     );
   };
 
@@ -323,6 +328,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       nextList,
       schoolProfile
     );
+    reconcilePhaseATPApprovalForScope(schoolProfile, nextList);
     setIsCustomTP(true);
     setEditingTPId(newTP.id);
     setDraftTP({ ...newTP });
@@ -338,6 +344,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       nextList,
       schoolProfile
     );
+    reconcilePhaseATPApprovalForScope(schoolProfile, nextList);
     setIsCustomTP(true);
     setEditingTPId(newTP.id);
     setDraftTP({ ...newTP });
@@ -356,6 +363,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       nextList,
       schoolProfile
     );
+    reconcilePhaseATPApprovalForScope(schoolProfile, nextList);
     setIsCustomTP(true);
     pushWorkspaceToCloud().catch(() => {});
   };
@@ -374,6 +382,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       nextList,
       schoolProfile
     );
+    reconcilePhaseATPApprovalForScope(schoolProfile, nextList);
     setIsCustomTP(true);
     triggerToast(`TP ${kode} dihapus.`);
   };
@@ -393,6 +402,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
       { schoolId: schoolProfile.schoolId, tahunAjaran: schoolProfile.tahunAjaran }
     );
     setTpList(freshPlan.tpList);
+    reconcilePhaseATPApprovalForScope(schoolProfile, freshPlan.tpList);
     setIsCustomTP(false);
     setEditingTPId(null);
     triggerToast('Daftar materi dikembalikan ke standar Kurikulum Merdeka.');

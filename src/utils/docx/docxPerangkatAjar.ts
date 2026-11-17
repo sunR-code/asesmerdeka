@@ -1480,7 +1480,11 @@ export function buildATPElements(atp: ATPDokumen, userProfile?: SchoolProfile): 
   const profile = userProfile || getSchoolProfile();
   const children: (Paragraph | Table)[] = [];
   const statusLabel =
-    atp.statusPenyusunan === 'disetujui' ? 'Disetujui Guru' : 'Draf Penyusunan';
+    atp.statusPenyusunan === 'disetujui'
+      ? 'Disetujui Guru'
+      : atp.statusPenyusunan === 'perlu_ditinjau'
+      ? 'DRAF — PERLU DITINJAU ULANG'
+      : 'Draf Penyusunan';
   const versiLabel = atp.versi ? `v${atp.versi}` : 'v1';
   const refCPLabel = atp.referensiCP
     ? `${safeATPCellText(atp.referensiCP.nomorDokumen || atp.referensiCP.sumber)} (${safeATPCellText(
@@ -1537,6 +1541,26 @@ export function buildATPElements(atp: ATPDokumen, userProfile?: SchoolProfile): 
   );
 
   // Capaian Pembelajaran Fase
+  if (atp.statusPenyusunan === 'perlu_ditinjau') {
+    const reasonText =
+      atp.alasanTinjauUlang && atp.alasanTinjauUlang.length > 0
+        ? atp.alasanTinjauUlang.join(' ')
+        : 'Substansi TP, prasyarat, atau pemetaan ATP telah berubah setelah persetujuan terakhir.';
+    children.push(
+      new Paragraph({
+        spacing: { after: 80 },
+        children: [
+          new TextRun({
+            text: `PERHATIAN STATUS DOKUMEN (DRAF — PERLU DITINJAU ULANG): ${reasonText}`,
+            bold: true,
+            size: 17,
+            color: 'B45309',
+          }),
+        ],
+      })
+    );
+  }
+
   children.push(
     new Paragraph({
       children: [new TextRun({ text: 'Capaian Pembelajaran (CP) Fase:', bold: true, size: 19 })],

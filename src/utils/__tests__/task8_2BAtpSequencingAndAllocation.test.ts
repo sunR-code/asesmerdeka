@@ -6,6 +6,7 @@ import saveAs from 'file-saver';
 import { Packer } from 'docx';
 import {
   analyzeATPDependencyGraph,
+  deduplicateATPValidationIssues,
   recommendATPAssessmentPlan,
   recommendATPOrder,
   reorderTpIdsByStep,
@@ -13,10 +14,14 @@ import {
 import {
   allocateTPToScheduleAndPersist,
   applyPhaseOrderAndPersist,
+  approvePhaseATPPlan,
   collectPhaseTPItems,
+  computePhaseATPApprovalFingerprint,
+  evaluatePhaseATPApproval,
   getSavedPhaseATPPlan,
   initializeOrSyncPhaseATPPlan,
   listGradeLevelsInFase,
+  reconcilePhaseATPApprovalForScope,
   resolveSemesterTPListFromPhaseATP,
   savePhaseATPPlan,
   updatePhaseTPItemInOriginScope,
@@ -42,11 +47,16 @@ import {
   type CustomTPItem,
   type SchoolProfile,
 } from '../schoolProfileStorage';
-import { saveCPEntry, cpEntryToReferenceMeta } from '../cpStorage';
+import { saveCPEntry, cpEntryToReferenceMeta, getSavedCPEntries } from '../cpStorage';
 import { resolveCPReferenceMetadata } from '../../data/kurikulumMerdekaCP';
 import { analyzeWorkspaceConflict } from '../cloudSyncManager';
 import { saveModulAjarDraft, loadLatestModulAjarDraft, saveLKPDDraft, loadLatestLKPDDraft } from '../perangkatDraftStorage';
 import { ATPSubTab } from '../../components/hub/ATPSubTab';
+import {
+  ATPAllocationPanel,
+  TPAssessmentEditor,
+  TPPrerequisiteEditor,
+} from '../../components/hub/ATPAllocationPanel';
 import type { ATPDokumen } from '../../types/perangkatAjar';
 
 vi.mock('file-saver', () => ({
@@ -582,13 +592,25 @@ describe('Task 8.2B — ATP per Fase, Logical Sequencing, Prerequisite Validatio
       alokasiJP: 10,
     });
 
-    const plan = savePhaseATPPlan(profile, {
+    saveCustomTPList('Matematika', '8', '1 (Ganjil)', [tp1, tp2], profile);
+    const refCP = resolveCPReferenceMetadata('Matematika', 'Fase D (Kelas 7-9 SMP)', 'Geometri', 'SMP/MTs');
+    const syncedPlan = savePhaseATPPlan(profile, {
       ...initializeOrSyncPhaseATPPlan(profile, [tp1, tp2]),
       orderedTpIds: ['tp_docx_1', 'tp_docx_2'],
-      statusPenyusunan: 'disetujui',
-      versi: 3,
-      referensiCP: resolveCPReferenceMetadata('Matematika', 'Fase D (Kelas 7-9 SMP)', 'Geometri', 'SMP/MTs'),
+      versi: 2,
+      referensiCP: refCP,
     });
+    const approveRes = approvePhaseATPPlan({
+      profile,
+      plan: syncedPlan,
+      orderedTpIds: ['tp_docx_1', 'tp_docx_2'],
+      tpById: new Map([
+        ['tp_docx_1', tp1],
+        ['tp_docx_2', tp2],
+      ]),
+    });
+    expect(approveRes.ok).toBe(true);
+    const plan = approveRes.updatedPlan;
 
     const atp = buildSmartATP([tp1, tp2], profile, {
       phasePlan: plan,
@@ -727,5 +749,394 @@ describe('Task 8.2B — ATP per Fase, Logical Sequencing, Prerequisite Validatio
     expect(html).toContain('Turunkan urutan TP 8.1');
     expect(html).toContain('no-print');
     expect(html).toContain('ws-table-wrap');
+  });
+
+  // =========================================================================
+  // 9. TASK 8.2B.2 — FINGERPRINT PERSETUJUAN ATP & INVALIDASI MENYELURUH (16 KASUS)
+  // =========================================================================
+  it('9. Menjaga validitas persetujuan ATP dengan fingerprint kanonik & otomatis menginvalidasi bila ada perubahan substantif (termasuk via Cloud Sync), tanpa false positive pada metadata non-substantif', () => {
+    const profile = makeProfile();
+    const savedCP = saveCPEntry(profile, {
+      mataPelajaran: 'Matematika',
+      jenjang: 'SMP/MTs',
+      fase: 'Fase D (Kelas 7-9 SMP)',
+      elemenCP: 'Bilangan',
+      teksCP: 'Teks CP Bilangan awal.',
+      asalCP: 'input_guru',
+    });
+    const baseTP1 = makeTP({
+      id: 'tp_app_1',
+      kode: '8.1',
+      materiPokok: 'Bilangan Berpangkat',
+      kompetensiInti: 'Memahami operasi bilangan berpangkat',
+      lingkupMateri: 'Bilangan Berpangkat',
+      subTP: [
+        {
+          kode: '8.1.A',
+          kompetensi: 'Mengidentifikasi sifat pangkat bulat',
+          fokusMateri: 'Sifat Pangkat',
+          buktiKetercapaian: 'Menuliskan 3 sifat pangkat bulat positif.',
+        },
+      ],
+      referensiCP: cpEntryToReferenceMeta(savedCP),
+    });
+    const baseTP2 = makeTP({
+      id: 'tp_app_2',
+      kode: '8.2',
+      materiPokok: 'Bentuk Akar',
+      prasyaratTpIds: ['tp_app_1'],
+      referensiCP: cpEntryToReferenceMeta(savedCP),
+    });
+
+    const resetBaseScope = () => {
+      saveCustomTPList('Matematika', '8', '1 (Ganjil)', [baseTP1, baseTP2], profile);
+      saveCPEntry(profile, {
+        ...savedCP,
+        teksCP: 'Teks CP Bilangan awal.',
+      });
+      const synced = initializeOrSyncPhaseATPPlan(profile, [baseTP1, baseTP2]);
+      const res = approvePhaseATPPlan({
+        profile,
+        plan: synced,
+        orderedTpIds: synced.orderedTpIds,
+        tpById: new Map([
+          [baseTP1.id, baseTP1],
+          [baseTP2.id, baseTP2],
+        ]),
+      });
+      expect(res.ok).toBe(true);
+      return res.updatedPlan;
+    };
+
+    // 1–3. Draft -> Approve -> Reopen unchanged -> tetap disetujui
+    const initialDraft = initializeOrSyncPhaseATPPlan(profile, [baseTP1, baseTP2]);
+    expect(initialDraft.statusPenyusunan).toBe('draft');
+    const approvedPlan = resetBaseScope();
+    expect(approvedPlan.statusPenyusunan).toBe('disetujui');
+    expect(approvedPlan.approvedContentHash).toBeTruthy();
+
+    const canonicalA = computePhaseATPApprovalFingerprint({
+      profile,
+      plan: approvedPlan,
+      orderedTpIds: [baseTP1.id, baseTP2.id],
+      tpById: new Map([
+        [baseTP1.id, baseTP1],
+        [baseTP2.id, baseTP2],
+      ]),
+    });
+    expect(canonicalA.fingerprint).toBe(approvedPlan.approvedContentHash);
+
+    const reopenAtp = buildSmartATP([baseTP1, baseTP2], profile);
+    expect(reopenAtp.statusPenyusunan).toBe('disetujui');
+
+    //Helper mutasi TP substantif: wajib menginvalidasi persetujuan
+    const assertInvalidatedAfter = (label: string, mutate: () => void) => {
+      resetBaseScope();
+      mutate();
+      const latestTPs = getSavedCustomTPList('Matematika', '8', '1 (Ganjil)', profile) || [baseTP1, baseTP2];
+      const atpDoc = buildSmartATP(latestTPs, profile);
+      expect(atpDoc.statusPenyusunan, `${label} wajib mendeteksi perlu_ditinjau`).toBe('perlu_ditinjau');
+      expect(atpDoc.alasanTinjauUlang?.length || 0, `${label} wajib menyertakan alasan`).toBeGreaterThan(0);
+    };
+
+    // 4. Tujuan TP berubah
+    assertInvalidatedAfter('Ubah tujuan TP', () => {
+      saveCustomTPList(
+        'Matematika',
+        '8',
+        '1 (Ganjil)',
+        [{ ...baseTP1, tujuanPembelajaran: 'Tujuan berubah total untuk uji invalidasi.' }, baseTP2],
+        profile
+      );
+    });
+    // 5. Kompetensi berubah
+    assertInvalidatedAfter('Ubah kompetensi', () => {
+      saveCustomTPList(
+        'Matematika',
+        '8',
+        '1 (Ganjil)',
+        [{ ...baseTP1, kompetensiInti: 'Mengevaluasi model eksponen lanjutan' }, baseTP2],
+        profile
+      );
+    });
+    // 6. Lingkup materi berubah
+    assertInvalidatedAfter('Ubah lingkup materi', () => {
+      saveCustomTPList(
+        'Matematika',
+        '8',
+        '1 (Ganjil)',
+        [{ ...baseTP1, lingkupMateri: 'Notasi Ilmiah & Eksponen' }, baseTP2],
+        profile
+      );
+    });
+    // 7. Sub-TP berubah
+    assertInvalidatedAfter('Ubah Sub-TP', () => {
+      saveCustomTPList(
+        'Matematika',
+        '8',
+        '1 (Ganjil)',
+        [
+          {
+            ...baseTP1,
+            subTP: [
+              {
+                kode: '8.1.A',
+                kompetensi: 'Mengubah bentuk pangkat negatif ke pecahan',
+                fokusMateri: 'Pangkat Negatif',
+                buktiKetercapaian: 'Menyederhanakan 4 ekspresi pangkat negatif.',
+              },
+            ],
+          },
+          baseTP2,
+        ],
+        profile
+      );
+    });
+    // 8. Bukti ketercapaian berubah
+    assertInvalidatedAfter('Ubah bukti ketercapaian', () => {
+      saveCustomTPList(
+        'Matematika',
+        '8',
+        '1 (Ganjil)',
+        [{ ...baseTP1, buktiKetercapaian: ['Indikator baru hasil revisi guru.'] }, baseTP2],
+        profile
+      );
+    });
+    // 9. Referensi / teks CP berubah
+    assertInvalidatedAfter('Ubah teks CP', () => {
+      saveCPEntry(profile, {
+        ...savedCP,
+        teksCP: 'Teks CP Bilangan yang sudah direvisi guru.',
+      });
+    });
+    // 10. Urutan TP berubah (applyPhaseOrderAndPersist)
+    assertInvalidatedAfter('Ubah urutan TP', () => {
+      const curr = getSavedPhaseATPPlan(profile, 'Fase D (Kelas 7-9 SMP)')!;
+      applyPhaseOrderAndPersist({
+        profile,
+        currentPlan: curr,
+        nextOrderedTpIds: [baseTP2.id, baseTP1.id],
+        activeTpList: [baseTP1, baseTP2],
+      });
+    });
+    // 11. Relasi prasyarat berubah
+    assertInvalidatedAfter('Ubah prasyarat', () => {
+      saveCustomTPList(
+        'Matematika',
+        '8',
+        '1 (Ganjil)',
+        [baseTP1, { ...baseTP2, prasyaratTpIds: [] }],
+        profile
+      );
+    });
+    // 12. Rencana asesmen berubah
+    assertInvalidatedAfter('Ubah rencana asesmen', () => {
+      saveCustomTPList(
+        'Matematika',
+        '8',
+        '1 (Ganjil)',
+        [
+          {
+            ...baseTP1,
+            rencanaAsesmen: {
+              bentukUtama: ['Proyek'],
+              deskripsi: 'Proyek investigasi eksponen.',
+              isEditedByGuru: true,
+            },
+          },
+          baseTP2,
+        ],
+        profile
+      );
+    });
+    // 13. Pemetaan Layer 2 berubah
+    assertInvalidatedAfter('Ubah pemetaan semester/JP', () => {
+      const curr = getSavedPhaseATPPlan(profile, 'Fase D (Kelas 7-9 SMP)')!;
+      allocateTPToScheduleAndPersist({
+        profile,
+        currentPlan: curr,
+        allocation: {
+          tpId: baseTP2.id,
+          tahunAjaran: '2026/2027',
+          kelas: '8',
+          semester: '2 (Genap)',
+          alokasiJP: 18,
+        },
+        phaseTPs: [baseTP1, baseTP2],
+      });
+    });
+
+    // 14. Metadata non-substantif (statusReview / catatanGuru / urutan properti objek berbeda) -> TETAP DISETUJUI
+    const reApproved = resetBaseScope();
+    const metaChangedTP1: CustomTPItem = {
+      ...baseTP1,
+      statusReview: 'disetujui',
+      estimasiMenitSesi: 90,
+    };
+    saveCustomTPList('Matematika', '8', '1 (Ganjil)', [metaChangedTP1, baseTP2], profile);
+    savePhaseATPPlan(profile, {
+      ...reApproved,
+      catatanGuru: 'Catatan administratif sekolah',
+    });
+    const reconciledNonSub = reconcilePhaseATPApprovalForScope(profile, [metaChangedTP1, baseTP2]);
+    expect(reconciledNonSub?.statusPenyusunan).toBe('disetujui');
+    expect(buildSmartATP([metaChangedTP1, baseTP2], profile).statusPenyusunan).toBe('disetujui');
+
+    // 15. Re-approve setelah invalidasi menghasilkan snapshot baru
+    const editedTP1: CustomTPItem = { ...baseTP1, tujuanPembelajaran: 'Tujuan baru terverifikasi' };
+    saveCustomTPList('Matematika', '8', '1 (Ganjil)', [editedTP1, baseTP2], profile);
+    const invalidated = reconcilePhaseATPApprovalForScope(profile, [editedTP1, baseTP2])!;
+    expect(invalidated.statusPenyusunan).toBe('draft');
+    expect(invalidated.needsReapprovalReview).toBe(true);
+    const reApprovedNew = approvePhaseATPPlan({
+      profile,
+      plan: invalidated,
+      orderedTpIds: invalidated.orderedTpIds,
+      tpById: new Map([
+        [editedTP1.id, editedTP1],
+        [baseTP2.id, baseTP2],
+      ]),
+    });
+    expect(reApprovedNew.ok).toBe(true);
+    expect(reApprovedNew.updatedPlan.approvedContentHash).not.toBe(reApproved.approvedContentHash);
+    expect(reApprovedNew.updatedPlan.needsReapprovalReview).toBe(false);
+
+    // 16. Simulasi Cloud Sync: perangkat B mengubah TP sumber sementara perangkat A menyetujui versi lama
+    const deviceAMap = JSON.parse(localStorage.getItem('asesmerdeka_atp_v2') || '{}');
+    const deviceBTPMap = JSON.parse(localStorage.getItem('asesmerdeka_custom_tp_v2') || '{}');
+    const tpScopeKey = Object.keys(deviceBTPMap)[0];
+    deviceBTPMap[tpScopeKey] = deviceBTPMap[tpScopeKey].map((item: CustomTPItem) =>
+      item.id === baseTP2.id ? { ...item, materiPokok: 'Bentuk Akar Revisi Device B' } : item
+    );
+    const syncAnalysis = analyzeWorkspaceConflict(
+      { asesmerdeka_atp_v2: deviceAMap },
+      { asesmerdeka_atp_v2: deviceAMap },
+      { asesmerdeka_atp_v2: deviceAMap, asesmerdeka_custom_tp_v2: deviceBTPMap }
+    );
+    localStorage.setItem(
+      'asesmerdeka_custom_tp_v2',
+      JSON.stringify(syncAnalysis.mergedEntries['asesmerdeka_custom_tp_v2'])
+    );
+    const pulledTPs = getSavedCustomTPList('Matematika', '8', '1 (Ganjil)', profile)!;
+    const postSyncEval = evaluatePhaseATPApproval({
+      profile,
+      plan: getSavedPhaseATPPlan(profile, 'Fase D (Kelas 7-9 SMP)'),
+      orderedTpIds: [editedTP1.id, baseTP2.id],
+      tpById: new Map(pulledTPs.map((t) => [t.id, t])),
+    });
+    expect(postSyncEval.effectiveStatus).toBe('perlu_ditinjau');
+    expect(postSyncEval.isStaleApproval).toBe(true);
+  });
+
+  // =========================================================================
+  // 10. TASK 8.2B.2 — EKSPOR STALE/LEGACY JUJUR, DEDUPLIKASI SIKLUS, TOTAL JP & MOBILE MODAL/GRID
+  // =========================================================================
+  it('10. Ekspor DOCX menolak label Disetujui saat stale/legacy, deduplikasi pesan siklus 3 TP, label Total JP jelas, dan panel/modal berada di luar tabel untuk mobile', async () => {
+    const profile = makeProfile();
+    const c1 = makeTP({ id: 'cyc_a', kode: '8.1', materiPokok: 'Konsep A', prasyaratTpIds: ['cyc_c'] });
+    const c2 = makeTP({ id: 'cyc_b', kode: '8.2', materiPokok: 'Konsep B', prasyaratTpIds: ['cyc_a'] });
+    const c3 = makeTP({ id: 'cyc_c', kode: '8.3', materiPokok: 'Konsep C', prasyaratTpIds: ['cyc_b'] });
+    saveCustomTPList('Matematika', '8', '1 (Ganjil)', [c1, c2, c3], profile);
+
+    const tpMap = new Map([c1, c2, c3].map((t) => [t.id, t]));
+    const graph = analyzeATPDependencyGraph(['cyc_a', 'cyc_b', 'cyc_c'], tpMap, 'Fase D');
+    // Semua anggota siklus tetap terdeteksi pada issuesByTpId
+    expect(graph.issuesByTpId['cyc_a']?.some((i) => i.kind === 'circular_dependency')).toBe(true);
+    expect(graph.issuesByTpId['cyc_b']?.some((i) => i.kind === 'circular_dependency')).toBe(true);
+    expect(graph.issuesByTpId['cyc_c']?.some((i) => i.kind === 'circular_dependency')).toBe(true);
+
+    // Banner summary menduplikasi siklus identik menjadi 1 baris saja, rekomendasi tetap diblokir
+    const dedupedCycles = deduplicateATPValidationIssues(
+      graph.issues.filter((i) => i.kind === 'circular_dependency')
+    );
+    expect(dedupedCycles).toHaveLength(1);
+    expect(recommendATPOrder(['cyc_a', 'cyc_b', 'cyc_c'], tpMap, 'Fase D').hasBlockingCycle).toBe(true);
+
+    // Persetujuan diblokir bila masih ada siklus blocking
+    const draftPlan = initializeOrSyncPhaseATPPlan(profile, [c1, c2, c3]);
+    const blockedApprove = approvePhaseATPPlan({
+      profile,
+      plan: draftPlan,
+      orderedTpIds: draftPlan.orderedTpIds,
+      tpById: tpMap,
+      hasBlockingValidation: graph.hasBlockingCycle,
+    });
+    expect(blockedApprove.ok).toBe(false);
+
+    // Legacy plan yang bertanda 'disetujui' tanpa approvedContentHash wajib tereksport sebagai DRAF — PERLU DITINJAU ULANG
+    const legacyUnverifiedPlan = savePhaseATPPlan(profile, {
+      ...draftPlan,
+      statusPenyusunan: 'disetujui',
+      approvedContentHash: undefined,
+    });
+    const staleAtp = buildSmartATP([c1, c2, c3], profile, { phasePlan: legacyUnverifiedPlan });
+    expect(staleAtp.statusPenyusunan).toBe('perlu_ditinjau');
+    await exportATPToDocx(staleAtp, profile);
+    const staleXml = await readLastExportedDocxXml();
+    expect(staleXml).toContain('DRAF — PERLU DITINJAU ULANG');
+    expect(staleXml).not.toContain('Disetujui Guru');
+
+    // UI ATPSubTab: total JP jelas & tombol pemetaan/rekomendasi hadir, dan tidak merender editor inline di dalam <td>
+    const subtabHtml = renderToStaticMarkup(
+      React.createElement(ATPSubTab, {
+        tpList: [c1, c2, c3],
+        schoolProfile: profile,
+        onUpdateTPList: () => {},
+        onToast: () => {},
+      })
+    );
+    expect(subtabHtml).toContain('Total ATP Fase');
+    expect(subtabHtml).toContain('Semester 1 (seluruh kelas dalam fase)');
+    expect(subtabHtml).toContain('Prota &amp; Promes menghitung TP kelas aktif');
+    expect(subtabHtml).toContain('Perlu Ditinjau Ulang');
+    expect(subtabHtml).toContain('Setujui Ulang ATP');
+
+    // ATPAllocationPanel menggunakan kelas responsif tanpa lebar kolom tetap 110px/135px
+    const panelHtml = renderToStaticMarkup(
+      React.createElement(ATPAllocationPanel, {
+        schoolProfile: profile,
+        phasePlan: draftPlan,
+        orderedTPs: [c1, c2],
+        totalJPPerSemester: { semester1: 20, semester2: 0 },
+        kapasitasJPPerSemester: { semester1: 90, semester2: 90 },
+        onUpdateAllocation: () => {},
+      })
+    );
+    expect(panelHtml).toContain('atp-alloc-row');
+    expect(panelHtml).toContain('atp-alloc-fields');
+    expect(panelHtml).not.toContain('1.5fr 110px');
+
+    // TPPrerequisiteEditor & TPAssessmentEditor dirender sebagai modal-overlay responsif (.atp-modal-dialog)
+    const prereqModalHtml = renderToStaticMarkup(
+      React.createElement(TPPrerequisiteEditor, {
+        tp: c1,
+        allPhaseTPs: [c1, c2, c3],
+        dependents: ['cyc_b'],
+        tpById: tpMap,
+        onSavePrereqs: () => {},
+        onClose: () => {},
+      })
+    );
+    expect(prereqModalHtml).toContain('modal-overlay');
+    expect(prereqModalHtml).toContain('atp-modal-dialog');
+    expect(prereqModalHtml).toContain('Simpan Prasyarat');
+    expect(prereqModalHtml).toContain('Tutup');
+
+    const assessModalHtml = renderToStaticMarkup(
+      React.createElement(TPAssessmentEditor, {
+        tp: c1,
+        currentBentuk: ['Observasi'],
+        currentDeskripsi: 'Observasi terstruktur',
+        onSaveAssessment: () => {},
+        onClose: () => {},
+      })
+    );
+    expect(assessModalHtml).toContain('modal-overlay');
+    expect(assessModalHtml).toContain('atp-modal-dialog');
+    expect(assessModalHtml).toContain('Simpan Rencana Asesmen');
+    expect(assessModalHtml).toContain('Batal');
+
+    // Pastikan getSavedCPEntries tersedia & bebas error
+    expect(getSavedCPEntries(profile, 'Fase D (Kelas 7-9 SMP)')).toBeDefined();
   });
 });
