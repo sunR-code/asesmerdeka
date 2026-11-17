@@ -1,6 +1,7 @@
 import type { JenjangFase } from '../types/assessment';
 import {
   SCHOOL_ID_STORAGE_KEY,
+  CP_STORAGE_V2_KEY,
   V2_BACKUP_STORAGE_PREFIXES,
   buildCustomTPScopeKey,
   generateNewSchoolId,
@@ -18,12 +19,29 @@ export interface SubTPItem {
   estimasiMenit?: number;
 }
 
+export type CPAsalSumber = 'referensi_sistem' | 'input_guru';
+export type CPStatusVerifikasi =
+  | 'resmi_terverifikasi'
+  | 'referensi_belum_verifikasi'
+  | 'input_guru';
+
 export interface CPReferenceMeta {
   sumber: string;
   elemenCP: string;
   fase: string;
   terverifikasiResmi: boolean;
   catatan: string;
+  mataPelajaran?: string;
+  jenjang?: string;
+  teksCP?: string;
+  asalCP?: CPAsalSumber;
+  namaDokumenSumber?: string;
+  nomorDokumen?: string;
+  tahunVersiDokumen?: string;
+  urlReferensi?: string;
+  statusVerifikasi?: CPStatusVerifikasi;
+  catatanPenyesuaianGuru?: string;
+  cpEntryId?: string;
 }
 
 export type TPReviewStatus = 'draft' | 'ditinjau' | 'disetujui';
@@ -46,18 +64,31 @@ export interface CustomTPItem {
   estimasiMenitSesi?: number;
   statusReview?: TPReviewStatus;
   referensiCP?: CPReferenceMeta;
+  analisisCPId?: string;
   subTP?: SubTPItem[];
 }
 
 export function computeTPContentHash(
   tp: Pick<CustomTPItem, 'kode' | 'elemen' | 'materiPokok' | 'tujuanPembelajaran' | 'alokasiJP'> &
-    Partial<Pick<CustomTPItem, 'arahanRangkuman' | 'kompetensiInti' | 'prasyarat' | 'subTP'>>
+    Partial<
+      Pick<
+        CustomTPItem,
+        | 'arahanRangkuman'
+        | 'kompetensiInti'
+        | 'lingkupMateri'
+        | 'prasyarat'
+        | 'buktiKetercapaian'
+        | 'subTP'
+        | 'referensiCP'
+        | 'analisisCPId'
+      >
+    >
 ): string {
   const subTpSignature = Array.isArray(tp.subTP)
     ? tp.subTP.map((s) => `${s.kode}:${s.kompetensi}:${s.fokusMateri}:${s.buktiKetercapaian}`).join(';')
     : '';
   const prasyaratSignature = Array.isArray(tp.prasyarat) ? tp.prasyarat.join(';') : '';
-  const payload = [
+  const baseFields = [
     tp.kode || '',
     tp.elemen || '',
     tp.materiPokok || '',
@@ -67,7 +98,17 @@ export function computeTPContentHash(
     tp.kompetensiInti || '',
     prasyaratSignature,
     subTpSignature,
-  ].join('|');
+  ];
+
+  // Pertahankan backward-compatibility: field tambahan kosong / undefined atau lingkupMateri === materiPokok
+  // tidak boleh mengubah signature hash TP lama agar draf existing tidak otomatis terkena flag needsReview.
+  const trimmedLingkup = (tp.lingkupMateri || '').trim();
+  const trimmedMateri = (tp.materiPokok || '').trim();
+  if (trimmedLingkup && trimmedLingkup !== trimmedMateri) {
+    baseFields.push(`lm:${trimmedLingkup}`);
+  }
+
+  const payload = baseFields.join('|');
   let hash = 5381;
   for (let i = 0; i < payload.length; i++) {
     hash = ((hash << 5) + hash + payload.charCodeAt(i)) >>> 0;
@@ -378,6 +419,7 @@ const ALLOWED_BACKUP_PREFIXES = [
   PROFILE_STORAGE_KEY,
   CUSTOM_TP_STORAGE_KEY,
   CUSTOM_TP_STORAGE_V2_KEY,
+  CP_STORAGE_V2_KEY,
   ONBOARDING_CONFIRMED_KEY,
   'asesmerdeka_harian_',
   'asesmerdeka_supervisi_',
@@ -388,7 +430,7 @@ const ALLOWED_BACKUP_PREFIXES = [
   ...V2_BACKUP_STORAGE_PREFIXES,
 ];
 
-function isAllowedBackupKey(key: string): boolean {
+export function isAllowedBackupKey(key: string): boolean {
   return ALLOWED_BACKUP_PREFIXES.some((prefix) => key === prefix || key.startsWith(prefix));
 }
 

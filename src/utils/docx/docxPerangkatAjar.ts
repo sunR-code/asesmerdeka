@@ -30,6 +30,41 @@ import { cleanTopicHeading } from '../lkpdSubjectBlueprints';
 import { buildSignatureBlockTable, createStyledDocxDocument } from './docxShared';
 
 /**
+ * Formatter aman untuk daftar Sub-TP pada ekspor DOCX.
+ * Mendukung array string legacy, array objek { kode, kompetensi }, maupun nilai kosong/invalid
+ * agar tidak pernah menghasilkan "[object Object]".
+ */
+export function formatTargetSubTPList(targetSubTP: unknown): string {
+  if (!Array.isArray(targetSubTP) || targetSubTP.length === 0) {
+    return '';
+  }
+
+  return targetSubTP
+    .map((item) => {
+      if (typeof item === 'string') {
+        return item.trim();
+      }
+      if (item && typeof item === 'object') {
+        const obj = item as Record<string, unknown>;
+        const kode = typeof obj.kode === 'string' ? obj.kode.trim() : '';
+        const kompetensi =
+          typeof obj.kompetensi === 'string'
+            ? obj.kompetensi.trim()
+            : typeof obj.fokusMateri === 'string'
+            ? obj.fokusMateri.trim()
+            : '';
+        if (kode && kompetensi) {
+          return `${kode}: ${kompetensi}`;
+        }
+        return kode || kompetensi;
+      }
+      return '';
+    })
+    .filter((entry): entry is string => Boolean(entry))
+    .join('; ');
+}
+
+/**
  * Ekspor Modul Ajar (RPP Kurikulum Merdeka) ke Microsoft Word (.docx)
  */
 export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: SchoolProfile): (Paragraph | Table)[] {
@@ -139,11 +174,14 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
     }),
     new Paragraph({ children: [new TextRun({ text: `A. Tujuan Pembelajaran (TP ${modul.tpKode}):`, bold: true, size: 20 })], spacing: { after: 30 } }),
     new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: modul.tujuanPembelajaran, size: 19 })], spacing: { after: 60 } }),
-    ...(modul.targetSubTP && modul.targetSubTP.length > 0
-      ? [
-          new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: `Indikator / Sub-TP: ${modul.targetSubTP.join('; ')}`, size: 18, color: '334155' })], spacing: { after: 60 } }),
-        ]
-      : []),
+    ...(() => {
+      const formattedSubTP = formatTargetSubTPList(modul.targetSubTP);
+      return formattedSubTP
+        ? [
+            new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: `Indikator / Sub-TP: ${formattedSubTP}`, size: 18, color: '334155' })], spacing: { after: 60 } }),
+          ]
+        : [];
+    })(),
     new Paragraph({ children: [new TextRun({ text: 'B. Pemahaman Bermakna:', bold: true, size: 20 })], spacing: { after: 30 } }),
     new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: modul.pemahamanBermakna, size: 19, italics: true })], spacing: { after: 80 } }),
     new Paragraph({ children: [new TextRun({ text: 'C. Pertanyaan Pemantik:', bold: true, size: 20 })], spacing: { after: 30 } })
@@ -276,7 +314,7 @@ export async function exportModulAjarToDocx(modul: ModulAjarDokumen, userProfile
   const children = buildModulAjarElements(modul, userProfile);
   const doc = new Document({ sections: [{ properties: {}, children }] });
   const blob = await Packer.toBlob(doc);
-  const cleanFilename = `Modul_Ajar_${modul.materiPokok.replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Kurikulum_Merdeka'}`;
+  const cleanFilename = `Modul_Ajar_${(modul.materiPokok || '').replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Kurikulum_Merdeka'}`;
   saveAs(blob, `${cleanFilename}.docx`);
 }
 
@@ -405,9 +443,12 @@ export function buildLKPDElements(
                 new Paragraph({ children: [new TextRun({ text: `Kelas / Rombel : Kelas ${lkpd.kelas} (${lkpd.rombel || profile.rombelAktif || '-'})`, size: 19 })] }),
                 new Paragraph({ children: [new TextRun({ text: `Alokasi Waktu  : ${lkpd.alokasiWaktu}`, size: 19 })] }),
                 new Paragraph({ children: [new TextRun({ text: `Tujuan Belajar : ${lkpd.tujuanPembelajaran}`, size: 18 })] }),
-                ...(lkpd.targetSubTP && lkpd.targetSubTP.length > 0
-                  ? [new Paragraph({ children: [new TextRun({ text: `Indikator Sub-TP : ${lkpd.targetSubTP.join('; ')}`, size: 17, color: '475569' })] })]
-                  : []),
+                ...(() => {
+                  const formattedLkpdSubTP = formatTargetSubTPList(lkpd.targetSubTP);
+                  return formattedLkpdSubTP
+                    ? [new Paragraph({ children: [new TextRun({ text: `Indikator Sub-TP : ${formattedLkpdSubTP}`, size: 17, color: '475569' })] })]
+                    : [];
+                })(),
                 ...(lkpd.konteksAktual
                   ? [new Paragraph({ children: [new TextRun({ text: `Konteks Belajar : ${lkpd.konteksAktual}`, size: 17, color: '475569' })] })]
                   : []),
@@ -1395,7 +1436,7 @@ export async function exportLKPDToDocx(
   const children = buildLKPDElements(lkpd, userProfile, isTeacherMode);
   const doc = new Document({ sections: [{ properties: {}, children }] });
   const blob = await Packer.toBlob(doc);
-  const cleanMateri = lkpd.materiPokok.replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Siswa';
+  const cleanMateri = (lkpd.materiPokok || '').replace(/[^a-zA-Z0-9_\s]/g, '').trim() || 'Siswa';
   const cleanFilename = isTeacherMode
     ? `Panduan_Guru_LKPD_${cleanMateri}_${lkpd.presetType || 'kasus'}.docx`
     : `LKPD_${cleanMateri}_${lkpd.presetType || 'kasus'}.docx`;

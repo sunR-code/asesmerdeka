@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen,
@@ -6,7 +6,6 @@ import {
   Plus,
   Edit3,
   RotateCcw,
-  Check,
   Sliders,
   Sparkles,
   Trash2,
@@ -15,8 +14,11 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import type { SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
+import type { CPReferenceMeta, SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
+import { getSavedCPEntries, resolveCPStatusLabel, type SavedCPEntry } from '../../utils/cpStorage';
 import { workspaceAccordionTransition } from '../../utils/motionPresets';
+import { CPWorkspacePanel } from './CPWorkspacePanel';
+import { TPEditorForm } from './TPEditorForm';
 
 interface TPListSubTabProps {
   schoolProfile: SchoolProfile;
@@ -25,6 +27,7 @@ interface TPListSubTabProps {
   currentFase: string;
   capaianPembelajaran: string;
   referensiCatatan?: string;
+  defaultReferensiCP?: CPReferenceMeta;
   editingTPId: string | null;
   draftTP: CustomTPItem | null;
   setEditingTPId: (id: string | null) => void;
@@ -33,6 +36,7 @@ interface TPListSubTabProps {
   onSaveEditTP: () => void;
   onToggleReviewTP?: (tp: CustomTPItem) => void;
   onAddNewTP: () => void;
+  onCreateTPFromAnalysis?: (newTP: CustomTPItem) => void;
   onDeleteTP: (id: string, kode: string) => void;
   onResetDefaultTP: () => void;
   onOpenModulAjar: (tp: CustomTPItem, profile: SchoolProfile) => void;
@@ -43,6 +47,7 @@ interface TPListSubTabProps {
   onCustomRangkumanForm: (tp: CustomTPItem, profile: SchoolProfile) => void;
   isGeneratingAssessment: boolean;
   isGeneratingRangkuman: boolean;
+  onToast?: (msg: string) => void;
 }
 
 export const TPListSubTab: React.FC<TPListSubTabProps> = ({
@@ -52,6 +57,7 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
   currentFase,
   capaianPembelajaran,
   referensiCatatan,
+  defaultReferensiCP,
   editingTPId,
   draftTP,
   setEditingTPId,
@@ -60,6 +66,7 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
   onSaveEditTP,
   onToggleReviewTP,
   onAddNewTP,
+  onCreateTPFromAnalysis,
   onDeleteTP,
   onResetDefaultTP,
   onOpenModulAjar,
@@ -70,10 +77,18 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
   onCustomRangkumanForm,
   isGeneratingAssessment,
   isGeneratingRangkuman,
+  onToast,
 }) => {
   const [showCPDetail, setShowCPDetail] = useState(false);
   const [activeGeneratingTPId, setActiveGeneratingTPId] = useState<string | null>(null);
+  const [savedCPEntries, setSavedCPEntries] = useState<SavedCPEntry[]>(() =>
+    getSavedCPEntries(schoolProfile, currentFase)
+  );
   const isBusy = isGeneratingAssessment || isGeneratingRangkuman;
+
+  useEffect(() => {
+    setSavedCPEntries(getSavedCPEntries(schoolProfile, currentFase));
+  }, [schoolProfile.schoolId, schoolProfile.mataPelajaranUtama, schoolProfile.jenjang, currentFase]);
 
   return (
     <div key="tp_list">
@@ -114,7 +129,7 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                 padding: 0,
               }}
             >
-              <span>{showCPDetail ? 'Tutup deskripsi CP' : 'Lihat teks lengkap CP'}</span>
+              <span>{showCPDetail ? 'Tutup Panel CP & Analisis CP' : 'Kelola Sumber CP & Analisis CP'}</span>
               {showCPDetail ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
             </button>
           </div>
@@ -126,7 +141,7 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
               type="button"
               onClick={onResetDefaultTP}
               className="btn btn-sm btn-outline"
-              title="Kembalikan materi ke standar Kemendikbudristek"
+              title="Kembalikan materi ke standar Kurikulum Merdeka"
             >
               <RotateCcw size={13} aria-hidden="true" /> Standar Kurikulum Merdeka
             </button>
@@ -142,7 +157,7 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
         </div>
       </div>
 
-      {/* Accordion Capaian Pembelajaran (CP) */}
+      {/* Accordion Sumber CP, Input/Edit CP, dan Analisis CP -> TP */}
       <AnimatePresence initial={false}>
         {showCPDetail && (
           <motion.div
@@ -150,27 +165,23 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={workspaceAccordionTransition}
-            style={{
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
-              borderRadius: 10,
-              padding: '12px 16px',
-              marginBottom: 14,
-              fontSize: 13,
-              color: '#334155',
-              lineHeight: 1.55,
-              overflow: 'hidden',
-            }}
+            style={{ overflow: 'hidden' }}
           >
-            <strong style={{ color: '#172033', display: 'block', marginBottom: 4 }}>
-              Ringkasan Orientasi CP Fase {currentFase}:
-            </strong>
-            <div>{capaianPembelajaran}</div>
-            {referensiCatatan && (
-              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #cbd5e1', fontSize: 12, color: '#64748b' }}>
-                Catatan Rujukan: {referensiCatatan}
-              </div>
-            )}
+            <CPWorkspacePanel
+              schoolProfile={schoolProfile}
+              currentFase={currentFase}
+              capaianPembelajaranRingkas={capaianPembelajaran}
+              referensiCatatan={referensiCatatan}
+              defaultReferensiCP={defaultReferensiCP}
+              existingTPCount={tpList.length}
+              onCreateTPFromAnalysis={(newTP) => {
+                if (onCreateTPFromAnalysis) {
+                  onCreateTPFromAnalysis(newTP);
+                }
+              }}
+              onCPListChanged={setSavedCPEntries}
+              onToast={onToast}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -197,79 +208,17 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
               }}
             >
               {isEditing ? (
-                <div>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, color: '#1d4ed8', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Edit3 size={15} aria-hidden="true" /> Ubah Materi / Tujuan Pembelajaran (TP {draftTP.kode})
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                    <div>
-                      <label className="form-label" style={{ fontSize: 12 }}>Judul Materi Pokok / Bab</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={draftTP.materiPokok}
-                        onChange={(e) => setDraftTP({ ...draftTP, materiPokok: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className="form-label" style={{ fontSize: 12 }}>Elemen Materi / CP</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={draftTP.elemen}
-                        onChange={(e) => setDraftTP({ ...draftTP, elemen: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <label className="form-label" style={{ fontSize: 12 }}>Tujuan Pembelajaran (TP)</label>
-                    <textarea
-                      className="form-textarea"
-                      rows={2}
-                      value={draftTP.tujuanPembelajaran}
-                      onChange={(e) => setDraftTP({ ...draftTP, tujuanPembelajaran: e.target.value })}
-                    />
-                  </div>
-                  <div style={{ marginBottom: 12 }}>
-                    <label className="form-label" style={{ fontSize: 12 }}>
-                      Prasyarat Materi (pisahkan dengan koma, opsional)
-                    </label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={(draftTP.prasyarat || []).join(', ')}
-                      onChange={(e) =>
-                        setDraftTP({
-                          ...draftTP,
-                          prasyarat: e.target.value
-                            .split(',')
-                            .map((s) => s.trim())
-                            .filter(Boolean),
-                        })
-                      }
-                      placeholder="Contoh: Bentuk aljabar satu variabel, operasi bilangan bulat"
-                    />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingTPId(null);
-                        setDraftTP(null);
-                      }}
-                      className="btn btn-sm btn-outline"
-                    >
-                      Batal
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onSaveEditTP}
-                      className="btn btn-sm btn-primary"
-                    >
-                      <Check size={14} aria-hidden="true" /> Simpan Perubahan
-                    </button>
-                  </div>
-                </div>
+                <TPEditorForm
+                  draftTP={draftTP}
+                  schoolProfile={schoolProfile}
+                  savedCPEntries={savedCPEntries}
+                  onChangeDraft={setDraftTP}
+                  onCancel={() => {
+                    setEditingTPId(null);
+                    setDraftTP(null);
+                  }}
+                  onSave={onSaveEditTP}
+                />
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {/* Baris Atas: Nomor, Metadata & Deskripsi TP */}
@@ -366,10 +315,29 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                         {tp.tujuanPembelajaran}
                       </div>
 
-                      {(tp.prasyarat?.length || tp.subTP?.length) ? (
-                        <div style={{ marginTop: 8, padding: '8px 10px', background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9', fontSize: 12, color: '#475569' }}>
+                      {(tp.kompetensiInti || tp.lingkupMateri || tp.prasyarat?.length || tp.buktiKetercapaian?.length || tp.subTP?.length || tp.referensiCP) ? (
+                        <div style={{ marginTop: 8, padding: '8px 10px', background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9', fontSize: 12, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {(tp.kompetensiInti || tp.lingkupMateri) && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                              {tp.kompetensiInti && (
+                                <span>
+                                  <strong style={{ color: '#334155' }}>Kompetensi:</strong> {tp.kompetensiInti}
+                                </span>
+                              )}
+                              {tp.lingkupMateri && (
+                                <span>
+                                  <strong style={{ color: '#334155' }}>Lingkup Materi:</strong> {tp.lingkupMateri}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {tp.buktiKetercapaian && tp.buktiKetercapaian.length > 0 && (
+                            <div>
+                              <strong style={{ color: '#334155' }}>Bukti Ketercapaian:</strong> {tp.buktiKetercapaian.join(' · ')}
+                            </div>
+                          )}
                           {tp.prasyarat && tp.prasyarat.length > 0 && (
-                            <div style={{ marginBottom: tp.subTP?.length ? 4 : 0 }}>
+                            <div>
                               <strong style={{ color: '#334155' }}>Prasyarat:</strong> {tp.prasyarat.join(' · ')}
                             </div>
                           )}
@@ -377,6 +345,16 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                             <div>
                               <strong style={{ color: '#334155' }}>Rincian Sub-TP ({tp.subTP.length}):</strong>{' '}
                               {tp.subTP.map((s) => `${s.kode}: ${s.kompetensi}`).join(' | ')}
+                            </div>
+                          )}
+                          {tp.referensiCP && (
+                            <div style={{ fontSize: 11.5, color: '#64748b' }}>
+                              <strong style={{ color: '#334155' }}>Sumber CP:</strong> {tp.referensiCP.elemenCP} ·{' '}
+                              {resolveCPStatusLabel(
+                                tp.referensiCP.statusVerifikasi,
+                                tp.referensiCP.terverifikasiResmi,
+                                tp.referensiCP.asalCP
+                              )}
                             </div>
                           )}
                         </div>

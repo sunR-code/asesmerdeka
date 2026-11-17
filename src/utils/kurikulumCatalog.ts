@@ -253,7 +253,7 @@ export function getSemesterCurriculumPlan(
     const [mingguMulai, mingguSelesai] = defaultWeekWindows[idx] || [idx * 5 + 2, (idx + 1) * 5 + 1];
     const weekSpanMultiplier = idx === 1 || idx === 2 ? 4 : 3;
     const alokasiJP = jpPerWeek * weekSpanMultiplier;
-    const refCP = resolveCPReferenceMetadata(mataPelajaran, jenjangFase, item.elemen);
+    const refCP = resolveCPReferenceMetadata(mataPelajaran, jenjangFase, item.elemen, jenjangCategory);
     const immutableTpId = createImmutableDefaultTPId({
       schoolId: context?.schoolId,
       tahunAjaran: context?.tahunAjaran,

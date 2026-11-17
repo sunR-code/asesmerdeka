@@ -296,13 +296,20 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     const nextIdx = tpList.length + 1;
     const isSem2 = schoolProfile.semester.startsWith('2');
     const kodeNomor = isSem2 ? nextIdx + 4 : nextIdx;
+    const defaultTopicTitle = `Topik Materi Baru ${nextIdx}`;
     const newTP: CustomTPItem = {
       id: createCustomImmutableTPId(schoolProfile),
       kode: `${schoolProfile.kelasUtama}.${kodeNomor}`,
       elemen: 'Pemahaman & Aplikasi Kontekstual',
-      materiPokok: `Topik Materi Baru ${nextIdx}`,
-      tujuanPembelajaran: `Peserta didik mampu memahami dan menerapkan konsep Topik Materi Baru ${nextIdx} dalam penyelesaian masalah sehari-hari.`,
+      materiPokok: defaultTopicTitle,
+      kompetensiInti: `Menjelaskan dan menerapkan konsep ${defaultTopicTitle}`,
+      lingkupMateri: defaultTopicTitle,
+      tujuanPembelajaran: `Peserta didik mampu menjelaskan dan menerapkan konsep ${defaultTopicTitle} dalam penyelesaian masalah sehari-hari.`,
       arahanRangkuman: `Susun rangkuman konsep inti, rumus/pola utama, contoh nyata, dan latihan pemahaman untuk topik ini.`,
+      buktiKetercapaian: [
+        `Menguraikan konsep inti ${defaultTopicTitle} dengan contoh nyata yang tepat.`,
+      ],
+      referensiCP: defaultPlan.referensiCP,
       alokasiJP: 12,
       mingguMulai: Math.min(18, (nextIdx - 1) * 4 + 1),
       mingguSelesai: Math.min(20, nextIdx * 4),
@@ -319,6 +326,25 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     setIsCustomTP(true);
     setEditingTPId(newTP.id);
     setDraftTP({ ...newTP });
+  };
+
+  const handleCreateTPFromAnalysis = (newTP: CustomTPItem) => {
+    const nextList = [...tpList, newTP];
+    setTpList(nextList);
+    saveCustomTPList(
+      schoolProfile.mataPelajaranUtama,
+      schoolProfile.kelasUtama,
+      schoolProfile.semester,
+      nextList,
+      schoolProfile
+    );
+    setIsCustomTP(true);
+    setEditingTPId(newTP.id);
+    setDraftTP({ ...newTP });
+    pushWorkspaceToCloud().catch(() => {});
+    triggerToast(
+      `TP ${newTP.kode} dibuat dari hasil Analisis CP. Silakan tinjau kelengkapan lalu klik Simpan.`
+    );
   };
 
   const handleBulkUpdateTPList = (nextList: CustomTPItem[]) => {
@@ -482,6 +508,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
                   currentFase={currentFase}
                   capaianPembelajaran={defaultPlan.capaianPembelajaran}
                   referensiCatatan={defaultPlan.referensiCatatan}
+                  defaultReferensiCP={defaultPlan.referensiCP}
                   editingTPId={editingTPId}
                   draftTP={draftTP}
                   setEditingTPId={setEditingTPId}
@@ -490,6 +517,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
                   onSaveEditTP={handleSaveEditTP}
                   onToggleReviewTP={handleToggleReviewTP}
                   onAddNewTP={handleAddNewTP}
+                  onCreateTPFromAnalysis={handleCreateTPFromAnalysis}
                   onDeleteTP={handleDeleteTP}
                   onResetDefaultTP={handleResetDefaultTP}
                   onOpenModulAjar={onOpenModulAjar}
@@ -500,6 +528,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
                   onCustomRangkumanForm={onCustomRangkumanForm}
                   isGeneratingAssessment={isGeneratingAssessment}
                   isGeneratingRangkuman={isGeneratingRangkuman}
+                  onToast={triggerToast}
                 />
               )}
 

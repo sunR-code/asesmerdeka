@@ -1,6 +1,78 @@
 import type { JenjangFase } from '../types/assessment';
 import type { CPReferenceMeta } from '../utils/schoolProfileStorage';
 
+export const OFFICIAL_CP_REFERENCES = {
+  PPA_REVISI_2025_URL: 'https://repositori.kemendikdasmen.go.id/33290/',
+  PANDUAN_MAPEL_URL: 'https://kurikulum.kemendikdasmen.go.id/panduan-mapel',
+  SK_BSKAP_046_2025_URL:
+    'https://bpmpbabel.kemendikdasmen.go.id/PPID/wp-content/uploads/2025/07/KepKaBSKAP-046_2025-ttg-CP.pdf',
+} as const;
+
+export type CPRegulationPresetId =
+  | 'bskap_046_2025'
+  | 'bkpdm_020_2026'
+  | 'kma_madrasah'
+  | 'input_guru_sekolah';
+
+export interface CPRegulationPreset {
+  id: CPRegulationPresetId;
+  label: string;
+  namaDokumenSumber: string;
+  nomorDokumen: string;
+  tahunVersiDokumen: string;
+  urlReferensi: string;
+  catatanDefault: string;
+  cakupan: string;
+}
+
+export const CP_REGULATION_PRESETS: readonly CPRegulationPreset[] = [
+  {
+    id: 'bskap_046_2025',
+    label: 'Mapel Umum — SK Kepala BSKAP No. 046/H/KR/2025',
+    namaDokumenSumber: 'Capaian Pembelajaran pada Pendidikan Anak Usia Dini, Jenjang Dikdas, dan Dikmen',
+    nomorDokumen: 'SK Kepala BSKAP No. 046/H/KR/2025',
+    tahunVersiDokumen: '2025',
+    urlReferensi: OFFICIAL_CP_REFERENCES.SK_BSKAP_046_2025_URL,
+    catatanDefault:
+      'Rujukan regulasi nasional SK Kepala BSKAP No. 046/H/KR/2025. Pastikan teks CP asli disalin dan diverifikasi dari naskah resmi pemerintah.',
+    cakupan: 'Mata pelajaran umum PAUD, SD, SMP, SMA, dan SMK',
+  },
+  {
+    id: 'bkpdm_020_2026',
+    label: 'Agama & Budi Pekerti — Keputusan Kepala BKPDM No. 020 Tahun 2026',
+    namaDokumenSumber:
+      'Pembaruan Capaian Pembelajaran Mata Pelajaran Pendidikan Agama dan Budi Pekerti (Perubahan atas SK 046/H/KR/2025)',
+    nomorDokumen: 'Keputusan Kepala BKPDM No. 020 Tahun 2026',
+    tahunVersiDokumen: '2026',
+    urlReferensi: OFFICIAL_CP_REFERENCES.PANDUAN_MAPEL_URL,
+    catatanDefault:
+      'Mengakomodasi pembaruan CP Pendidikan Agama dan Budi Pekerti berdasarkan Keputusan Kepala BKPDM No. 020 Tahun 2026 atas SK 046/H/KR/2025.',
+    cakupan: 'Pendidikan Agama (Islam, Kristen, Katolik, Hindu, Buddha, Khonghucu) & Budi Pekerti',
+  },
+  {
+    id: 'kma_madrasah',
+    label: 'Rumpun Madrasah — Regulasi CP Kemenag (KMA)',
+    namaDokumenSumber: 'Keputusan Menteri Agama (KMA) Capaian Pembelajaran PAI & Bahasa Arab Madrasah',
+    nomorDokumen: 'KMA Kurikulum Madrasah (Verifikasi Naskah Kemenag)',
+    tahunVersiDokumen: '2025/2026',
+    urlReferensi: OFFICIAL_CP_REFERENCES.PANDUAN_MAPEL_URL,
+    catatanDefault:
+      'Rumpun mata pelajaran madrasah (MI/MTs/MA). Teks CP resmi belum tertanam penuh secara lokal — mohon verifikasi dengan naskah KMA yang berlaku.',
+    cakupan: 'Al-Qur\'an Hadis, Akidah Akhlak, Fikih, SKI, Bahasa Arab (MI/MTs/MA)',
+  },
+  {
+    id: 'input_guru_sekolah',
+    label: 'Input / Penyesuaian Satuan Pendidikan & Guru',
+    namaDokumenSumber: 'Penyesuaian Operasional Guru / Kurikulum Satuan Pendidikan (KSP)',
+    nomorDokumen: 'Dokumen Satuan Pendidikan / Input Guru',
+    tahunVersiDokumen: '2025/2026',
+    urlReferensi: OFFICIAL_CP_REFERENCES.PPA_REVISI_2025_URL,
+    catatanDefault:
+      'Teks diinput atau disesuaikan oleh guru/satuan pendidikan. Tetap bedakan dari naskah CP resmi pemerintah.',
+    cakupan: 'Penyesuaian guru, muatan lokal, atau konsentrasi keahlian SMK',
+  },
+] as const;
+
 export interface ElemenCP {
   elemen: string;
   materiPokok: string;
@@ -16,8 +88,20 @@ export interface MapelDatabase {
   }[];
 }
 
+export function isAgamaBudiPekertiSubject(mataPelajaran: string): boolean {
+  const lower = (mataPelajaran || '').toLowerCase();
+  if (!lower) return false;
+  return (
+    lower.includes('budi pekerti') ||
+    lower.includes('pendidikan agama') ||
+    /\bpai\b/.test(lower) ||
+    /\bpabp\b/.test(lower) ||
+    /\bpak\b/.test(lower)
+  );
+}
+
 export function isKemenagSubject(mataPelajaran: string): boolean {
-  const lower = mataPelajaran.toLowerCase();
+  const lower = (mataPelajaran || '').toLowerCase();
   return (
     lower.includes('fikih') ||
     lower.includes('akidah') ||
@@ -32,24 +116,101 @@ export function isKemenagSubject(mataPelajaran: string): boolean {
   );
 }
 
+export function resolveDefaultCPRegulationPreset(
+  mataPelajaran: string,
+  explicitPresetId?: CPRegulationPresetId
+): CPRegulationPreset {
+  if (explicitPresetId) {
+    const matched = CP_REGULATION_PRESETS.find((p) => p.id === explicitPresetId);
+    if (matched) return matched;
+  }
+  if (isKemenagSubject(mataPelajaran)) {
+    return CP_REGULATION_PRESETS.find((p) => p.id === 'kma_madrasah')!;
+  }
+  if (isAgamaBudiPekertiSubject(mataPelajaran)) {
+    return CP_REGULATION_PRESETS.find((p) => p.id === 'bkpdm_020_2026')!;
+  }
+  return CP_REGULATION_PRESETS.find((p) => p.id === 'bskap_046_2025')!;
+}
+
 export function resolveCPReferenceMetadata(
   mataPelajaran: string,
   jenjangFase: JenjangFase,
-  elemen: string
+  elemen: string,
+  jenjang?: string
 ): CPReferenceMeta {
   const isKemenag = isKemenagSubject(mataPelajaran);
+  const preset = resolveDefaultCPRegulationPreset(mataPelajaran);
   const faseLabel = jenjangFase || 'Fase D';
   return {
     sumber: isKemenag
       ? 'Katalog Referensi Madrasah AsesMerdeka (ruang lingkup PAI & Bahasa Arab — belum ditautkan ke dokumen KMA resmi)'
-      : 'Katalog Referensi Kurikulum Merdeka AsesMerdeka (ringkasan elemen — belum ditautkan ke naskah keputusan BSKAP resmi)',
+      : `Katalog Referensi Kurikulum Merdeka AsesMerdeka (${preset.nomorDokumen} — belum dibandingkan kata-per-kata secara lokal)`,
     elemenCP: elemen || 'Pemahaman Konsep & Keterampilan Proses',
     fase: faseLabel,
+    mataPelajaran: mataPelajaran || '',
+    jenjang: jenjang || '',
+    asalCP: 'referensi_sistem',
+    namaDokumenSumber: preset.namaDokumenSumber,
+    nomorDokumen: preset.nomorDokumen,
+    tahunVersiDokumen: preset.tahunVersiDokumen,
+    urlReferensi: preset.urlReferensi,
+    statusVerifikasi: 'referensi_belum_verifikasi',
     terverifikasiResmi: false,
     catatan: isKemenag
       ? 'Pembagian bab, semester, dan rincian sub-TP adalah rancangan aplikasi. Mohon tinjau terhadap naskah CP/KMA madrasah yang berlaku.'
-      : 'Pembagian bab, semester, dan rincian sub-TP adalah rancangan aplikasi, bukan ketetapan nasional. Silakan tinjau terhadap CP fase satuan pendidikan Anda.',
+      : `${preset.catatanDefault} Pembagian bab dan rincian sub-TP adalah rancangan aplikasi, bukan teks CP verbatim.`,
   };
+}
+
+export interface SystemCPReferenceCandidate {
+  id: string;
+  mataPelajaran: string;
+  fase: JenjangFase;
+  elemenCP: string;
+  ringkasanFokusAplikasi: string;
+  contohTPAplikasi: string;
+  contohKelas: string;
+  referensiMeta: CPReferenceMeta;
+}
+
+export function getAvailableCPReferenceEntries(
+  mataPelajaran: string,
+  jenjangFase: JenjangFase
+): SystemCPReferenceCandidate[] {
+  const targetMapel = (mataPelajaran || '').toLowerCase().trim();
+  const fasePrefix = (jenjangFase || '').split('(')[0].trim().toLowerCase();
+  const candidates: SystemCPReferenceCandidate[] = [];
+
+  for (const mapelItem of KURIKULUM_MERDEKA_DATABASE) {
+    const dbMapel = mapelItem.mataPelajaran.toLowerCase();
+    const isMapelMatch =
+      !targetMapel ||
+      dbMapel === targetMapel ||
+      targetMapel.includes(dbMapel) ||
+      dbMapel.includes(targetMapel.split('(')[0].trim());
+    if (!isMapelMatch) continue;
+
+    for (const faseItem of mapelItem.faseList) {
+      const dbFasePrefix = faseItem.fase.split('(')[0].trim().toLowerCase();
+      if (fasePrefix && dbFasePrefix !== fasePrefix) continue;
+
+      faseItem.elemenList.forEach((el, idx) => {
+        candidates.push({
+          id: `sysref_${dbMapel.replace(/[^a-z0-9]/g, '_')}_${dbFasePrefix.replace(/[^a-z0-9]/g, '_')}_${idx + 1}`,
+          mataPelajaran: mapelItem.mataPelajaran,
+          fase: faseItem.fase,
+          elemenCP: el.elemen,
+          ringkasanFokusAplikasi: el.materiPokok,
+          contohTPAplikasi: el.tujuanPembelajaran,
+          contohKelas: el.contohKelas,
+          referensiMeta: resolveCPReferenceMetadata(mapelItem.mataPelajaran, faseItem.fase, el.elemen),
+        });
+      });
+    }
+  }
+
+  return candidates;
 }
 
 export const KURIKULUM_MERDEKA_DATABASE: MapelDatabase[] = [

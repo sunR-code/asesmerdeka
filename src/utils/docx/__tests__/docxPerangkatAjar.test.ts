@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import JSZip from 'jszip';
 import saveAs from 'file-saver';
-import { exportLKPDToDocx } from '../docxPerangkatAjar';
-import { buildSmartLKPD } from '../../perangkatAjarEngine';
+import { exportLKPDToDocx, exportModulAjarToDocx, formatTargetSubTPList } from '../docxPerangkatAjar';
+import { buildSmartLKPD, buildSmartModulAjar } from '../../perangkatAjarEngine';
 import type { CustomTPItem, SchoolProfile } from '../../schoolProfileStorage';
 
 vi.mock('file-saver', () => ({
@@ -123,5 +123,85 @@ describe('exportLKPDToDocx archetype support', () => {
     const lkpd = buildSmartLKPD(tp, profile, 'eksperimen');
     await exportLKPDToDocx(lkpd, profile);
     expect(saveAs).toHaveBeenCalledWith(expect.anything(), 'LKPD_Cahaya_eksperimen.docx');
+  });
+
+  it('formatTargetSubTPList handles legacy string array, object array {kode, kompetensi}, and empty values safely', () => {
+    expect(formatTargetSubTPList(['8.1.A: Mengenali sifat cahaya', '8.1.B: Menguji pemantulan'])).toBe(
+      '8.1.A: Mengenali sifat cahaya; 8.1.B: Menguji pemantulan'
+    );
+    expect(
+      formatTargetSubTPList([
+        { id: 'sub-1', kode: '8.1.A', kompetensi: 'Menjelaskan pemantulan cahaya' },
+        { id: 'sub-2', kode: '8.1.B', kompetensi: 'Menganalisis pembiasan cahaya' },
+      ])
+    ).toBe('8.1.A: Menjelaskan pemantulan cahaya; 8.1.B: Menganalisis pembiasan cahaya');
+    expect(formatTargetSubTPList([])).toBe('');
+    expect(formatTargetSubTPList(undefined)).toBe('');
+    expect(formatTargetSubTPList(null)).toBe('');
+  });
+
+  it('exports Modul Ajar and LKPD DOCX with object/string/empty targetSubTP without [object Object]', async () => {
+    const subObjects = [
+      { id: 'sub-a', kode: 'TP-1.A', kompetensi: 'Mengidentifikasi pemantulan cahaya pada cermin datar' },
+      { id: 'sub-b', kode: 'TP-1.B', kompetensi: 'Menyimpulkan hukum pembiasan cahaya' },
+    ];
+    const readSavedDocxXml = async (): Promise<string> => {
+      const mockCalls = vi.mocked(saveAs).mock.calls;
+      const lastBlob = mockCalls[mockCalls.length - 1]?.[0] as Blob;
+      expect(lastBlob).toBeDefined();
+      const zip = await JSZip.loadAsync(await lastBlob.arrayBuffer());
+      return (await zip.file('word/document.xml')?.async('text')) || '';
+    };
+
+    const modulObj = buildSmartModulAjar(tp, profile);
+    modulObj.targetSubTP = subObjects;
+    await exportModulAjarToDocx(modulObj, profile);
+    const modulXmlObj = await readSavedDocxXml();
+    expect(modulXmlObj).not.toContain('[object Object]');
+    expect(modulXmlObj).toContain('TP-1.A: Mengidentifikasi pemantulan cahaya pada cermin datar');
+    expect(modulXmlObj).toContain('TP-1.B: Menyimpulkan hukum pembiasan cahaya');
+
+    const lkpdObj = buildSmartLKPD(tp, profile, 'kasus');
+    lkpdObj.targetSubTP = subObjects;
+    const lkpdBlobObj = await exportLKPDToDocx(lkpdObj, profile);
+    const lkpdXmlObj = await (await JSZip.loadAsync(await lkpdBlobObj.arrayBuffer()))
+      .file('word/document.xml')!
+      .async('text');
+    expect(lkpdXmlObj).not.toContain('[object Object]');
+    expect(lkpdXmlObj).toContain('TP-1.A: Mengidentifikasi pemantulan cahaya pada cermin datar');
+
+    // Legacy string[] format
+    const modulLegacyStr = buildSmartModulAjar(tp, profile);
+    (modulLegacyStr as any).targetSubTP = ['Sub-TP Legacy Pertama', 'Sub-TP Legacy Kedua'];
+    await exportModulAjarToDocx(modulLegacyStr, profile);
+    const modulXmlStr = await readSavedDocxXml();
+    expect(modulXmlStr).not.toContain('[object Object]');
+    expect(modulXmlStr).toContain('Sub-TP Legacy Pertama; Sub-TP Legacy Kedua');
+
+    const lkpdLegacyStr = buildSmartLKPD(tp, profile, 'kasus');
+    (lkpdLegacyStr as any).targetSubTP = ['Sub-TP LKPD String'];
+    const lkpdBlobStr = await exportLKPDToDocx(lkpdLegacyStr, profile);
+    const lkpdXmlStr = await (await JSZip.loadAsync(await lkpdBlobStr.arrayBuffer()))
+      .file('word/document.xml')!
+      .async('text');
+    expect(lkpdXmlStr).not.toContain('[object Object]');
+    expect(lkpdXmlStr).toContain('Sub-TP LKPD String');
+
+    // Empty / undefined targetSubTP
+    const modulEmpty = buildSmartModulAjar(tp, profile);
+    modulEmpty.targetSubTP = undefined;
+    await exportModulAjarToDocx(modulEmpty, profile);
+    const modulXmlEmpty = await readSavedDocxXml();
+    expect(modulXmlEmpty).not.toContain('[object Object]');
+    expect(modulXmlEmpty).not.toContain('Indikator / Sub-TP:');
+
+    const lkpdEmpty = buildSmartLKPD(tp, profile, 'kasus');
+    lkpdEmpty.targetSubTP = [];
+    const lkpdBlobEmpty = await exportLKPDToDocx(lkpdEmpty, profile);
+    const lkpdXmlEmpty = await (await JSZip.loadAsync(await lkpdBlobEmpty.arrayBuffer()))
+      .file('word/document.xml')!
+      .async('text');
+    expect(lkpdXmlEmpty).not.toContain('[object Object]');
+    expect(lkpdXmlEmpty).not.toContain('Indikator Sub-TP :');
   });
 });

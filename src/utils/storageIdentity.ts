@@ -27,9 +27,11 @@ export interface ResolvedAcademicContext {
 }
 
 export const SCHOOL_ID_STORAGE_KEY = 'asesmerdeka_school_id_v1';
+export const CP_STORAGE_V2_KEY = 'asesmerdeka_cp_v2';
 
 export const V2_BACKUP_STORAGE_PREFIXES = [
   SCHOOL_ID_STORAGE_KEY,
+  CP_STORAGE_V2_KEY,
   'asesmerdeka_roster_v2__',
   'asesmerdeka_harian_v2__',
   'asesmerdeka_custom_tp_v2',
@@ -204,6 +206,22 @@ export function buildCustomTPScopeKey(
   const ctx = resolveAcademicContext(profile, explicitFase);
   const sFase = normalizeNamespaceSegment(ctx.fase, 'fase');
   return `${formatCurriculumScopePrefix(ctx)}__fas_${sFase}`;
+}
+
+/**
+ * Scope Capaian Pembelajaran (CP) per Sekolah + Jenjang + Fase + Mata Pelajaran.
+ * Berbasis fase (tidak dikunci per kelas/semester agar CP fase konsisten).
+ */
+export function buildCPScopeKey(
+  profile?: AcademicProfileLike | null,
+  explicitFase?: string
+): string {
+  const ctx = resolveAcademicContext(profile, explicitFase);
+  const sSchool = formatSchoolSegment(ctx);
+  const sJenjang = normalizeNamespaceSegment(ctx.jenjang, 'smp_mts');
+  const sMapel = normalizeNamespaceSegment(ctx.mataPelajaran, 'mapel');
+  const sFase = normalizeNamespaceSegment(ctx.fase, 'fase');
+  return `${sSchool}__jnj_${sJenjang}__mpl_${sMapel}__fas_${sFase}`;
 }
 
 /**
