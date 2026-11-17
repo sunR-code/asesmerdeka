@@ -4,6 +4,19 @@ import {
   computeTPContentHash,
   getSavedCustomTPList,
 } from './schoolProfileStorage';
+import { resolveCPStatusLabel, getSavedCPEntries, cpEntryToReferenceMeta } from './cpStorage';
+import {
+  analyzeATPDependencyGraph,
+  isSameFase,
+  recommendATPAssessmentPlan,
+} from './atpSequencingEngine';
+import {
+  collectPhaseTPItems,
+  getSavedPhaseATPPlan,
+  resolveSemesterTPListFromPhaseATP,
+  type ATPAllocationMapping,
+  type PhaseATPPlan,
+} from './atpStorage';
 import type {
   ModulAjarDokumen,
   LKPDDokumen,
@@ -276,15 +289,21 @@ export function buildSmartLKPD(
   };
 }
 
+export interface BuildATPOptions {
+  phasePlan?: PhaseATPPlan | null;
+  includeAllocationColumn?: boolean;
+}
+
 /**
- * Pembuat Alur Tujuan Pembelajaran (ATP) 1 Semester / 1 Tahun
+ * Pembuat Alur Tujuan Pembelajaran (ATP) Tingkat Fase (Kompatibel Penuh dengan Draf Lama)
  */
 export function buildSmartATP(
   tpList: CustomTPItem[],
-  profile: SchoolProfile
+  profile: SchoolProfile,
+  options?: BuildATPOptions
 ): ATPDokumen {
   const jenjangFase = jenjangToDefaultFase(profile.jenjang, profile.kelasUtama);
-  const plan = getSemesterCurriculumPlan(
+  const semesterPlan = getSemesterCurriculumPlan(
     profile.mataPelajaranUtama,
     jenjangFase,
     profile.kelasUtama,
@@ -292,34 +311,166 @@ export function buildSmartATP(
     { schoolId: profile.schoolId, tahunAjaran: profile.tahunAjaran }
   );
 
+  const savedPhasePlan =
+    options?.phasePlan !== undefined
+      ? options.phasePlan
+      : getSavedPhaseATPPlan(profile, jenjangFase);
+  const collected = collectPhaseTPItems(profile, tpList, jenjangFase);
+  const savedCPs = getSavedCPEntries(profile, jenjangFase);
+
+  // Tentukan urutan TP: ikuti PhaseATPPlan jika tersedia, sambil menyertakan TP baru yang belum masuk orderedTpIds.
+  const orderedTpList: CustomTPItem[] = [];
+  const seenIds = new Set<string>();
+  const addTP = (tp: CustomTPItem | undefined) => {
+    if (!tp || !tp.id || seenIds.has(tp.id)) return;
+    if (tp.referensiCP?.fase && !isSameFase(jenjangFase, tp.referensiCP.fase)) return;
+    seenIds.add(tp.id);
+    orderedTpList.push(tp);
+  };
+
+  if (savedPhasePlan && savedPhasePlan.orderedTpIds.length > 0) {
+    for (const id of savedPhasePlan.orderedTpIds) {
+      addTP(collected.tpById.get(id));
+    }
+    for (const tp of collected.tpItems) {
+      addTP(tp);
+    }
+  } else {
+    for (const tp of collected.tpItems) {
+      addTP(tp);
+    }
+  }
+
+  const tpById = new Map<string, CustomTPItem>();
+  orderedTpList.forEach((tp) => tpById.set(tp.id, tp));
+
+  const allocationByTpId = new Map<string, ATPAllocationMapping>();
+  for (const alloc of savedPhasePlan?.allocations || []) {
+    if (!allocationByTpId.has(alloc.tpId) || alloc.tahunAjaran === profile.tahunAjaran) {
+      allocationByTpId.set(alloc.tpId, alloc);
+    }
+  }
+
+  const graphAnalysis = analyzeATPDependencyGraph(
+    orderedTpList.map((t) => t.id),
+    tpById,
+    jenjangFase
+  );
+
   const profilOptions = [
     ['Bernalar Kritis', 'Mandiri'],
     ['Gotong Royong', 'Bernalar Kritis'],
     ['Kreatif', 'Bernalar Kritis'],
-    ['Mandiri', 'Bergotong Royong'],
+    ['Mandiri', 'Gotong Royong'],
   ];
 
-  const items: ATPItem[] = tpList.map((tp, idx) => ({
-    no: idx + 1,
-    kodeTP: tp.kode,
-    elemen: tp.elemen,
-    lingkupMateri: tp.materiPokok,
-    tujuanPembelajaran: tp.tujuanPembelajaran,
-    alokasiJP: Number(tp.alokasiJP) || 12,
-    profilPancasila: profilOptions[idx % profilOptions.length],
-    indikatorKetercapaian:
-      tp.buktiKetercapaian && tp.buktiKetercapaian.length > 0
-        ? tp.buktiKetercapaian.join('; ')
-        : `Peserta didik mampu menunjukkan penguasaan kompetensi "${tp.kompetensiInti || tp.tujuanPembelajaran}" pada materi ${tp.materiPokok} dengan bukti kerja yang terukur.`,
-    asesmen: 'Formatif (Observasi kinerja & LKPD) dan Sumatif (Tes tertulis lingkup materi)',
-    kataKunci: tp.materiPokok.split(' ').slice(0, 3).join(', '),
-  }));
+  const items: ATPItem[] = orderedTpList.map((tp, idx) => {
+    const alloc = allocationByTpId.get(tp.id);
+    const origin = collected.originByTpId.get(tp.id);
+    const alokasiKelas = alloc?.kelas || origin?.kelas || profile.kelasUtama;
+    const alokasiTahunAjaran = alloc?.tahunAjaran || origin?.tahunAjaran || profile.tahunAjaran;
+    const alokasiSemester = alloc?.semester || origin?.semester;
+    const alokasiJP =
+      alloc?.alokasiJP !== undefined ? Math.max(1, Number(alloc.alokasiJP) || 1) : Number(tp.alokasiJP) || 12;
+
+    const buktiList =
+      Array.isArray(tp.buktiKetercapaian) && tp.buktiKetercapaian.length > 0
+        ? tp.buktiKetercapaian
+        : tp.subTP && tp.subTP.length > 0
+        ? tp.subTP.map((s) => `${s.kode}: ${s.buktiKetercapaian}`).filter(Boolean)
+        : [];
+
+    const indikatorKetercapaian =
+      buktiList.length > 0
+        ? buktiList.join('; ')
+        : `Peserta didik mampu menunjukkan penguasaan kompetensi "${tp.kompetensiInti || tp.tujuanPembelajaran}" pada materi ${tp.materiPokok} dengan bukti kerja yang terukur.`;
+
+    const asesmenPlan = recommendATPAssessmentPlan(tp, profile.mataPelajaranUtama);
+    const prasyaratTpIds = Array.isArray(tp.prasyaratTpIds) ? tp.prasyaratTpIds : [];
+    const prasyaratKodeLabels = prasyaratTpIds
+      .map((pid) => tpById.get(pid)?.kode || '')
+      .filter(Boolean);
+
+    return {
+      no: idx + 1,
+      tpId: tp.id,
+      kodeTP: tp.kode,
+      elemen: tp.elemen,
+      kompetensi: tp.kompetensiInti || tp.tujuanPembelajaran,
+      lingkupMateri: tp.lingkupMateri || tp.materiPokok,
+      tujuanPembelajaran: tp.tujuanPembelajaran,
+      alokasiJP,
+      profilPancasila: profilOptions[idx % profilOptions.length],
+      indikatorKetercapaian,
+      buktiKetercapaianList: buktiList,
+      asesmen: asesmenPlan.deskripsi,
+      bentukAsesmen: asesmenPlan.bentukUtama,
+      kataKunci: (tp.materiPokok || '').split(' ').slice(0, 3).join(', '),
+      deskripsiPrasyarat: tp.prasyarat,
+      prasyaratTpIds: prasyaratTpIds.length > 0 ? prasyaratTpIds : undefined,
+      prasyaratKodeLabels: prasyaratKodeLabels.length > 0 ? prasyaratKodeLabels : undefined,
+      fase: tp.referensiCP?.fase || jenjangFase,
+      alokasiTahunAjaran,
+      alokasiKelas,
+      alokasiSemester,
+    };
+  });
 
   const totalJP = items.reduce((acc, it) => acc + it.alokasiJP, 0);
+  const sem1JP = items
+    .filter((it) => resolveSemesterCode(it.alokasiSemester) !== 'sem2')
+    .reduce((sum, it) => sum + it.alokasiJP, 0);
+  const sem2JP = items
+    .filter((it) => resolveSemesterCode(it.alokasiSemester) === 'sem2')
+    .reduce((sum, it) => sum + it.alokasiJP, 0);
+
+  const jpConfig = getSubjectJPConfig(profile);
+  const calSem1 = getAcademicCalendarForContext(profile, '1 (Ganjil)');
+  const calSem2 = getAcademicCalendarForContext(profile, '2 (Genap)');
+  const kapSem1 = generateSemesterWeekColumns(calSem1, jpConfig.jpPerMinggu).reduce(
+    (s, c) => s + (c.isEfektif ? c.kapasitasJP ?? jpConfig.jpPerMinggu : 0),
+    0
+  );
+  const kapSem2 = generateSemesterWeekColumns(calSem2, jpConfig.jpPerMinggu).reduce(
+    (s, c) => s + (c.isEfektif ? c.kapasitasJP ?? jpConfig.jpPerMinggu : 0),
+    0
+  );
+
+  const peringatanValidasi: string[] = graphAnalysis.issues
+    .filter((iss) => iss.severity !== 'info')
+    .map((iss) => iss.message);
+
+  if (kapSem1 > 0 && sem1JP > kapSem1) {
+    peringatanValidasi.push(
+      `Alokasi Semester 1 (${sem1JP} JP) melebihi kapasitas kalender aktif (${kapSem1} JP).`
+    );
+  }
+  if (kapSem2 > 0 && sem2JP > kapSem2) {
+    peringatanValidasi.push(
+      `Alokasi Semester 2 (${sem2JP} JP) melebihi kapasitas kalender aktif (${kapSem2} JP).`
+    );
+  }
+
+  const resolvedRefCP =
+    (savedCPs[0] ? cpEntryToReferenceMeta(savedCPs[0]) : undefined) ||
+    savedPhasePlan?.referensiCP ||
+    orderedTpList.find((t) => t.referensiCP)?.referensiCP ||
+    semesterPlan.referensiCP;
+
+  const cpFaseText =
+    savedCPs.length > 0
+      ? savedCPs
+          .map(
+            (cp) =>
+              `[${cp.elemenCP} — ${resolveCPStatusLabel(cp.statusVerifikasi, cp.terverifikasiResmi, cp.asalCP)}] ${cp.teksCP}`
+          )
+          .join('\n')
+      : semesterPlan.capaianPembelajaran;
 
   return {
-    id: `atp-${profile.kelasUtama}-${Date.now().toString(36)}`,
+    id: savedPhasePlan?.id || `atp-${profile.kelasUtama}-${Date.now().toString(36)}`,
     mataPelajaran: profile.mataPelajaranUtama,
+    jenjang: profile.jenjang,
     jenjangFase,
     kelas: profile.kelasUtama,
     tahunAjaran: profile.tahunAjaran,
@@ -329,7 +480,15 @@ export function buildSmartATP(
     namaKepalaSekolah: profile.namaKepalaSekolah,
     nipKepalaSekolah: profile.nipKepalaSekolah,
     kotaSekolah: profile.kotaSekolah,
-    capaianPembelajaranFase: plan.capaianPembelajaran,
+    capaianPembelajaranFase: cpFaseText,
+    referensiCP: resolvedRefCP,
+    tanggalDisusun: savedPhasePlan?.tanggalDisusun || new Date().toISOString(),
+    versi: savedPhasePlan?.versi || 1,
+    statusPenyusunan: savedPhasePlan?.statusPenyusunan || 'draft',
+    sertakanPemetaanDiDocx: options?.includeAllocationColumn ?? Boolean(savedPhasePlan),
+    peringatanValidasi: peringatanValidasi.length > 0 ? peringatanValidasi : undefined,
+    totalJPPerSemester: { semester1: sem1JP, semester2: sem2JP },
+    kapasitasJPPerSemester: { semester1: kapSem1, semester2: kapSem2 },
     items,
     totalJP,
   };
@@ -354,15 +513,25 @@ function resolveSemesterTPListIndependently(
   explicitList?: CustomTPItem[],
   activeSemesterTpList?: CustomTPItem[]
 ): { list: CustomTPItem[]; sumber: 'saved' | 'catalog' } {
+  if (explicitList && explicitList.length > 0) {
+    return { list: explicitList, sumber: 'saved' };
+  }
+
+  const fromPhaseATP = resolveSemesterTPListFromPhaseATP(
+    profile,
+    targetSemester,
+    activeSemesterTpList
+  );
+  if (fromPhaseATP && fromPhaseATP.length > 0) {
+    return { list: fromPhaseATP, sumber: 'saved' };
+  }
+
   const saved = getSavedCustomTPList(
     profile.mataPelajaranUtama,
     profile.kelasUtama,
     targetSemester,
     profile
   );
-  if (explicitList && explicitList.length > 0) {
-    return { list: explicitList, sumber: 'saved' };
-  }
 
   const targetCode = resolveSemesterCode(targetSemester);
   const activeCode = resolveSemesterCode(profile.semester);
@@ -601,7 +770,12 @@ export function buildSmartPromes(
     });
   }
 
-  const rows: PromesRowItem[] = tpList.map((tp, idx) => {
+  const promesSemester: '1 (Ganjil)' | '2 (Genap)' =
+    resolveSemesterCode(profile.semester) === 'sem2' ? '2 (Genap)' : '1 (Ganjil)';
+  const effectiveTpList =
+    resolveSemesterTPListFromPhaseATP(profile, promesSemester, tpList) || tpList;
+
+  const rows: PromesRowItem[] = effectiveTpList.map((tp, idx) => {
     const alokasiJP = Math.max(0, Number(tp.alokasiJP) || 0);
     const rawMulai = Number(tp.mingguMulai);
     const rawSelesai = Number(tp.mingguSelesai);

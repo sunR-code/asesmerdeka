@@ -533,7 +533,12 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
               )}
 
               {perangkatSubTab === 'atp' && (
-                <ATPSubTab tpList={tpList} schoolProfile={schoolProfile} onToast={triggerToast} />
+                <ATPSubTab
+                  tpList={tpList}
+                  schoolProfile={schoolProfile}
+                  onUpdateTPList={handleBulkUpdateTPList}
+                  onToast={triggerToast}
+                />
               )}
 
               {perangkatSubTab === 'prota' && (

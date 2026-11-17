@@ -4,6 +4,7 @@ import type {
   SemesterAcademicCalendar,
   SubjectJPConfig,
 } from './academicSchedule';
+import type { CPReferenceMeta } from '../utils/schoolProfileStorage';
 
 export interface KegiatanPembelajaranLangkah {
   pertemuan: number;
@@ -275,20 +276,32 @@ export interface LKPDDokumen {
 
 export interface ATPItem {
   no: number;
+  tpId?: string;
   kodeTP: string;
   elemen: string;
+  kompetensi?: string;
   lingkupMateri: string;
   tujuanPembelajaran: string;
   alokasiJP: number;
   profilPancasila: string[];
   indikatorKetercapaian: string;
+  buktiKetercapaianList?: string[];
   asesmen: string;
+  bentukAsesmen?: string[];
   kataKunci: string;
+  deskripsiPrasyarat?: string[];
+  prasyaratTpIds?: string[];
+  prasyaratKodeLabels?: string[];
+  fase?: string;
+  alokasiTahunAjaran?: string;
+  alokasiKelas?: string;
+  alokasiSemester?: '1 (Ganjil)' | '2 (Genap)';
 }
 
 export interface ATPDokumen {
   id: string;
   mataPelajaran: string;
+  jenjang?: string;
   jenjangFase: string;
   kelas: string;
   tahunAjaran: string;
@@ -299,6 +312,14 @@ export interface ATPDokumen {
   nipKepalaSekolah: string;
   kotaSekolah: string;
   capaianPembelajaranFase: string;
+  referensiCP?: CPReferenceMeta;
+  tanggalDisusun?: string;
+  versi?: number;
+  statusPenyusunan?: 'draft' | 'disetujui';
+  sertakanPemetaanDiDocx?: boolean;
+  peringatanValidasi?: string[];
+  totalJPPerSemester?: { semester1: number; semester2: number };
+  kapasitasJPPerSemester?: { semester1: number; semester2: number };
   items: ATPItem[];
   totalJP: number;
 }

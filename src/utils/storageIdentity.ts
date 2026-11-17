@@ -28,10 +28,12 @@ export interface ResolvedAcademicContext {
 
 export const SCHOOL_ID_STORAGE_KEY = 'asesmerdeka_school_id_v1';
 export const CP_STORAGE_V2_KEY = 'asesmerdeka_cp_v2';
+export const ATP_STORAGE_V2_KEY = 'asesmerdeka_atp_v2';
 
 export const V2_BACKUP_STORAGE_PREFIXES = [
   SCHOOL_ID_STORAGE_KEY,
   CP_STORAGE_V2_KEY,
+  ATP_STORAGE_V2_KEY,
   'asesmerdeka_roster_v2__',
   'asesmerdeka_harian_v2__',
   'asesmerdeka_custom_tp_v2',

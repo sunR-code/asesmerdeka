@@ -2,6 +2,7 @@ import type { JenjangFase } from '../types/assessment';
 import {
   SCHOOL_ID_STORAGE_KEY,
   CP_STORAGE_V2_KEY,
+  ATP_STORAGE_V2_KEY,
   V2_BACKUP_STORAGE_PREFIXES,
   buildCustomTPScopeKey,
   generateNewSchoolId,
@@ -60,7 +61,13 @@ export interface CustomTPItem {
   kompetensiInti?: string;
   lingkupMateri?: string;
   prasyarat?: string[];
+  prasyaratTpIds?: string[];
   buktiKetercapaian?: string[];
+  rencanaAsesmen?: {
+    bentukUtama: string[];
+    deskripsi: string;
+    isEditedByGuru?: boolean;
+  };
   estimasiMenitSesi?: number;
   statusReview?: TPReviewStatus;
   referensiCP?: CPReferenceMeta;
@@ -420,6 +427,7 @@ const ALLOWED_BACKUP_PREFIXES = [
   CUSTOM_TP_STORAGE_KEY,
   CUSTOM_TP_STORAGE_V2_KEY,
   CP_STORAGE_V2_KEY,
+  ATP_STORAGE_V2_KEY,
   ONBOARDING_CONFIRMED_KEY,
   'asesmerdeka_harian_',
   'asesmerdeka_supervisi_',
