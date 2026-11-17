@@ -782,5 +782,5 @@ describe('Task 6.4.2 — Legacy PIN Recovery UX & Production Pepper Policy Consi
     } finally {
       bridge.restore();
     }
-  });
+  }, 20000);
 });

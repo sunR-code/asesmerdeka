@@ -544,6 +544,19 @@ async function runConcurrentWorkers(
         const mod = await import(modUrl);
         const handler = mod.default;
 
+        // Sinkronisasi barrier: pastikan seluruh worker telah menyelesaikan bootstrap V8 & ESM import
+        // sebelum mengeksekusi handler() secara bersamaan agar kontensi CPU paralel tidak mendistorsi balapan.
+        await new Promise((resolveGo) => {
+          const onGo = (msg) => {
+            if (msg && msg.type === 'GO') {
+              parentPort.off('message', onGo);
+              resolveGo(undefined);
+            }
+          };
+          parentPort.on('message', onGo);
+          parentPort.postMessage({ type: 'READY', workerId: workerData.workerId });
+        });
+
         const started = Date.now();
         let statusCode = 200;
         let responseBody = null;
@@ -579,6 +592,9 @@ async function runConcurrentWorkers(
     })();
   `;
 
+  const activeWorkers: Worker[] = [];
+  let readyCount = 0;
+
   const tasks = specs.map((spec, idx) => {
     const workerId = `W${idx + 1}`;
     return new Promise<{ workerId: string; statusCode: number; body: any; durationMs: number }>((resolve, reject) => {
@@ -601,10 +617,18 @@ async function runConcurrentWorkers(
           },
         },
       });
+      activeWorkers.push(worker);
 
       worker.on('message', async (msg: any) => {
         if (!msg) return;
-        if (msg.type === 'FETCH') {
+        if (msg.type === 'READY') {
+          readyCount += 1;
+          if (readyCount === specs.length) {
+            for (const w of activeWorkers) {
+              w.postMessage({ type: 'GO' });
+            }
+          }
+        } else if (msg.type === 'FETCH') {
           const reply = await redisSim.handleFetch(msg.url, msg.method, msg.headers || {}, msg.body, mayarInvoiceMock);
           worker.postMessage({ type: 'FETCH_RES', reqId: msg.reqId, ...reply });
         } else if (msg.type === 'DONE') {

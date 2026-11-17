@@ -14,6 +14,7 @@ import {
   CP_REGULATION_PRESETS,
   OFFICIAL_CP_REFERENCES,
   getAvailableCPReferenceEntries,
+  inferRegulationPresetIdFromEntry,
   resolveDefaultCPRegulationPreset,
   type CPRegulationPresetId,
 } from '../../data/kurikulumMerdekaCP';
@@ -209,6 +210,7 @@ export const CPWorkspacePanel: React.FC<CPWorkspacePanelProps> = ({
     setShowCPForm(true);
     setEditingEntryId(entry.id);
     setAsalCP(entry.asalCP);
+    setRegulationPresetId(inferRegulationPresetIdFromEntry(entry, schoolProfile.mataPelajaranUtama));
     setElemenCP(entry.elemenCP);
     setTeksCP(entry.teksCP);
     setNamaDokumenSumber(entry.namaDokumenSumber);
@@ -419,6 +421,14 @@ export const CPWorkspacePanel: React.FC<CPWorkspacePanelProps> = ({
               style={{ color: '#2563eb', display: 'inline-flex', alignItems: 'center', gap: 3 }}
             >
               SK 046/H/KR/2025 <ExternalLink size={11} aria-hidden="true" />
+            </a>
+            <a
+              href={OFFICIAL_CP_REFERENCES.KURIKULUM_DIRECTORY_URL}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: '#2563eb', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+            >
+              Direktori Kurikulum <ExternalLink size={11} aria-hidden="true" />
             </a>
             <a
               href={OFFICIAL_CP_REFERENCES.PANDUAN_MAPEL_URL}

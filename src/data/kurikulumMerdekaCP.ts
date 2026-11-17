@@ -3,14 +3,18 @@ import type { CPReferenceMeta } from '../utils/schoolProfileStorage';
 
 export const OFFICIAL_CP_REFERENCES = {
   PPA_REVISI_2025_URL: 'https://repositori.kemendikdasmen.go.id/33290/',
+  KURIKULUM_DIRECTORY_URL: 'https://kurikulum.kemendikdasmen.go.id/',
   PANDUAN_MAPEL_URL: 'https://kurikulum.kemendikdasmen.go.id/panduan-mapel',
   SK_BSKAP_046_2025_URL:
     'https://bpmpbabel.kemendikdasmen.go.id/PPID/wp-content/uploads/2025/07/KepKaBSKAP-046_2025-ttg-CP.pdf',
+  BKPDM_020_PRESS_RELEASE_URL:
+    'https://www.kemendikdasmen.go.id/siaran-pers/15636-capaian-pembelajaran-baru-telah-terbit-yang-berubah-hanya-mata-pelajaran-agama-dan-budi-pekerti',
 } as const;
 
 export type CPRegulationPresetId =
   | 'bskap_046_2025'
   | 'bkpdm_020_2026'
+  | 'bkpdm_021_2026'
   | 'kma_madrasah'
   | 'input_guru_sekolah';
 
@@ -44,10 +48,22 @@ export const CP_REGULATION_PRESETS: readonly CPRegulationPreset[] = [
       'Pembaruan Capaian Pembelajaran Mata Pelajaran Pendidikan Agama dan Budi Pekerti (Perubahan atas SK 046/H/KR/2025)',
     nomorDokumen: 'Keputusan Kepala BKPDM No. 020 Tahun 2026',
     tahunVersiDokumen: '2026',
-    urlReferensi: OFFICIAL_CP_REFERENCES.PANDUAN_MAPEL_URL,
+    urlReferensi: OFFICIAL_CP_REFERENCES.BKPDM_020_PRESS_RELEASE_URL,
     catatanDefault:
       'Mengakomodasi pembaruan CP Pendidikan Agama dan Budi Pekerti berdasarkan Keputusan Kepala BKPDM No. 020 Tahun 2026 atas SK 046/H/KR/2025.',
     cakupan: 'Pendidikan Agama (Islam, Kristen, Katolik, Hindu, Buddha, Khonghucu) & Budi Pekerti',
+  },
+  {
+    id: 'bkpdm_021_2026',
+    label: 'Pendidikan Kepercayaan — Keputusan Kepala BKPDM No. 021 Tahun 2026',
+    namaDokumenSumber:
+      'Capaian Pembelajaran Mata Pelajaran Pendidikan Kepercayaan terhadap Tuhan Yang Maha Esa dan Budi Pekerti',
+    nomorDokumen: 'Keputusan Kepala BKPDM No. 021 Tahun 2026',
+    tahunVersiDokumen: '2026',
+    urlReferensi: OFFICIAL_CP_REFERENCES.PANDUAN_MAPEL_URL,
+    catatanDefault:
+      'Referensi tersendiri berdasarkan Keputusan Kepala BKPDM No. 021 Tahun 2026 untuk mata pelajaran Pendidikan Kepercayaan terhadap Tuhan Yang Maha Esa dan Budi Pekerti. Teks lengkap belum diverifikasi secara lokal — mohon bandingkan dengan dokumen resmi.',
+    cakupan: 'Pendidikan Kepercayaan terhadap Tuhan Yang Maha Esa dan Budi Pekerti',
   },
   {
     id: 'kma_madrasah',
@@ -88,15 +104,27 @@ export interface MapelDatabase {
   }[];
 }
 
-export function isAgamaBudiPekertiSubject(mataPelajaran: string): boolean {
-  const lower = (mataPelajaran || '').toLowerCase();
-  if (!lower) return false;
+export function isKepercayaanSubject(mataPelajaran: string): boolean {
+  const lower = (mataPelajaran || '').toLowerCase().trim();
+  if (!lower || isKemenagSubject(lower)) return false;
   return (
-    lower.includes('budi pekerti') ||
-    lower.includes('pendidikan agama') ||
-    /\bpai\b/.test(lower) ||
+    /pendidikan\s+kepercayaan\b/.test(lower) ||
+    /\bkepercayaan\s+terhadap\s+tuhan\b/.test(lower) ||
+    /\bpenghayat\s+kepercayaan\b/.test(lower)
+  );
+}
+
+export function isAgamaBudiPekertiSubject(mataPelajaran: string): boolean {
+  const lower = (mataPelajaran || '').toLowerCase().trim();
+  if (!lower || isKemenagSubject(lower) || isKepercayaanSubject(lower)) {
+    return false;
+  }
+  return (
+    /\bpendidikan\s+agama\b/.test(lower) ||
+    /\bpai\s*(?:&|dan)\s*budi\s*pekerti\b/.test(lower) ||
     /\bpabp\b/.test(lower) ||
-    /\bpak\b/.test(lower)
+    /\bpak\b/.test(lower) ||
+    /\bagama\s+(?:islam|kristen|katolik|hindu|buddha|budha|khonghucu|konghucu)\b/.test(lower)
   );
 }
 
@@ -112,7 +140,8 @@ export function isKemenagSubject(mataPelajaran: string): boolean {
     lower.includes('bahasa arab') ||
     lower.includes('(mi)') ||
     lower.includes('(mts)') ||
-    lower.includes('(ma)')
+    lower.includes('(ma)') ||
+    lower.includes('madrasah')
   );
 }
 
@@ -127,10 +156,28 @@ export function resolveDefaultCPRegulationPreset(
   if (isKemenagSubject(mataPelajaran)) {
     return CP_REGULATION_PRESETS.find((p) => p.id === 'kma_madrasah')!;
   }
+  if (isKepercayaanSubject(mataPelajaran)) {
+    return CP_REGULATION_PRESETS.find((p) => p.id === 'bkpdm_021_2026')!;
+  }
   if (isAgamaBudiPekertiSubject(mataPelajaran)) {
     return CP_REGULATION_PRESETS.find((p) => p.id === 'bkpdm_020_2026')!;
   }
   return CP_REGULATION_PRESETS.find((p) => p.id === 'bskap_046_2025')!;
+}
+
+export function inferRegulationPresetIdFromEntry(
+  entry: { asalCP?: string; nomorDokumen?: string },
+  mataPelajaran: string
+): CPRegulationPresetId {
+  if (entry.asalCP === 'input_guru') {
+    return 'input_guru_sekolah';
+  }
+  const num = (entry.nomorDokumen || '').toLowerCase();
+  if (num.includes('021')) return 'bkpdm_021_2026';
+  if (num.includes('020')) return 'bkpdm_020_2026';
+  if (num.includes('kma') || num.includes('madrasah')) return 'kma_madrasah';
+  if (num.includes('046')) return 'bskap_046_2025';
+  return resolveDefaultCPRegulationPreset(mataPelajaran).id;
 }
 
 export function resolveCPReferenceMetadata(
@@ -174,21 +221,34 @@ export interface SystemCPReferenceCandidate {
   referensiMeta: CPReferenceMeta;
 }
 
+function normalizeSubjectBaseName(subject: string): string {
+  return (subject || '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function getAvailableCPReferenceEntries(
   mataPelajaran: string,
   jenjangFase: JenjangFase
 ): SystemCPReferenceCandidate[] {
   const targetMapel = (mataPelajaran || '').toLowerCase().trim();
+  // Jangan mencampurkan katalog sekolah umum ke mapel Madrasah/Kemenag atau query kosong.
+  if (!targetMapel || isKemenagSubject(targetMapel)) {
+    return [];
+  }
+  const targetBase = normalizeSubjectBaseName(targetMapel);
   const fasePrefix = (jenjangFase || '').split('(')[0].trim().toLowerCase();
   const candidates: SystemCPReferenceCandidate[] = [];
 
   for (const mapelItem of KURIKULUM_MERDEKA_DATABASE) {
-    const dbMapel = mapelItem.mataPelajaran.toLowerCase();
+    const dbMapel = mapelItem.mataPelajaran.toLowerCase().trim();
+    const dbBase = normalizeSubjectBaseName(dbMapel);
     const isMapelMatch =
-      !targetMapel ||
       dbMapel === targetMapel ||
-      targetMapel.includes(dbMapel) ||
-      dbMapel.includes(targetMapel.split('(')[0].trim());
+      (targetBase.length > 0 && dbBase === targetBase) ||
+      (dbBase.length >= 4 && targetBase.startsWith(`${dbBase} `));
     if (!isMapelMatch) continue;
 
     for (const faseItem of mapelItem.faseList) {
@@ -204,7 +264,7 @@ export function getAvailableCPReferenceEntries(
           ringkasanFokusAplikasi: el.materiPokok,
           contohTPAplikasi: el.tujuanPembelajaran,
           contohKelas: el.contohKelas,
-          referensiMeta: resolveCPReferenceMetadata(mapelItem.mataPelajaran, faseItem.fase, el.elemen),
+          referensiMeta: resolveCPReferenceMetadata(mataPelajaran, faseItem.fase, el.elemen),
         });
       });
     }

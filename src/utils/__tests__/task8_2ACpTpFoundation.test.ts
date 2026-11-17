@@ -6,6 +6,10 @@ import {
   resolveCPReferenceMetadata,
   resolveDefaultCPRegulationPreset,
   getAvailableCPReferenceEntries,
+  isAgamaBudiPekertiSubject,
+  isKepercayaanSubject,
+  isKemenagSubject,
+  inferRegulationPresetIdFromEntry,
 } from '../../data/kurikulumMerdekaCP';
 import {
   getSavedCPEntries,
@@ -98,28 +102,125 @@ describe('Task 8.2A — CP, Analisis CP, TP Foundation & Legacy Compatibility', 
     vi.restoreAllMocks();
   });
 
-  it('membedakan metadata regulasi CP: mapel umum (SK 046/H/KR/2025) vs Agama & Budi Pekerti (BKPDM 020/2026) vs Madrasah KMA', () => {
-    const umumPreset = resolveDefaultCPRegulationPreset('Matematika');
-    expect(umumPreset.id).toBe('bskap_046_2025');
-    expect(umumPreset.nomorDokumen).toContain('046/H/KR/2025');
+  it('membedakan secara ketat regulasi CP: Agama & Budi Pekerti (BKPDM 020/2026), Pendidikan Kepercayaan (BKPDM 021/2026), Mapel Umum (SK 046/H/KR/2025), dan Madrasah (KMA)', () => {
+    // 1. Enam mapel Pendidikan Agama & Budi Pekerti -> wajib BKPDM No. 020 Tahun 2026 (bukan 021)
+    const agamaSubjects = [
+      'Pendidikan Agama Islam dan Budi Pekerti',
+      'Pendidikan Agama Kristen dan Budi Pekerti',
+      'Pendidikan Agama Katolik dan Budi Pekerti',
+      'Pendidikan Agama Hindu dan Budi Pekerti',
+      'Pendidikan Agama Buddha dan Budi Pekerti',
+      'Pendidikan Agama Khonghucu dan Budi Pekerti',
+    ];
+    for (const mapel of agamaSubjects) {
+      expect(isAgamaBudiPekertiSubject(mapel)).toBe(true);
+      expect(isKepercayaanSubject(mapel)).toBe(false);
+      const preset = resolveDefaultCPRegulationPreset(mapel);
+      expect(preset.id).toBe('bkpdm_020_2026');
+      expect(preset.nomorDokumen).toBe('Keputusan Kepala BKPDM No. 020 Tahun 2026');
 
-    const agamaPreset = resolveDefaultCPRegulationPreset('Pendidikan Agama Islam & Budi Pekerti');
-    expect(agamaPreset.id).toBe('bkpdm_020_2026');
-    expect(agamaPreset.nomorDokumen).toContain('BKPDM');
-    expect(agamaPreset.nomorDokumen).toContain('020 Tahun 2026');
+      const meta = resolveCPReferenceMetadata(mapel, 'Fase D (Kelas 7-9 SMP)', 'Akhlak', 'SMP/MTs');
+      expect(meta.nomorDokumen).toBe('Keputusan Kepala BKPDM No. 020 Tahun 2026');
+      expect(meta.terverifikasiResmi).toBe(false);
+      expect(meta.statusVerifikasi).toBe('referensi_belum_verifikasi');
+    }
 
-    const kmaPreset = resolveDefaultCPRegulationPreset('Fikih (MTs)');
-    expect(kmaPreset.id).toBe('kma_madrasah');
+    // 2. Pendidikan Kepercayaan terhadap Tuhan Yang Maha Esa dan Budi Pekerti -> wajib BKPDM No. 021 Tahun 2026 (bukan 020)
+    const kepercayaanSubject = 'Pendidikan Kepercayaan terhadap Tuhan Yang Maha Esa dan Budi Pekerti';
+    expect(isKepercayaanSubject(kepercayaanSubject)).toBe(true);
+    expect(isAgamaBudiPekertiSubject(kepercayaanSubject)).toBe(false);
+    const kepercayaanPreset = resolveDefaultCPRegulationPreset(kepercayaanSubject);
+    expect(kepercayaanPreset.id).toBe('bkpdm_021_2026');
+    expect(kepercayaanPreset.nomorDokumen).toBe('Keputusan Kepala BKPDM No. 021 Tahun 2026');
+    expect(kepercayaanPreset.tahunVersiDokumen).toBe('2026');
 
-    const sysMeta = resolveCPReferenceMetadata('Matematika', 'Fase D (Kelas 7-9 SMP)', 'Aljabar', 'SMP/MTs');
-    expect(sysMeta.terverifikasiResmi).toBe(false);
-    expect(sysMeta.statusVerifikasi).toBe('referensi_belum_verifikasi');
-    expect(sysMeta.asalCP).toBe('referensi_sistem');
-    expect(sysMeta.nomorDokumen).toContain('046/H/KR/2025');
+    const kepercayaanMeta = resolveCPReferenceMetadata(
+      kepercayaanSubject,
+      'Fase D (Kelas 7-9 SMP)',
+      'Sejarah Penghayat Kepercayaan',
+      'SMP/MTs'
+    );
+    expect(kepercayaanMeta.nomorDokumen).toBe('Keputusan Kepala BKPDM No. 021 Tahun 2026');
+    expect(kepercayaanMeta.terverifikasiResmi).toBe(false);
+    expect(kepercayaanMeta.statusVerifikasi).toBe('referensi_belum_verifikasi');
 
+    // Render UI CPWorkspacePanel untuk Pendidikan Kepercayaan menampilkan BKPDM No. 021 Tahun 2026
+    const kepercayaanProfile = makeProfile({ mataPelajaranUtama: kepercayaanSubject });
+    const panelHtml = renderToStaticMarkup(
+      React.createElement(CPWorkspacePanel, {
+        schoolProfile: kepercayaanProfile,
+        currentFase: 'Fase D (Kelas 7-9 SMP)',
+        capaianPembelajaranRingkas: 'Ringkasan CP Kepercayaan',
+        existingTPCount: 0,
+        onCreateTPFromAnalysis: vi.fn(),
+      })
+    );
+    expect(panelHtml).toContain('BKPDM No. 021 Tahun 2026');
+    expect(panelHtml).toContain('https://kurikulum.kemendikdasmen.go.id/');
+
+    // 3. Mapel umum lainnya -> wajib SK Kepala BSKAP No. 046/H/KR/2025
+    const generalSubjects = [
+      'Matematika',
+      'Bahasa Indonesia',
+      'Fisika',
+      'Etika dan Budi Pekerti', // mengandung frasa "Budi Pekerti" tetapi bukan Agama/Kepercayaan
+      'Pendidikan Pancasila',
+    ];
+    for (const mapel of generalSubjects) {
+      expect(isAgamaBudiPekertiSubject(mapel)).toBe(false);
+      expect(isKepercayaanSubject(mapel)).toBe(false);
+      const preset = resolveDefaultCPRegulationPreset(mapel);
+      expect(preset.id).toBe('bskap_046_2025');
+      expect(preset.nomorDokumen).toContain('046/H/KR/2025');
+    }
+
+    // Pastikan IPA tidak keliru mencocokkan IPAS pada katalog sistem
+    expect(getAvailableCPReferenceEntries('IPA (Ilmu Pengetahuan Alam)', 'Fase B (Kelas 3-4 SD)')).toHaveLength(0);
     const sysEntries = getAvailableCPReferenceEntries('Matematika', 'Fase D (Kelas 7-9 SMP)');
     expect(sysEntries.length).toBeGreaterThan(0);
     expect(sysEntries[0].referensiMeta.terverifikasiResmi).toBe(false);
+
+    // 4. Konteks Madrasah -> wajib KMA Madrasah, tidak bercampur otomatis dengan referensi sekolah umum
+    const madrasahSubjects = ['Fikih (MTs)', "Al-Qur'an Hadis (MI)", 'Bahasa Arab (MA)', 'Pendidikan Agama Islam (MTs)'];
+    for (const mapel of madrasahSubjects) {
+      expect(isKemenagSubject(mapel)).toBe(true);
+      expect(isAgamaBudiPekertiSubject(mapel)).toBe(false);
+      expect(resolveDefaultCPRegulationPreset(mapel).id).toBe('kma_madrasah');
+      expect(getAvailableCPReferenceEntries(mapel, 'Fase D (Kelas 7-9 SMP)')).toHaveLength(0);
+    }
+
+    // Guru tetap bisa mengganti referensi secara manual, dan inferRegulationPresetIdFromEntry mempertahankan pilihan tersimpan
+    const manualOverride = resolveDefaultCPRegulationPreset(kepercayaanSubject, 'input_guru_sekolah');
+    expect(manualOverride.id).toBe('input_guru_sekolah');
+    expect(
+      inferRegulationPresetIdFromEntry(
+        { asalCP: 'referensi_sistem', nomorDokumen: 'Keputusan Kepala BKPDM No. 021 Tahun 2026' },
+        kepercayaanSubject
+      )
+    ).toBe('bkpdm_021_2026');
+
+    // Simpan CP eksisting tidak terhapus saat memilih referensi/preset berbeda
+    saveCPEntry(kepercayaanProfile, {
+      mataPelajaran: kepercayaanSubject,
+      jenjang: 'SMP/MTs',
+      fase: 'Fase D (Kelas 7-9 SMP)',
+      elemenCP: 'Budi Pekerti',
+      teksCP: 'Teks CP Kepercayaan tersimpan oleh guru.',
+      asalCP: 'input_guru',
+    });
+    saveCPEntry(kepercayaanProfile, {
+      mataPelajaran: kepercayaanSubject,
+      jenjang: 'SMP/MTs',
+      fase: 'Fase D (Kelas 7-9 SMP)',
+      elemenCP: 'Sejarah',
+      teksCP: 'Salinan teks CP BKPDM 021/2026.',
+      asalCP: 'referensi_sistem',
+      regulationPresetId: 'bkpdm_021_2026',
+    });
+    const stored = getSavedCPEntries(kepercayaanProfile, 'Fase D (Kelas 7-9 SMP)');
+    expect(stored).toHaveLength(2);
+    expect(stored.some((e) => e.statusVerifikasi === 'input_guru')).toBe(true);
+    expect(stored.some((e) => e.nomorDokumen === 'Keputusan Kepala BKPDM No. 021 Tahun 2026')).toBe(true);
   });
 
   it('menyimpan input/edit CP guru beserta metadata lengkap dan mencegah CP input guru berubah menjadi CP resmi pemerintah', () => {
