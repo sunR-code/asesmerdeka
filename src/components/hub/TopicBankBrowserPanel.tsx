@@ -547,7 +547,8 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div className="topic-bank-empty-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
+            <style>{`.topic-bank-empty-actions > .btn { max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }`}</style>
             <button type="button" className="btn btn-sm btn-primary" onClick={onOpenCPPanel}>
               <FileText size={13} aria-hidden="true" /> Tempel / Masukkan CP
             </button>

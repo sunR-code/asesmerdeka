@@ -188,7 +188,7 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', maxWidth: '100%', minWidth: 0 }}>
           {isCustomTP && (
             <button
               type="button"

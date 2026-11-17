@@ -84,6 +84,7 @@ export const KURIKULUM_CATALOG: Record<JenjangKategori, {
       'Informatika',
       'PJOK',
       'Seni Budaya / Prakarya',
+      'Seni Musik',
       'Pendidikan Agama Islam & Budi Pekerti',
     ],
     mapelMadrasah: [
@@ -116,6 +117,7 @@ export const KURIKULUM_CATALOG: Record<JenjangKategori, {
       'Sejarah',
       'Pendidikan Pancasila',
       'Informatika',
+      'Seni Musik',
     ],
     mapelMadrasah: [
       'Al-Qur\'an Hadis (MA)',
