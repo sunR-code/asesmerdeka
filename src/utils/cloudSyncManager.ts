@@ -465,6 +465,33 @@ export function getPendingCloudConflict(): CloudPendingConflict | null {
   }
 }
 
+export function syncPendingCloudConflictWithLocalState(
+  entriesOverride?: Record<string, unknown>
+): CloudPendingConflict | null {
+  const pending = getPendingCloudConflict();
+  if (!pending) return null;
+
+  const liveEntries = entriesOverride || collectWorkspaceSyncEntries();
+  if (!liveEntries || Object.keys(liveEntries).length === 0) {
+    return pending;
+  }
+  if (stableEqual(liveEntries, pending.localEntries)) {
+    return pending;
+  }
+
+  const baseSnapshot = getWorkspaceBaseSnapshot(pending.licenseCode, pending.teacherPin);
+  const analysis = analyzeWorkspaceConflict(baseSnapshot, liveEntries, pending.serverEntries);
+  const updated: CloudPendingConflict = {
+    ...pending,
+    localEntries: deepClone(liveEntries),
+    mergedEntries: analysis.mergedEntries,
+    conflicts: analysis.conflicts,
+    autoMergedSummary: analysis.autoMergedSummary,
+  };
+  savePendingCloudConflict(updated);
+  return updated;
+}
+
 function savePendingCloudConflict(conflict: CloudPendingConflict | null): void {
   try {
     if (conflict) {
@@ -2058,16 +2085,17 @@ export async function pushWorkspaceToCloud(
     pending.teacherPin === teacherPin &&
     options?.baseRevisionOverride === undefined
   ) {
+    const syncedPending = syncPendingCloudConflictWithLocalState(options?.entriesOverride) || pending;
     emitCloudSyncStatus('conflict');
     return {
       ok: false,
       conflict: true,
-      cloudConfigured: pending.cloudConfigured,
-      serverRevision: pending.serverRevision,
-      serverUpdatedAt: pending.serverUpdatedAt,
-      lastDeviceId: pending.lastDeviceId,
-      conflicts: pending.conflicts,
-      autoMergedSummary: pending.autoMergedSummary,
+      cloudConfigured: syncedPending.cloudConfigured,
+      serverRevision: syncedPending.serverRevision,
+      serverUpdatedAt: syncedPending.serverUpdatedAt,
+      lastDeviceId: syncedPending.lastDeviceId,
+      conflicts: syncedPending.conflicts,
+      autoMergedSummary: syncedPending.autoMergedSummary,
       statusCode: 409,
       message:
         'Terdapat konflik sinkronisasi yang belum diselesaikan. Selesaikan konflik di Panel Lisensi & Cloud Sync terlebih dahulu agar data perangkat lain tidak tertimpa.',
@@ -2547,7 +2575,7 @@ export async function resolveCloudConflict(
     allowDefaultForUnchosen?: boolean;
   }
 ): Promise<CloudConflictResolutionResult> {
-  const pending = getPendingCloudConflict();
+  const pending = syncPendingCloudConflictWithLocalState();
   if (!pending) {
     return {
       ok: false,

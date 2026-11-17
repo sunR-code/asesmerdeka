@@ -715,4 +715,97 @@ describe('Task 7.1.3B — Live Contract Audit, Outage & Recovery Matrix, dan Syn
     expect(errModalHtml).toContain('Sinkronisasi Terkendala / Server Tidak Tersedia');
     expect(errModalHtml).not.toContain('✓ Tersinkron');
   });
+
+  it('Task 7.1.3C.2 Regression: Perubahan Jurnal lokal setelah HTTP 409 pertama tidak hilang saat merge_safe dan terkonvergensi ke Device B', async () => {
+    const schoolLicense = generateStagingLicenseCode('SK26', 'CONVERGE713C2');
+    const pin = 'ALFA_713C2:PIN713C2';
+    const snapshotLocal = () => {
+      const m = new Map<string, string>();
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)!;
+        m.set(k, localStorage.getItem(k)!);
+      }
+      return m;
+    };
+    const restoreLocal = (m: Map<string, string>) => {
+      localStorage.clear();
+      m.forEach((v, k) => localStorage.setItem(k, v));
+    };
+
+    // 1. Device A initial push (Rev 1)
+    localStorage.setItem('asesmerdeka_device_id', 'DEV-STG-CONV-A');
+    await activateStagingLicenseForTest(schoolLicense);
+    saveTeacherSyncPin(pin);
+    const { profile: baseProfile, tps } = seedSyntheticWorkspace('713C2');
+    const pushA1 = await pushWorkspaceToCloud(schoolLicense, pin);
+    expect(pushA1.ok).toBe(true);
+    expect(pushA1.revision).toBe(1);
+    const snapARev1 = snapshotLocal();
+
+    // 2. Device B pulls Rev 1, updates namaKepalaSekolah -> pushes Rev 2
+    localStorage.clear();
+    localStorage.setItem('asesmerdeka_device_id', 'DEV-STG-CONV-B');
+    await activateStagingLicenseForTest(schoolLicense);
+    saveTeacherSyncPin(pin);
+    const pullB1 = await pullWorkspaceFromCloud(schoolLicense, pin);
+    expect(pullB1.ok).toBe(true);
+    expect(pullB1.revision).toBe(1);
+    saveSchoolProfile({ ...getSchoolProfile(), namaKepalaSekolah: 'Kepsek Update Device B' });
+    const pushB2 = await pushWorkspaceToCloud(schoolLicense, pin);
+    expect(pushB2.ok).toBe(true);
+    expect(pushB2.revision).toBe(2);
+    const snapBRev2 = snapshotLocal();
+
+    // 3. Device A (stale Rev 1) updates kotaTanggal -> hits HTTP 409 FIRST (saving initial pendingConflict)
+    restoreLocal(snapARev1);
+    saveSchoolProfile({ ...baseProfile, kotaTanggal: 'Kota Update Device A' });
+    const firstConflictPush = await pushWorkspaceToCloud(schoolLicense, pin);
+    expect(firstConflictPush.ok).toBe(false);
+    expect(firstConflictPush.conflict).toBe(true);
+    expect(firstConflictPush.statusCode).toBe(409);
+
+    // 4. Device A continues working AFTER 409: adds a new Jurnal entry BEFORE resolving conflict!
+    const currentProfileA = getSchoolProfile();
+    const harianAfter409 = getKelasHarianData(currentProfileA, tps);
+    const prevJurnalCount = harianAfter409.daftarJurnal.length;
+    harianAfter409.daftarJurnal.push({
+      id: 'jurnal_post_409_713c2',
+      pertemuanKe: prevJurnalCount + 1,
+      tanggal: '2026-11-17',
+      jamKe: '1 - 2',
+      tpId: tps[0].id,
+      kodeTP: tps[0].kode,
+      materiPokok: 'STAGING-JOURNAL-713C2',
+      jumlahJP: 2,
+      kegiatanPembelajaran: 'Agenda pasca 409 yang wajib bertahan saat Safe Merge.',
+      siswaTidakHadir: 'Nihil (Semua Hadir)',
+      catatanRefleksi: 'Terlaksana',
+      statusKeterlaksanaan: 'terlaksana',
+    });
+    saveKelasHarianData(currentProfileA, harianAfter409);
+
+    // 5. Device A runs Safe Merge (Rev 3) -> MUST preserve kotaTanggal A + namaKepalaSekolah B + post-409 Jurnal!
+    const resolved = await resolveCloudConflict('merge_safe', { allowDefaultForUnchosen: true });
+    expect(resolved.ok).toBe(true);
+    expect(resolved.revision).toBe(3);
+
+    const devAProfileAfter = getSchoolProfile();
+    expect(devAProfileAfter.kotaTanggal).toBe('Kota Update Device A');
+    expect(devAProfileAfter.namaKepalaSekolah).toBe('Kepsek Update Device B');
+    const devAHarianAfter = getKelasHarianData(devAProfileAfter, tps);
+    expect(devAHarianAfter.daftarJurnal).toHaveLength(prevJurnalCount + 1);
+    expect(devAHarianAfter.daftarJurnal.some((j) => j.materiPokok === 'STAGING-JOURNAL-713C2')).toBe(true);
+
+    // 6. Device B pulls Rev 3 -> MUST converge identically with Device A!
+    restoreLocal(snapBRev2);
+    const pullB3 = await pullWorkspaceFromCloud(schoolLicense, pin);
+    expect(pullB3.ok).toBe(true);
+    expect(pullB3.revision).toBe(3);
+    const devBProfileAfter = getSchoolProfile();
+    expect(devBProfileAfter.kotaTanggal).toBe('Kota Update Device A');
+    expect(devBProfileAfter.namaKepalaSekolah).toBe('Kepsek Update Device B');
+    const devBHarianAfter = getKelasHarianData(devBProfileAfter, tps);
+    expect(devBHarianAfter.daftarJurnal).toHaveLength(prevJurnalCount + 1);
+    expect(devBHarianAfter.daftarJurnal.some((j) => j.materiPokok === 'STAGING-JOURNAL-713C2')).toBe(true);
+  });
 });

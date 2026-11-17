@@ -56,6 +56,7 @@ import {
   getWorkspaceBaseRevision,
   isCloudBackendConfigured,
   getPendingCloudConflict,
+  syncPendingCloudConflictWithLocalState,
   getPendingLegacyPinRecovery,
   submitLegacyPinRecovery,
   getCloudSyncUiStatus,
@@ -205,7 +206,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     setCloudConfigured(isCloudBackendConfigured());
     const q = getUserQuota();
     setBaseRevision(getWorkspaceBaseRevision(q.licenseKey || quota.licenseKey, teacherPinInput));
-    const nextConflict = getPendingCloudConflict();
+    const nextConflict = syncPendingCloudConflictWithLocalState() || getPendingCloudConflict();
     setPendingConflict(nextConflict);
     setPendingPinRecovery(getPendingLegacyPinRecovery());
     setCloudUiStatus(getCloudSyncUiStatus());
