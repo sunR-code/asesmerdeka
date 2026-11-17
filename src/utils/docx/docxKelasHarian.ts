@@ -21,6 +21,7 @@ import {
   getFormatifScoreForTP,
   normalizeBobotKebijakan,
 } from '../kelasHarianStorage';
+import { computeDynamicKKTPBands } from '../learningMasteryEngine';
 import { buildSignatureBlockTable, createStyledDocxDocument } from './docxShared';
 
 const CELL_BORDERS = {
@@ -750,12 +751,18 @@ export function buildDaftarNilaiElements(
     );
     const naText = computed.na !== null ? String(computed.na) : '-';
     const naColor =
-      computed.na === null ? '64748B' : computed.na >= kktpMin ? '15803D' : 'B91C1C';
+      computed.na === null
+        ? '64748B'
+        : computed.predikat === 'Sangat Baik' || computed.predikat === 'Baik'
+        ? '15803D'
+        : computed.predikat === 'Cukup'
+        ? 'B45309'
+        : 'B91C1C';
     const predikatLabel =
       computed.statusNilai === 'lengkap'
         ? computed.predikat
         : computed.statusNilai === 'sebagian'
-        ? 'Sebagian'
+        ? `${computed.predikat} (Sebagian)`
         : 'Belum Dinilai';
 
     return new TableRow({
@@ -865,12 +872,21 @@ export function buildDaftarNilaiElements(
     })
   );
 
+  const kktpBands = computeDynamicKKTPBands(kktpMin);
   children.push(
     new Paragraph({
       spacing: { before: 120, after: 40 },
       children: [new TextRun({ text: 'Keterangan Kriteria Ketercapaian Tujuan Pembelajaran (KKTP Terpadu):', bold: true, size: 16 })],
     }),
-    new Paragraph({ children: [new TextRun({ text: '• 86 - 100 : Sangat Baik   • 71 - 85 : Baik   • 61 - 70 : Cukup   • 0 - 60 : Perlu Bimbingan', size: 15, color: '334155' })] }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: `• ${kktpBands.sangatBaikMin} - 100 : Sangat Baik   • ${kktpBands.minTuntas} - ${Math.max(kktpBands.minTuntas, kktpBands.sangatBaikMin - 1)} : Baik   • ${kktpBands.cukupMin} - ${Math.max(kktpBands.cukupMin, kktpBands.minTuntas - 1)} : Cukup   • 0 - ${Math.max(0, kktpBands.cukupMin - 1)} : Perlu Bimbingan   • Belum Dinilai : Belum ada bukti nilai`,
+          size: 15,
+          color: '334155',
+        }),
+      ],
+    }),
     new Paragraph({
       spacing: { after: 140 },
       children: [

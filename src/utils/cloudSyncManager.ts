@@ -91,6 +91,13 @@ export type CloudConflictLocator =
         | 'deskripsiRapor';
     }
   | {
+      kind: 'harian_nilai_subrecord';
+      storageKey: string;
+      siswaId: string;
+      collection: 'buktiAsesmenSubTP' | 'riwayatRemedial';
+      itemId: string;
+    }
+  | {
       kind: 'roster_siswa';
       storageKey: string;
       collection: 'daftarSiswa' | 'archivedSiswa';
@@ -913,13 +920,22 @@ function mergeSiswaLists(params: {
           serverValue: s[field],
           baseValue: b?.[field],
           defaultChoice: 'local',
-          locator: {
-            kind: locatorKind,
-            storageKey,
-            collection,
-            siswaId: id,
-            field,
-          },
+          locator:
+            locatorKind === 'harian_siswa'
+              ? {
+                  kind: 'harian_siswa',
+                  storageKey,
+                  collection,
+                  siswaId: id,
+                  field,
+                }
+              : {
+                  kind: 'roster_siswa',
+                  storageKey,
+                  collection,
+                  siswaId: id,
+                  field,
+                },
         });
       }
     }
@@ -1279,9 +1295,121 @@ function recomputeNilaiRow(
     statusNilai: computed.statusNilai,
   };
   if (forceRefreshDeskripsi && tpList.length > 0) {
-    next.deskripsiRapor = generateAutoDeskripsiRapor(item.nilaiFormatif || {}, tpList, item.nama);
+    next.deskripsiRapor = generateAutoDeskripsiRapor(item.nilaiFormatif || {}, tpList, item.nama, {
+      bobotPolicy,
+      nilaiSTS: item.nilaiSTS,
+      nilaiSAS: item.nilaiSAS,
+      nilaiPraktik: item.nilaiPraktik,
+      buktiAsesmenSubTP: item.buktiAsesmenSubTP,
+      riwayatRemedial: item.riwayatRemedial,
+    });
   }
   return next;
+}
+
+function mergeNilaiSubRecordArray<T extends { id: string }>(params: {
+  storageKey: string;
+  siswaId: string;
+  studentName: string;
+  collection: 'buktiAsesmenSubTP' | 'riwayatRemedial';
+  labelPrefix: string;
+  baseList: T[];
+  localList: T[];
+  serverList: T[];
+  hasStudentBase: boolean;
+  conflicts: CloudConflictItem[];
+}): { merged: T[]; addedOrUpdatedCount: number } {
+  const {
+    storageKey,
+    siswaId,
+    studentName,
+    collection,
+    labelPrefix,
+    baseList,
+    localList,
+    serverList,
+    hasStudentBase,
+    conflicts,
+  } = params;
+
+  const baseById = new Map(baseList.filter((r) => r?.id).map((r) => [r.id, r]));
+  const localById = new Map(localList.filter((r) => r?.id).map((r) => [r.id, r]));
+  const serverById = new Map(serverList.filter((r) => r?.id).map((r) => [r.id, r]));
+
+  const orderedIds: string[] = [];
+  const seen = new Set<string>();
+  localList.forEach((r) => {
+    if (r?.id && !seen.has(r.id)) {
+      seen.add(r.id);
+      orderedIds.push(r.id);
+    }
+  });
+  serverList.forEach((r) => {
+    if (r?.id && !seen.has(r.id)) {
+      seen.add(r.id);
+      orderedIds.push(r.id);
+    }
+  });
+
+  const merged: T[] = [];
+  let addedOrUpdatedCount = 0;
+
+  for (const id of orderedIds) {
+    const b = baseById.get(id);
+    const l = localById.get(id);
+    const s = serverById.get(id);
+
+    if (!l && s) {
+      if (hasStudentBase && b && stableEqual(b, s)) continue;
+      merged.push(deepClone(s));
+      addedOrUpdatedCount++;
+      continue;
+    }
+    if (l && !s) {
+      if (hasStudentBase && b && stableEqual(b, l)) continue;
+      merged.push(deepClone(l));
+      continue;
+    }
+    if (!l || !s) continue;
+
+    if (stableEqual(l, s)) {
+      merged.push(deepClone(l));
+      continue;
+    }
+
+    const res = resolveThreeWayField(Boolean(hasStudentBase && b), b, l, s, {
+      additiveIfNoBase: false,
+    });
+    if (res.hasConflict) {
+      merged.push(deepClone(l));
+      conflicts.push({
+        id: `${storageKey}::nilai::${siswaId}::${collection}::${id}`,
+        storageKey,
+        category: 'nilai',
+        label: `${labelPrefix} — ${studentName}`,
+        fieldLabel: `${labelPrefix} (${id})`,
+        localValue: l,
+        serverValue: s,
+        baseValue: b,
+        defaultChoice: 'local',
+        locator: {
+          kind: 'harian_nilai_subrecord',
+          storageKey,
+          siswaId,
+          collection,
+          itemId: id,
+        },
+      });
+    } else {
+      const chosen = res.resolved as T;
+      merged.push(deepClone(chosen));
+      if (!stableEqual(chosen, l)) {
+        addedOrUpdatedCount++;
+      }
+    }
+  }
+
+  return { merged, addedOrUpdatedCount };
 }
 
 function mergeNilaiLists(params: {
@@ -1438,6 +1566,49 @@ function mergeNilaiLists(params: {
       }
     }
 
+    // 2b. Merge buktiAsesmenSubTP & riwayatRemedial secara granular per ID
+    const buktiRes = mergeNilaiSubRecordArray({
+      storageKey,
+      siswaId: sid,
+      studentName,
+      collection: 'buktiAsesmenSubTP',
+      labelPrefix: 'Bukti Asesmen Sub-TP',
+      baseList: b?.buktiAsesmenSubTP || [],
+      localList: l.buktiAsesmenSubTP || [],
+      serverList: s.buktiAsesmenSubTP || [],
+      hasStudentBase: Boolean(b),
+      conflicts,
+    });
+    if (buktiRes.merged.length > 0) {
+      out.buktiAsesmenSubTP = buktiRes.merged;
+    } else if (l.buktiAsesmenSubTP || s.buktiAsesmenSubTP) {
+      out.buktiAsesmenSubTP = [];
+    }
+    if (buktiRes.addedOrUpdatedCount > 0) {
+      autoMergedScoresCount += buktiRes.addedOrUpdatedCount;
+    }
+
+    const remedialRes = mergeNilaiSubRecordArray({
+      storageKey,
+      siswaId: sid,
+      studentName,
+      collection: 'riwayatRemedial',
+      labelPrefix: 'Riwayat Tindak Lanjut Remedial',
+      baseList: b?.riwayatRemedial || [],
+      localList: l.riwayatRemedial || [],
+      serverList: s.riwayatRemedial || [],
+      hasStudentBase: Boolean(b),
+      conflicts,
+    });
+    if (remedialRes.merged.length > 0) {
+      out.riwayatRemedial = remedialRes.merged;
+    } else if (l.riwayatRemedial || s.riwayatRemedial) {
+      out.riwayatRemedial = [];
+    }
+    if (remedialRes.addedOrUpdatedCount > 0) {
+      autoMergedScoresCount += remedialRes.addedOrUpdatedCount;
+    }
+
     // 3. Handle deskripsiRapor:
     // Jika nilai formatif mengalami merge bersih dan deskripsi hanya otomatis, hitung ulang deskripsi agar akurat
     const descRes = resolveThreeWayField(
@@ -1453,7 +1624,14 @@ function mergeNilaiLists(params: {
       (stableEqual(l.nilaiFormatif, s.nilaiFormatif) === false);
 
     if (shouldRecomputeAutoDesc) {
-      out.deskripsiRapor = generateAutoDeskripsiRapor(out.nilaiFormatif, tpList, studentName);
+      out.deskripsiRapor = generateAutoDeskripsiRapor(out.nilaiFormatif, tpList, studentName, {
+        bobotPolicy,
+        nilaiSTS: out.nilaiSTS,
+        nilaiSAS: out.nilaiSAS,
+        nilaiPraktik: out.nilaiPraktik,
+        buktiAsesmenSubTP: out.buktiAsesmenSubTP,
+        riwayatRemedial: out.riwayatRemedial,
+      });
     } else if (descRes.hasConflict) {
       out.deskripsiRapor = l.deskripsiRapor;
       conflicts.push({
@@ -1908,6 +2086,21 @@ export function applyConflictChoicesToMergedEntries(
         if (loc.field === 'nilaiSTS' || loc.field === 'nilaiSAS' || loc.field === 'nilaiPraktik') {
           touchedHarianNilai.add(`${loc.storageKey}::${loc.siswaId}`);
         }
+      }
+    } else if (loc.kind === 'harian_nilai_subrecord') {
+      const target = harian.daftarNilai.find((n) => n.siswaId === loc.siswaId);
+      if (target) {
+        const list = Array.isArray(target[loc.collection]) ? [...target[loc.collection]!] : [];
+        const existingIdx = list.findIndex((entry) => entry.id === loc.itemId);
+        if (chosenVal === undefined) {
+          if (existingIdx >= 0) list.splice(existingIdx, 1);
+        } else if (existingIdx >= 0) {
+          list[existingIdx] = chosenVal as never;
+        } else {
+          list.push(chosenVal as never);
+        }
+        (target as unknown as Record<string, unknown>)[loc.collection] = list;
+        touchedHarianNilai.add(`${loc.storageKey}::${loc.siswaId}`);
       }
     }
   }

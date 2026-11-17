@@ -7,6 +7,8 @@ import type {
   KelasHarianData,
   KelasHarianDataSource,
   BobotNilaiKebijakan,
+  BuktiAsesmenSubTP,
+  RiwayatRemedialItem,
   PredikatKKTP,
   StatusKelengkapanNilai,
   StatusFinalisasiRapor,
@@ -14,6 +16,14 @@ import type {
   ImportPreviewRow,
   ImportValidationSummary,
 } from '../types/kelasHarian';
+import {
+  DEFAULT_CLASS_INTERVENTION_HEURISTIC_PERCENT,
+  DEFAULT_KKTP_MIN_TUNTAS,
+  classifyPredikatKKTPWithThreshold,
+  computeDynamicKKTPBands,
+  normalizeEvidenceScoreToScale100,
+  resolveEffectiveKKTPThreshold,
+} from './learningMasteryEngine';
 import {
   buildKelasHarianStorageKeyV2,
   getPersistedActiveSchoolId,
@@ -30,7 +40,8 @@ export const DEFAULT_BOBOT_NILAI: BobotNilaiKebijakan = {
   bobotSTS: 25,
   bobotSAS: 25,
   bobotPraktik: 0,
-  kktpMinTuntas: 71,
+  kktpMinTuntas: DEFAULT_KKTP_MIN_TUNTAS,
+  ambangKelasTindakLanjutPersen: DEFAULT_CLASS_INTERVENTION_HEURISTIC_PERCENT,
 };
 
 export const SIMULATION_NOTICE_TEXT =
@@ -170,8 +181,13 @@ export function normalizeBobotKebijakan(
         : 0,
     kktpMinTuntas:
       typeof bobot.kktpMinTuntas === 'number' && !Number.isNaN(bobot.kktpMinTuntas)
-        ? bobot.kktpMinTuntas
-        : 71,
+        ? Math.min(100, Math.max(1, Math.round(bobot.kktpMinTuntas)))
+        : DEFAULT_KKTP_MIN_TUNTAS,
+    ambangKelasTindakLanjutPersen:
+      typeof bobot.ambangKelasTindakLanjutPersen === 'number' &&
+      !Number.isNaN(bobot.ambangKelasTindakLanjutPersen)
+        ? Math.min(100, Math.max(1, Math.round(bobot.ambangKelasTindakLanjutPersen)))
+        : DEFAULT_CLASS_INTERVENTION_HEURISTIC_PERCENT,
   };
 }
 
@@ -184,12 +200,20 @@ export function validateBobotKebijakan(bobot: BobotNilaiKebijakan): {
   const ws = Number(bobot.bobotSTS);
   const wa = Number(bobot.bobotSAS);
   const wp = Number(bobot.bobotPraktik ?? 0);
+  const kktp = bobot.kktpMinTuntas ?? DEFAULT_KKTP_MIN_TUNTAS;
   const weights = [wf, ws, wa, wp];
   if (weights.some((w) => !Number.isFinite(w) || w < 0 || w > 100)) {
     return {
       valid: false,
       total: weights.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0),
       message: 'Setiap bobot penilaian harus bernilai antara 0% sampai 100%.',
+    };
+  }
+  if (!Number.isFinite(kktp) || kktp < 1 || kktp > 100) {
+    return {
+      valid: false,
+      total: Math.round((wf + ws + wa + wp) * 100) / 100,
+      message: 'Ambang KKTP minimal tuntas harus bernilai antara 1 sampai 100.',
     };
   }
   const total = Math.round((wf + ws + wa + wp) * 100) / 100;
@@ -203,12 +227,11 @@ export function validateBobotKebijakan(bobot: BobotNilaiKebijakan): {
   return { valid: true, total: 100 };
 }
 
-export function classifyPredikatKKTP(na: number | null | undefined): PredikatKKTP {
-  if (typeof na !== 'number' || Number.isNaN(na)) return 'Perlu Bimbingan';
-  if (na >= 86) return 'Sangat Baik';
-  if (na >= 71) return 'Baik';
-  if (na >= 61) return 'Cukup';
-  return 'Perlu Bimbingan';
+export function classifyPredikatKKTP(
+  na: number | null | undefined,
+  kktpMinTuntas: number = DEFAULT_KKTP_MIN_TUNTAS
+): PredikatKKTP {
+  return classifyPredikatKKTPWithThreshold(na, kktpMinTuntas);
 }
 
 export function computeNilaiAkhir(
@@ -274,7 +297,7 @@ export function computeNilaiAkhir(
   if (!hasAnyScore || activeWeight === 0) {
     return {
       na: null,
-      predikat: 'Perlu Bimbingan',
+      predikat: 'Belum Dinilai',
       statusNilai: 'belum_dinilai',
       isComplete: false,
       avgFormatif: null,
@@ -285,7 +308,7 @@ export function computeNilaiAkhir(
   const denominator =
     isComplete && totalPolicyWeight > 0 ? totalPolicyWeight : activeWeight;
   const na = Math.round(weightedSum / denominator);
-  const predikat = classifyPredikatKKTP(na);
+  const predikat = classifyPredikatKKTP(na, bobot.kktpMinTuntas ?? DEFAULT_KKTP_MIN_TUNTAS);
   const statusNilai: StatusKelengkapanNilai = isComplete ? 'lengkap' : 'sebagian';
 
   return {
@@ -297,24 +320,141 @@ export function computeNilaiAkhir(
   };
 }
 
+export interface AutoDeskripsiRaporOptions {
+  bobotPolicy?: Partial<BobotNilaiKebijakan> | null;
+  schoolProfile?: Pick<SchoolProfile, 'kktpMinTuntas'> | null;
+  nilaiSTS?: number | null;
+  nilaiSAS?: number | null;
+  nilaiPraktik?: number | null;
+  buktiAsesmenSubTP?: BuktiAsesmenSubTP[];
+  riwayatRemedial?: RiwayatRemedialItem[];
+}
+
 export function generateAutoDeskripsiRapor(
   nilaiFormatif: { [kodeTP: string]: number | null | undefined },
   tpList: CustomTPItem[],
-  namaSiswa: string
+  namaSiswa: string,
+  options?: AutoDeskripsiRaporOptions
 ): string {
   if (!Array.isArray(tpList) || tpList.length === 0) {
     return `${namaSiswa} telah mengikuti rangkaian pembelajaran semester ini, namun tujuan pembelajaran belum dikonfigurasi.`;
   }
 
-  const recorded: { tp: CustomTPItem; score: number }[] = [];
+  const classThreshold = resolveEffectiveKKTPThreshold({
+    bobotPolicy: options?.bobotPolicy,
+    schoolProfile: options?.schoolProfile,
+  });
+  const classBands = computeDynamicKKTPBands(classThreshold);
+
+  const recorded: { tp: CustomTPItem; score: number; threshold: number; bands: ReturnType<typeof computeDynamicKKTPBands> }[] = [];
   for (const tp of tpList) {
-    const score = getFormatifScoreForTP(nilaiFormatif, tp);
+    let score = getFormatifScoreForTP(nilaiFormatif, tp);
+    if (score === undefined && Array.isArray(options?.buktiAsesmenSubTP)) {
+      const tpEvs = options.buktiAsesmenSubTP.filter(
+        (ev) =>
+          (ev.tpId && tp.id && ev.tpId === tp.id) ||
+          (ev.tpKode && tp.kode && ev.tpKode.trim().toLowerCase() === tp.kode.trim().toLowerCase())
+      );
+      const normScores = tpEvs
+        .map((ev) => normalizeEvidenceScoreToScale100(ev.skor, ev.skalaSkor))
+        .filter((v): v is number => v !== null);
+      if (normScores.length > 0) {
+        score = Math.round(normScores.reduce((a, b) => a + b, 0) / normScores.length);
+      }
+    }
     if (typeof score === 'number' && !Number.isNaN(score)) {
-      recorded.push({ tp, score });
+      const tpThresh = resolveEffectiveKKTPThreshold({
+        tp,
+        bobotPolicy: options?.bobotPolicy,
+        schoolProfile: options?.schoolProfile,
+      });
+      recorded.push({
+        tp,
+        score,
+        threshold: tpThresh,
+        bands: computeDynamicKKTPBands(tpThresh),
+      });
     }
   }
 
+  const hasSTS = typeof options?.nilaiSTS === 'number' && !Number.isNaN(options.nilaiSTS);
+  const hasSAS = typeof options?.nilaiSAS === 'number' && !Number.isNaN(options.nilaiSAS);
+  const hasPraktik =
+    typeof options?.nilaiPraktik === 'number' && !Number.isNaN(options.nilaiPraktik);
+
+  const subTpNotes: string[] = [];
+  if (Array.isArray(options?.buktiAsesmenSubTP) && options.buktiAsesmenSubTP.length > 0) {
+    const specificSubEvs = options.buktiAsesmenSubTP.filter((ev) => Boolean(ev.subTpKode || ev.subTpId));
+    if (specificSubEvs.length > 0) {
+      const achievedSubs: string[] = [];
+      const guidedSubs: string[] = [];
+      specificSubEvs.forEach((ev) => {
+        const label = ev.subTpKode || ev.indikatorYangDiamati.slice(0, 35);
+        const norm = normalizeEvidenceScoreToScale100(ev.skor, ev.skalaSkor);
+        const isGood =
+          norm !== null ? norm >= classThreshold : ev.statusKetercapaian === 'Tercapai';
+        const isNeedHelp =
+          norm !== null ? norm < classThreshold : ev.statusKetercapaian === 'Perlu Bimbingan';
+        if (isGood && !achievedSubs.includes(label)) achievedSubs.push(label);
+        else if (isNeedHelp && !guidedSubs.includes(label)) guidedSubs.push(label);
+      });
+      if (achievedSubs.length > 0 || guidedSubs.length > 0) {
+        const subParts: string[] = [];
+        if (achievedSubs.length > 0) subParts.push(`menguasai bukti Sub-TP ${achievedSubs.join(', ')}`);
+        if (guidedSubs.length > 0) subParts.push(`memerlukan penguatan pada Sub-TP ${guidedSubs.join(', ')}`);
+        subTpNotes.push(`Berdasarkan bukti spesifik, peserta didik ${subParts.join(' serta ')}.`);
+      }
+    }
+  }
+
+  const remedialImprovements: string[] = [];
+  if (Array.isArray(options?.riwayatRemedial)) {
+    for (const r of options.riwayatRemedial) {
+      const beforePct = r.hasilSebelum?.persentase;
+      const afterPct = r.hasilSesudah?.persentase;
+      const hasNumericGain =
+        typeof beforePct === 'number' && typeof afterPct === 'number' && afterPct > beforePct;
+      const hasVerifiedCompletion = r.statusTindakLanjut === 'tuntas_setelah_remedial';
+      if (hasVerifiedCompletion || hasNumericGain) {
+        const matchedTp = tpList.find(
+          (t) => t.id === r.tpId || (r.tpKode && t.kode === r.tpKode)
+        );
+        const topic = matchedTp?.materiPokok || r.tpKode || 'tujuan pembelajaran terkait';
+        if (!remedialImprovements.includes(topic)) {
+          remedialImprovements.push(topic);
+        }
+      }
+    }
+  }
+
+  const sumatifParts: string[] = [];
+  if (hasSTS) {
+    sumatifParts.push(
+      `STS (${options!.nilaiSTS}, ${options!.nilaiSTS! >= classThreshold ? 'memenuhi KKTP' : 'di bawah KKTP'})`
+    );
+  }
+  if (hasSAS) {
+    sumatifParts.push(
+      `SAS (${options!.nilaiSAS}, ${options!.nilaiSAS! >= classThreshold ? 'memenuhi KKTP' : 'di bawah KKTP'})`
+    );
+  }
+  if (hasPraktik) {
+    sumatifParts.push(
+      `Praktik (${options!.nilaiPraktik}, ${options!.nilaiPraktik! >= classThreshold ? 'memenuhi KKTP' : 'di bawah KKTP'})`
+    );
+  }
+  const sumatifSuffix =
+    sumatifParts.length > 0 ? ` Capaian asesmen sumatif/praktik tercatat: ${sumatifParts.join('; ')}.` : '';
+  const subTpSuffix = subTpNotes.length > 0 ? ` ${subTpNotes.join(' ')}` : '';
+  const improvementSuffix =
+    remedialImprovements.length > 0
+      ? ` Menunjukkan peningkatan capaian setelah tindak lanjut pembelajaran pada ${remedialImprovements.join(', ')}.`
+      : '';
+
   if (recorded.length === 0) {
+    if (hasSTS || hasSAS || hasPraktik || subTpNotes.length > 0) {
+      return `Nilai formatif per TP untuk ${namaSiswa} belum lengkap${sumatifSuffix}${subTpSuffix}${improvementSuffix} Silakan lengkapi bukti formatif sebelum finalisasi e-Rapor.`.trim();
+    }
     return `Data penilaian formatif untuk ${namaSiswa} belum diinput. Silakan lengkapi nilai pada Buku Nilai sebelum memfinalisasi deskripsi capaian e-Rapor.`;
   }
 
@@ -327,16 +467,16 @@ export function generateAutoDeskripsiRapor(
     const ringkasan =
       single.tp.materiPokok || single.tp.tujuanPembelajaran.slice(0, 60);
     let body = '';
-    if (single.score >= 86) {
+    if (single.score >= single.bands.sangatBaikMin) {
       body = `Menunjukkan penguasaan yang sangat baik dalam memahami dan menerapkan konsep ${ringkasan}.`;
-    } else if (single.score >= 71) {
+    } else if (single.score >= single.bands.minTuntas) {
       body = `Menunjukkan penguasaan yang baik dalam memahami materi ${ringkasan}.`;
-    } else if (single.score >= 61) {
+    } else if (single.score >= single.bands.cukupMin) {
       body = `Menunjukkan pemahaman dasar yang cukup pada materi ${ringkasan} dan masih perlu penguatan latihan kontekstual.`;
     } else {
       body = `Memerlukan bimbingan intensif serta pendampingan latihan tambahan pada materi ${ringkasan}.`;
     }
-    return `${body}${missingSuffix}`;
+    return `${body}${sumatifSuffix}${subTpSuffix}${improvementSuffix}${missingSuffix}`;
   }
 
   // Pilih TP tertinggi dan terendah dengan jaminan dua TP berbeda
@@ -362,17 +502,20 @@ export function generateAutoDeskripsiRapor(
     minEntry.tp.materiPokok || minEntry.tp.tujuanPembelajaran.slice(0, 60);
 
   let narrative = '';
-  if (maxEntry.score >= 86 && minEntry.score >= 86) {
+  if (
+    maxEntry.score >= classBands.sangatBaikMin &&
+    minEntry.score >= classBands.sangatBaikMin
+  ) {
     narrative = `Menunjukkan penguasaan yang sangat memuaskan dan istimewa dalam ${ringkasanMax}, serta konsisten menguasai seluruh capaian pembelajaran hingga ${ringkasanMin} dengan sangat baik.`;
-  } else if (maxEntry.score >= 71 && minEntry.score < 71) {
+  } else if (maxEntry.score >= maxEntry.threshold && minEntry.score < minEntry.threshold) {
     narrative = `Menunjukkan penguasaan yang sangat baik dalam memahami ${ringkasanMax}, namun perlu pendampingan dan latihan tambahan dalam penguasaan materi ${ringkasanMin}.`;
-  } else if (maxEntry.score < 71) {
+  } else if (maxEntry.score < maxEntry.threshold) {
     narrative = `Mulai menunjukkan pemahaman dasar dalam materi ${ringkasanMax}, namun memerlukan bimbingan intensif dan evaluasi bertahap pada materi ${ringkasanMin}.`;
   } else {
     narrative = `Menunjukkan penguasaan yang baik dalam materi ${ringkasanMax}, serta cukup terampil dan aktif dalam ${ringkasanMin}.`;
   }
 
-  return `${narrative}${missingSuffix}`;
+  return `${narrative}${sumatifSuffix}${subTpSuffix}${improvementSuffix}${missingSuffix}`;
 }
 
 export function generateDefaultPresensi(
@@ -637,7 +780,7 @@ export function fillEmptyScoreCellsOnly(
     }
 
     if (!rowChanged) return item;
-    const { na, predikat } = computeNilaiAkhir(formatif, sts, sas, safeTPList);
+    const { na, predikat } = computeNilaiAkhir(formatif, sts, sas, safeTPList, data.bobotNilai, item.nilaiPraktik);
     return {
       ...item,
       nilaiFormatif: formatif,
@@ -645,7 +788,14 @@ export function fillEmptyScoreCellsOnly(
       nilaiSAS: sas,
       nilaiAkhir: na,
       predikatKKTP: predikat,
-      deskripsiRapor: generateAutoDeskripsiRapor(formatif, safeTPList, item.nama),
+      deskripsiRapor: generateAutoDeskripsiRapor(formatif, safeTPList, item.nama, {
+        bobotPolicy: data.bobotNilai,
+        nilaiSTS: sts,
+        nilaiSAS: sas,
+        nilaiPraktik: item.nilaiPraktik,
+        buktiAsesmenSubTP: item.buktiAsesmenSubTP,
+        riwayatRemedial: item.riwayatRemedial,
+      }),
     };
   });
 
@@ -862,7 +1012,14 @@ function normalizeStoredKelasHarian(
           deskripsiRapor:
             item.deskripsiRapor && !updated
               ? item.deskripsiRapor
-              : generateAutoDeskripsiRapor(formatif, safeTPList, item.nama),
+              : generateAutoDeskripsiRapor(formatif, safeTPList, item.nama, {
+                  bobotPolicy: bobot,
+                  nilaiSTS: item.nilaiSTS,
+                  nilaiSAS: item.nilaiSAS,
+                  nilaiPraktik: item.nilaiPraktik,
+                  buktiAsesmenSubTP: item.buktiAsesmenSubTP,
+                  riwayatRemedial: item.riwayatRemedial,
+                }),
         };
       }
       return item;
@@ -905,7 +1062,7 @@ function createInitialDataFromSharedRoster(
             nilaiSAS: null,
             nilaiPraktik: null,
             nilaiAkhir: null,
-            predikatKKTP: 'Perlu Bimbingan',
+            predikatKKTP: 'Belum Dinilai',
             statusNilai: 'belum_dinilai',
             statusRapor: 'belum_lengkap',
             deskripsiRapor: `Data penilaian formatif untuk ${siswa.nama} belum diinput.`,
@@ -1060,7 +1217,7 @@ export function createBlankNilaiItem(
     nilaiSAS: null,
     nilaiPraktik: null,
     nilaiAkhir: null,
-    predikatKKTP: 'Perlu Bimbingan',
+    predikatKKTP: 'Belum Dinilai',
     statusNilai: 'belum_dinilai',
     statusRapor: 'belum_lengkap',
     deskripsiRapor: generateAutoDeskripsiRapor({}, tpList, siswa.nama),
@@ -1881,6 +2038,10 @@ export interface ClassGradeSummary {
   totalBaik: number;
   totalCukup: number;
   totalPerluBimbingan: number;
+  kktpMinTuntas: number;
+  totalTercapai: number;
+  totalBelumTuntas: number;
+  persentaseTercapai: number | null;
 }
 
 export function computeClassGradeSummary(
@@ -1888,6 +2049,8 @@ export function computeClassGradeSummary(
   tpList: CustomTPItem[],
   bobotPolicy?: Partial<BobotNilaiKebijakan> | null
 ): ClassGradeSummary {
+  const normalizedBobot = normalizeBobotKebijakan(bobotPolicy);
+  const kktpMinTuntas = normalizedBobot.kktpMinTuntas ?? DEFAULT_KKTP_MIN_TUNTAS;
   let gradedCount = 0;
   let completeCount = 0;
   let belumDinilaiCount = 0;
@@ -1896,6 +2059,8 @@ export function computeClassGradeSummary(
   let totalBaik = 0;
   let totalCukup = 0;
   let totalPerluBimbingan = 0;
+  let totalTercapai = 0;
+  let totalBelumTuntas = 0;
 
   daftarNilai.forEach((item) => {
     const res = computeNilaiAkhir(
@@ -1903,7 +2068,7 @@ export function computeClassGradeSummary(
       item.nilaiSTS,
       item.nilaiSAS,
       tpList,
-      bobotPolicy,
+      normalizedBobot,
       item.nilaiPraktik
     );
     if (res.statusNilai === 'belum_dinilai' || res.na === null) {
@@ -1913,10 +2078,13 @@ export function computeClassGradeSummary(
     gradedCount++;
     if (res.statusNilai === 'lengkap') completeCount++;
     sumNA += res.na;
+    if (res.na >= kktpMinTuntas) totalTercapai++;
+    else totalBelumTuntas++;
+
     if (res.predikat === 'Sangat Baik') totalSangatBaik++;
     else if (res.predikat === 'Baik') totalBaik++;
     else if (res.predikat === 'Cukup') totalCukup++;
-    else totalPerluBimbingan++;
+    else if (res.predikat === 'Perlu Bimbingan') totalPerluBimbingan++;
   });
 
   return {
@@ -1929,6 +2097,10 @@ export function computeClassGradeSummary(
     totalBaik,
     totalCukup,
     totalPerluBimbingan,
+    kktpMinTuntas,
+    totalTercapai,
+    totalBelumTuntas,
+    persentaseTercapai: gradedCount > 0 ? Math.round((totalTercapai / gradedCount) * 100) : null,
   };
 }
 
@@ -2038,7 +2210,16 @@ export function computeERaporStudentSummary(
     statusRapor,
     missingComponents,
     canFinalize,
-    deskripsiRapor: trimmedDesc || generateAutoDeskripsiRapor(nilaiItem.nilaiFormatif || {}, tpList, nilaiItem.nama),
+    deskripsiRapor:
+      trimmedDesc ||
+      generateAutoDeskripsiRapor(nilaiItem.nilaiFormatif || {}, tpList, nilaiItem.nama, {
+        bobotPolicy: bobot,
+        nilaiSTS: nilaiItem.nilaiSTS,
+        nilaiSAS: nilaiItem.nilaiSAS,
+        nilaiPraktik: nilaiItem.nilaiPraktik,
+        buktiAsesmenSubTP: nilaiItem.buktiAsesmenSubTP,
+        riwayatRemedial: nilaiItem.riwayatRemedial,
+      }),
     catatanGuru: nilaiItem.catatanGuru || '',
     kehadiran: {
       hadir,

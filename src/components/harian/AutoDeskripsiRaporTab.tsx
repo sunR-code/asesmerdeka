@@ -35,6 +35,7 @@ import {
   normalizeBobotKebijakan,
   type ERaporStudentSummary,
 } from '../../utils/kelasHarianStorage';
+import { computeDynamicKKTPBands } from '../../utils/learningMasteryEngine';
 import { ImportSiswaModal } from './ImportSiswaModal';
 import { SimulatedDataNoticeBanner } from './SimulatedDataNoticeBanner';
 
@@ -102,6 +103,7 @@ export const AutoDeskripsiRaporTab: React.FC<AutoDeskripsiRaporTabProps> = ({
     [kelasHarian.bobotNilai]
   );
   const kktpMinTuntas = activeBobot.kktpMinTuntas ?? 71;
+  const kktpBands = useMemo(() => computeDynamicKKTPBands(kktpMinTuntas), [kktpMinTuntas]);
 
   const siswaById = useMemo(() => {
     const map = new Map<string, SiswaItem>();
@@ -251,7 +253,15 @@ export const AutoDeskripsiRaporTab: React.FC<AutoDeskripsiRaporTabProps> = ({
       }
       return {
         ...item,
-        deskripsiRapor: generateAutoDeskripsiRapor(item.nilaiFormatif, tpList, item.nama),
+        deskripsiRapor: generateAutoDeskripsiRapor(item.nilaiFormatif, tpList, item.nama, {
+          bobotPolicy: activeBobot,
+          schoolProfile,
+          nilaiSTS: item.nilaiSTS,
+          nilaiSAS: item.nilaiSAS,
+          nilaiPraktik: item.nilaiPraktik,
+          buktiAsesmenSubTP: item.buktiAsesmenSubTP,
+          riwayatRemedial: item.riwayatRemedial,
+        }),
       };
     });
     onUpdateKelasHarian({ ...kelasHarian, daftarNilai: updatedNilai });
@@ -618,9 +628,11 @@ export const AutoDeskripsiRaporTab: React.FC<AutoDeskripsiRaporTabProps> = ({
                 const nilaiColor =
                   summary.nilaiAkhir === null
                     ? '#64748b'
-                    : summary.nilaiAkhir >= kktpMinTuntas
+                    : summary.nilaiAkhir >= kktpBands.minTuntas
                     ? '#15803d'
-                    : '#d97706';
+                    : summary.nilaiAkhir >= kktpBands.cukupMin
+                    ? '#a16207'
+                    : '#b91c1c';
 
                 return (
                   <tr
@@ -665,11 +677,20 @@ export const AutoDeskripsiRaporTab: React.FC<AutoDeskripsiRaporTabProps> = ({
                         style={{
                           fontSize: 11,
                           fontWeight: 700,
-                          color: summary.statusNilai === 'lengkap' ? '#1e293b' : '#94a3b8',
+                          color:
+                            summary.statusNilai === 'belum_dinilai'
+                              ? '#64748b'
+                              : summary.statusNilai === 'lengkap'
+                              ? '#1e293b'
+                              : '#a16207',
                           marginBottom: 4,
                         }}
                       >
-                        {summary.statusNilai === 'lengkap' ? summary.predikatKKTP : 'Nilai Belum Lengkap'}
+                        {summary.statusNilai === 'belum_dinilai'
+                          ? 'Belum Dinilai'
+                          : summary.statusNilai === 'lengkap'
+                          ? summary.predikatKKTP
+                          : `${summary.predikatKKTP} (Nilai Parsial)`}
                       </div>
                       <span
                         style={{

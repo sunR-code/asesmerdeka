@@ -216,7 +216,7 @@ export function syncKelasHarianWithClassRoster(
       nilaiSAS: null,
       nilaiPraktik: null,
       nilaiAkhir: null,
-      predikatKKTP: 'Perlu Bimbingan',
+      predikatKKTP: 'Belum Dinilai',
       statusNilai: 'belum_dinilai',
       statusRapor: 'belum_lengkap',
       deskripsiRapor: `Data penilaian untuk ${siswa.nama} belum diinput.`,

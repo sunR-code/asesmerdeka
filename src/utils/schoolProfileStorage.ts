@@ -69,6 +69,7 @@ export interface CustomTPItem {
     isEditedByGuru?: boolean;
   };
   estimasiMenitSesi?: number;
+  kktpMinTuntas?: number;
   statusReview?: TPReviewStatus;
   referensiCP?: CPReferenceMeta;
   analisisCPId?: string;
@@ -140,6 +141,7 @@ export interface SchoolProfile {
   kotaSekolah: string;
   semester: '1 (Ganjil)' | '2 (Genap)';
   tahunAjaran: string;
+  kktpMinTuntas?: number;
   tampilkanTandaTangan: boolean;
   pakaiFormatKopSekolah: boolean;
 }

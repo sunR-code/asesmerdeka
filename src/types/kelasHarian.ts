@@ -48,6 +48,7 @@ export interface JurnalMengajarItem {
 }
 
 export type PredikatKKTP =
+  | 'Belum Dinilai'
   | 'Sangat Baik'
   | 'Baik'
   | 'Cukup'
@@ -61,12 +62,92 @@ export type StatusFinalisasiRapor =
   | 'siap_diperiksa'
   | 'final';
 
+export type JenisBuktiAsesmen =
+  | 'tes'
+  | 'lkpd'
+  | 'praktik'
+  | 'proyek'
+  | 'observasi';
+
+export type SumberBuktiAsesmen =
+  | 'asesmen'
+  | 'lkpd'
+  | 'jurnal'
+  | 'praktik'
+  | 'input_guru';
+
+export type StatusKetercapaianBukti =
+  | 'Belum Dinilai'
+  | 'Perlu Bimbingan'
+  | 'Tercapai';
+
+export interface BuktiAsesmenSubTP {
+  id: string;
+  tpId: string;
+  tpKode?: string;
+  subTpId?: string;
+  subTpKode?: string;
+  jenisBukti: JenisBuktiAsesmen;
+  tanggal: string;
+  sumberBukti: SumberBuktiAsesmen;
+  asesmenId?: string;
+  rangkumanId?: string;
+  lkpdId?: string;
+  jurnalId?: string;
+  skor?: number | null;
+  skalaSkor?: number;
+  statusKetercapaian?: StatusKetercapaianBukti;
+  indikatorYangDiamati: string;
+  catatanGuru?: string;
+  catatanMiskonsepsi?: string;
+  updatedAt?: string;
+}
+
+export type JenisIntervensiRemedial =
+  | 'bimbingan_individu'
+  | 'kelompok_kecil'
+  | 'pengulangan_klasikal'
+  | 'penugasan_terbimbing'
+  | 'pendekatan_ulang';
+
+export type StatusTindakLanjutRemedial =
+  | 'direncanakan'
+  | 'berlangsung'
+  | 'selesai_perlu_reassessment'
+  | 'tuntas_setelah_remedial'
+  | 'belum_tuntas';
+
+export interface HasilPenilaianRemedial {
+  skor?: number | null;
+  skalaSkor?: number;
+  persentase?: number | null;
+  status?: StatusKetercapaianBukti;
+}
+
+export interface RiwayatRemedialItem {
+  id: string;
+  tpId: string;
+  tpKode?: string;
+  subTpIds?: string[];
+  attemptAwalId?: string;
+  tanggalIntervensi: string;
+  jenisIntervensi: JenisIntervensiRemedial;
+  materiPengulanganId?: string;
+  asesmenUlangId?: string;
+  hasilSebelum?: HasilPenilaianRemedial;
+  hasilSesudah?: HasilPenilaianRemedial;
+  statusTindakLanjut: StatusTindakLanjutRemedial;
+  catatanGuru?: string;
+  updatedAt?: string;
+}
+
 export interface BobotNilaiKebijakan {
   bobotFormatif: number;
   bobotSTS: number;
   bobotSAS: number;
   bobotPraktik?: number;
   kktpMinTuntas?: number;
+  ambangKelasTindakLanjutPersen?: number;
 }
 
 export interface NilaiSiswaItem {
@@ -85,6 +166,8 @@ export interface NilaiSiswaItem {
   catatanGuru?: string;
   statusRapor?: StatusFinalisasiRapor;
   finalizedAt?: string;
+  buktiAsesmenSubTP?: BuktiAsesmenSubTP[];
+  riwayatRemedial?: RiwayatRemedialItem[];
 }
 
 export type KelasHarianDataSource =

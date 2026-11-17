@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
+  BarChart3,
+  ClipboardList,
   Download,
   Printer,
   Sparkles,
@@ -9,6 +11,7 @@ import {
 import type { SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
 import type {
   BobotNilaiKebijakan,
+  BuktiAsesmenSubTP,
   KelasHarianData,
   SiswaItem,
   StatusFinalisasiRapor,
@@ -33,8 +36,14 @@ import {
   getActiveFormatifScores,
   setFormatifScoreForTP,
 } from '../../utils/kelasHarianStorage';
+import {
+  analyzeClassLearningMastery,
+  computeDynamicKKTPBands,
+  resolveEffectiveKKTPThreshold,
+} from '../../utils/learningMasteryEngine';
 import { ImportSiswaModal } from './ImportSiswaModal';
 import { SimulatedDataNoticeBanner } from './SimulatedDataNoticeBanner';
+import { StudentEvidenceModal } from './StudentEvidenceModal';
 
 interface BukuNilaiTabProps {
   schoolProfile: SchoolProfile;
@@ -59,11 +68,19 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
 }) => {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [showBobotEditor, setShowBobotEditor] = useState(false);
+  const [showMasteryPanel, setShowMasteryPanel] = useState(false);
+  const [evidenceModalSiswaId, setEvidenceModalSiswaId] = useState<string | null>(null);
 
   const activeBobot = useMemo(
     () => normalizeBobotKebijakan(kelasHarian.bobotNilai || DEFAULT_BOBOT_NILAI),
     [kelasHarian.bobotNilai]
   );
+
+  const activeKKTPMin = useMemo(
+    () => resolveEffectiveKKTPThreshold({ bobotPolicy: activeBobot, schoolProfile }),
+    [activeBobot, schoolProfile]
+  );
+  const kktpBands = useMemo(() => computeDynamicKKTPBands(activeKKTPMin), [activeKKTPMin]);
 
   const [draftBobot, setDraftBobot] = useState<BobotNilaiKebijakan>(activeBobot);
 
@@ -118,7 +135,15 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
         activeBobot,
         item.nilaiPraktik
       );
-      const deskripsi = generateAutoDeskripsiRapor(newFormatif, tpList, item.nama);
+      const deskripsi = generateAutoDeskripsiRapor(newFormatif, tpList, item.nama, {
+        bobotPolicy: activeBobot,
+        schoolProfile,
+        nilaiSTS: item.nilaiSTS,
+        nilaiSAS: item.nilaiSAS,
+        nilaiPraktik: item.nilaiPraktik,
+        buktiAsesmenSubTP: item.buktiAsesmenSubTP,
+        riwayatRemedial: item.riwayatRemedial,
+      });
 
       return {
         ...item,
@@ -166,7 +191,15 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
         activeBobot,
         newPraktik
       );
-      const deskripsi = generateAutoDeskripsiRapor(item.nilaiFormatif, tpList, item.nama);
+      const deskripsi = generateAutoDeskripsiRapor(item.nilaiFormatif, tpList, item.nama, {
+        bobotPolicy: activeBobot,
+        schoolProfile,
+        nilaiSTS: newSTS,
+        nilaiSAS: newSAS,
+        nilaiPraktik: newPraktik,
+        buktiAsesmenSubTP: item.buktiAsesmenSubTP,
+        riwayatRemedial: item.riwayatRemedial,
+      });
 
       return {
         ...item,
@@ -223,6 +256,18 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
               : 'draf'
             : 'belum_lengkap'
         ) as StatusFinalisasiRapor,
+        deskripsiRapor:
+          item.statusRapor === 'final'
+            ? item.deskripsiRapor
+            : generateAutoDeskripsiRapor(item.nilaiFormatif, tpList, item.nama, {
+                bobotPolicy: draftBobot,
+                schoolProfile,
+                nilaiSTS: item.nilaiSTS,
+                nilaiSAS: item.nilaiSAS,
+                nilaiPraktik: item.nilaiPraktik,
+                buktiAsesmenSubTP: item.buktiAsesmenSubTP,
+                riwayatRemedial: item.riwayatRemedial,
+              }),
       };
     });
 
@@ -232,7 +277,45 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
       daftarNilai: recalculated,
     });
     setShowBobotEditor(false);
-    onToast('Kebijakan bobot nilai diperbarui & seluruh nilai akhir dihitung ulang.');
+    onToast('Kebijakan bobot & KKTP diperbarui; seluruh status ketercapaian dihitung ulang tanpa mengubah nilai mentah.');
+  };
+
+  const handleAddEvidence = (siswaId: string, entry: BuktiAsesmenSubTP) => {
+    const updatedNilai = kelasHarian.daftarNilai.map((item) => {
+      if (item.siswaId !== siswaId) return item;
+      const nextEvidences = [...(item.buktiAsesmenSubTP || []), entry];
+      return {
+        ...item,
+        buktiAsesmenSubTP: nextEvidences,
+        deskripsiRapor:
+          item.statusRapor === 'final'
+            ? item.deskripsiRapor
+            : generateAutoDeskripsiRapor(item.nilaiFormatif, tpList, item.nama, {
+                bobotPolicy: activeBobot,
+                schoolProfile,
+                nilaiSTS: item.nilaiSTS,
+                nilaiSAS: item.nilaiSAS,
+                nilaiPraktik: item.nilaiPraktik,
+                buktiAsesmenSubTP: nextEvidences,
+                riwayatRemedial: item.riwayatRemedial,
+              }),
+      };
+    });
+    onUpdateKelasHarian({ ...kelasHarian, daftarNilai: updatedNilai });
+    onToast('Bukti asesmen TP/Sub-TP disimpan.');
+  };
+
+  const handleRemoveEvidence = (siswaId: string, evidenceId: string) => {
+    const updatedNilai = kelasHarian.daftarNilai.map((item) => {
+      if (item.siswaId !== siswaId) return item;
+      const nextEvidences = (item.buktiAsesmenSubTP || []).filter((e) => e.id !== evidenceId);
+      return {
+        ...item,
+        buktiAsesmenSubTP: nextEvidences,
+      };
+    });
+    onUpdateKelasHarian({ ...kelasHarian, daftarNilai: updatedNilai });
+    onToast('Bukti asesmen dihapus.');
   };
 
   const isSimulationDataset = isKelasHarianSimulated(kelasHarian);
@@ -298,6 +381,22 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
     [activeDaftarNilai, tpList, activeBobot]
   );
 
+  const masteryReport = useMemo(
+    () =>
+      analyzeClassLearningMastery({
+        daftarNilai: activeDaftarNilai,
+        tpList,
+        bobotPolicy: activeBobot,
+        schoolProfile,
+      }),
+    [activeDaftarNilai, tpList, activeBobot, schoolProfile]
+  );
+
+  const activeEvidenceStudent = useMemo(
+    () => activeDaftarNilai.find((n) => n.siswaId === evidenceModalSiswaId) || null,
+    [activeDaftarNilai, evidenceModalSiswaId]
+  );
+
   const hasPraktik = (activeBobot.bobotPraktik ?? 0) > 0;
 
   return (
@@ -320,7 +419,8 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
           <p className="tabular-nums" style={{ fontSize: 13, color: '#64748b', margin: '3px 0 0' }}>
             Kelas {schoolProfile.rombelAktif} · Bobot: Formatif {activeBobot.bobotFormatif}% · STS{' '}
             {activeBobot.bobotSTS}% · SAS {activeBobot.bobotSAS}%
-            {hasPraktik ? ` · Praktik ${activeBobot.bobotPraktik}%` : ''}
+            {hasPraktik ? ` · Praktik ${activeBobot.bobotPraktik}%` : ''} ·{' '}
+            <strong>KKTP ≥ {kktpBands.minTuntas}</strong>
           </p>
         </div>
 
@@ -330,9 +430,19 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
             onClick={() => setShowBobotEditor((v) => !v)}
             className="btn btn-sm btn-outline"
             aria-expanded={showBobotEditor}
-            title="Atur proporsi bobot Formatif, STS, SAS, dan Praktik"
+            title="Atur proporsi bobot nilai dan ambang KKTP"
           >
-            <SlidersHorizontal size={13} aria-hidden="true" /> Atur Bobot
+            <SlidersHorizontal size={13} aria-hidden="true" /> Atur Bobot &amp; KKTP
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowMasteryPanel((v) => !v)}
+            className={`btn btn-sm ${showMasteryPanel ? 'btn-primary' : 'btn-outline'}`}
+            aria-expanded={showMasteryPanel}
+            title="Lihat analisis ketercapaian per TP/Sub-TP dan rekomendasi tindak lanjut"
+          >
+            <BarChart3 size={13} aria-hidden="true" /> Analisis TP
           </button>
 
           <button
@@ -486,6 +596,53 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
               style={{ width: 88, padding: '5px 8px', fontSize: 13 }}
             />
           </div>
+          <div style={{ minWidth: 108 }}>
+            <label
+              htmlFor="kktp-min-tuntas-input"
+              style={{ display: 'block', fontSize: 11.5, fontWeight: 600, marginBottom: 3, color: '#1d4ed8' }}
+            >
+              KKTP Min. Tuntas
+            </label>
+            <input
+              id="kktp-min-tuntas-input"
+              type="number"
+              min={1}
+              max={100}
+              className="form-input"
+              value={draftBobot.kktpMinTuntas ?? 71}
+              onChange={(e) =>
+                setDraftBobot({
+                  ...draftBobot,
+                  kktpMinTuntas: Math.min(100, Math.max(1, Number(e.target.value) || 71)),
+                })
+              }
+              style={{ width: 96, padding: '5px 8px', fontSize: 13 }}
+            />
+          </div>
+          <div style={{ minWidth: 136 }}>
+            <label
+              htmlFor="ambang-klasikal-input"
+              style={{ display: 'block', fontSize: 11.5, fontWeight: 600, marginBottom: 3, color: '#475569' }}
+            >
+              Ambang Klasikal (%)
+            </label>
+            <input
+              id="ambang-klasikal-input"
+              type="number"
+              min={1}
+              max={100}
+              className="form-input"
+              title="Heuristik produk yang dapat disesuaikan guru untuk menyarankan penguatan klasikal"
+              value={draftBobot.ambangKelasTindakLanjutPersen ?? 30}
+              onChange={(e) =>
+                setDraftBobot({
+                  ...draftBobot,
+                  ambangKelasTindakLanjutPersen: Math.min(100, Math.max(1, Number(e.target.value) || 30)),
+                })
+              }
+              style={{ width: 108, padding: '5px 8px', fontSize: 13 }}
+            />
+          </div>
 
           <div
             style={{
@@ -495,12 +652,12 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
               paddingBottom: 6,
             }}
           >
-            Total: {bobotCheck.total}% {bobotCheck.valid ? '(Valid)' : '(Harus 100%)'}
+            Total: {bobotCheck.total}% {bobotCheck.valid ? '(Valid)' : bobotCheck.message || '(Harus 100%)'}
           </div>
 
           <div style={{ display: 'flex', gap: 6 }}>
             <button type="submit" disabled={!bobotCheck.valid} className="btn btn-sm btn-primary">
-              Simpan Bobot
+              Simpan Bobot &amp; KKTP
             </button>
             <button
               type="button"
@@ -551,20 +708,50 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
         className="tabular-nums"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
           gap: 8,
           marginBottom: 14,
         }}
       >
         {[
-          { label: 'Rata-rata kelas', val: summary.avgKelas !== null ? summary.avgKelas : '—', dot: '#2563eb' },
-          { label: 'Sangat Baik (86–100)', val: `${summary.totalSangatBaik} siswa`, dot: '#16a34a' },
-          { label: 'Baik (71–85)', val: `${summary.totalBaik} siswa`, dot: '#0284c7' },
-          { label: 'Cukup (61–70)', val: `${summary.totalCukup} siswa`, dot: '#d97706' },
-          { label: 'Perlu Bimbingan (<= 60)', val: `${summary.totalPerluBimbingan} siswa`, dot: '#dc2626' },
-          ...(summary.belumDinilaiCount > 0
-            ? [{ label: 'Belum Dinilai', val: `${summary.belumDinilaiCount} siswa`, dot: '#94a3b8' }]
-            : []),
+          {
+            label: `Rata-rata (${summary.gradedCount} dinilai)`,
+            val: summary.avgKelas !== null ? summary.avgKelas : '—',
+            dot: '#2563eb',
+          },
+          {
+            label: `Tercapai (≥ ${kktpBands.minTuntas})`,
+            val:
+              summary.gradedCount > 0
+                ? `${summary.totalTercapai}/${summary.gradedCount} (${summary.persentaseTercapai ?? 0}%)`
+                : '0/0',
+            dot: '#16a34a',
+          },
+          {
+            label: `Sangat Baik (${kktpBands.sangatBaikMin}–100)`,
+            val: `${summary.totalSangatBaik} siswa`,
+            dot: '#15803d',
+          },
+          {
+            label: `Baik (${kktpBands.minTuntas}–${Math.max(kktpBands.minTuntas, kktpBands.sangatBaikMin - 1)})`,
+            val: `${summary.totalBaik} siswa`,
+            dot: '#0284c7',
+          },
+          {
+            label: `Cukup (${kktpBands.cukupMin}–${Math.max(kktpBands.cukupMin, kktpBands.minTuntas - 1)})`,
+            val: `${summary.totalCukup} siswa`,
+            dot: '#d97706',
+          },
+          {
+            label: `Perlu Bimbingan (< ${kktpBands.cukupMin})`,
+            val: `${summary.totalPerluBimbingan} siswa`,
+            dot: '#dc2626',
+          },
+          {
+            label: 'Belum Dinilai',
+            val: `${summary.belumDinilaiCount} siswa`,
+            dot: '#64748b',
+          },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -583,6 +770,110 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
           </div>
         ))}
       </div>
+
+      {/* Analisis Ketercapaian Per TP & Rekomendasi Tindak Lanjut */}
+      {showMasteryPanel && (
+        <div
+          className="no-print"
+          style={{
+            background: '#f8fafc',
+            border: '1px solid #cbd5e1',
+            borderRadius: 10,
+            padding: '12px 14px',
+            marginBottom: 14,
+            fontSize: 12.5,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+            <strong style={{ color: '#0f172a', fontSize: 13.5 }}>
+              Ringkasan Ketercapaian Per TP &amp; Rekomendasi Tindak Lanjut
+            </strong>
+            <span style={{ fontSize: 11.5, color: '#64748b' }}>
+              Denominator persentase hanya menghitung siswa yang sudah memiliki bukti penilaian valid (ambang heuristik produk: {masteryReport.ambangHeuristikPersen}%, dapat disesuaikan guru)
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {masteryReport.tpSummaries.map((tpSum) => {
+              const recTone =
+                tpSum.rekomendasi.kind === 'belum_perlu_tindak_lanjut'
+                  ? { bg: '#dcfce7', fg: '#15803d', border: '#86efac' }
+                  : tpSum.rekomendasi.kind === 'belum_dapat_ditentukan'
+                  ? { bg: '#f1f5f9', fg: '#475569', border: '#cbd5e1' }
+                  : tpSum.rekomendasi.kind === 'kelas_keseluruhan'
+                  ? { bg: '#fee2e2', fg: '#b91c1c', border: '#fca5a5' }
+                  : { bg: '#fffbeb', fg: '#b45309', border: '#fcd34d' };
+
+              return (
+                <div
+                  key={tpSum.tpId}
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 8,
+                    padding: '10px 12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+                    <div style={{ fontWeight: 700, color: '#1e3a8a' }}>
+                      TP {tpSum.tpKode} — {tpSum.materiPokok} (KKTP ≥ {tpSum.thresholdKKTP})
+                    </div>
+                    <span
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 99,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        background: recTone.bg,
+                        color: recTone.fg,
+                        border: `1px solid ${recTone.border}`,
+                      }}
+                    >
+                      {tpSum.rekomendasi.label}
+                    </span>
+                  </div>
+
+                  <div className="tabular-nums" style={{ fontSize: 12, color: '#334155', marginBottom: 4 }}>
+                    Dinilai: <strong>{tpSum.dinilaiCount}/{tpSum.totalSiswa}</strong> · Tercapai:{' '}
+                    <strong style={{ color: '#15803d' }}>{tpSum.tercapaiCount}</strong> · Perlu Bimbingan:{' '}
+                    <strong style={{ color: '#b45309' }}>{tpSum.perluBimbinganCount}</strong> · Belum Dinilai:{' '}
+                    <strong>{tpSum.belumDinilaiCount}</strong> · Ketuntasan:{' '}
+                    <strong>{tpSum.persentaseTercapai !== null ? `${tpSum.persentaseTercapai}%` : '—'}</strong>
+                  </div>
+
+                  <div style={{ fontSize: 11.5, color: '#475569' }}>
+                    {tpSum.rekomendasi.alasan} ({tpSum.rekomendasi.dasarData})
+                  </div>
+
+                  {tpSum.hasSpecificSubTPEvidence ? (
+                    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {tpSum.subTpSummaries.map((sub) => (
+                        <span
+                          key={sub.subTpId}
+                          style={{
+                            fontSize: 11,
+                            padding: '2px 7px',
+                            borderRadius: 6,
+                            background: '#f8fafc',
+                            border: '1px solid #cbd5e1',
+                            color: '#334155',
+                          }}
+                        >
+                          Sub-TP {sub.subTpKode}: {sub.dinilaiCount > 0 ? `${sub.tercapaiCount}/${sub.dinilaiCount} tuntas` : 'Bukti belum cukup'}
+                        </span>
+                      ))}
+                    </div>
+                  ) : tpSum.subTpSummaries.length > 0 ? (
+                    <div style={{ marginTop: 4, fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
+                      Hanya tersedia capaian tingkat TP; rincian Sub-TP belum memiliki bukti spesifik.
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Tabel Nilai Lengkap */}
       <div className="ws-table-wrap">
@@ -653,6 +944,15 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
                   {tpList.map((tp) => {
                     const score = getFormatifScoreForTP(item.nilaiFormatif, tp);
                     const hasScore = typeof score === 'number' && !Number.isNaN(score);
+                    const tpThresh = resolveEffectiveKKTPThreshold({ tp, bobotPolicy: activeBobot, schoolProfile });
+                    const tpBands = computeDynamicKKTPBands(tpThresh);
+                    const cellColor = !hasScore
+                      ? '#64748b'
+                      : score >= tpBands.minTuntas
+                      ? '#15803d'
+                      : score >= tpBands.cukupMin
+                      ? '#a16207'
+                      : '#b91c1c';
                     return (
                       <td key={tp.id || tp.kode} style={{ padding: '4px 2px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
                         <input
@@ -671,7 +971,7 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
                             borderRadius: 4,
                             fontSize: 12,
                             fontWeight: 700,
-                            color: !hasScore ? '#64748b' : score >= 71 ? '#15803d' : '#b91c1c',
+                            color: cellColor,
                           }}
                         />
                       </td>
@@ -759,13 +1059,17 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
                       fontWeight: 800,
                       background: isBlankStudent
                         ? '#f8fafc'
-                        : displayNA >= 71
+                        : computed.predikat === 'Sangat Baik' || computed.predikat === 'Baik'
                         ? '#f0fdf4'
+                        : computed.predikat === 'Cukup'
+                        ? '#fef9c3'
                         : '#fee2e2',
                       color: isBlankStudent
                         ? '#64748b'
-                        : displayNA >= 71
+                        : computed.predikat === 'Sangat Baik' || computed.predikat === 'Baik'
                         ? '#15803d'
+                        : computed.predikat === 'Cukup'
+                        ? '#a16207'
                         : '#b91c1c',
                       fontSize: 13,
                     }}
@@ -776,9 +1080,9 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
                     )}
                   </td>
 
-                  {/* Predikat KKTP Badge */}
+                  {/* Predikat KKTP Badge & Akses Rincian Bukti */}
                   <td style={{ padding: '4px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                    {isBlankStudent ? (
+                    {isBlankStudent || computed.predikat === 'Belum Dinilai' ? (
                       <span
                         style={{
                           display: 'inline-block',
@@ -821,6 +1125,28 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
                         {computed.predikat}
                       </span>
                     )}
+                    <div className="no-print" style={{ marginTop: 3 }}>
+                      <button
+                        type="button"
+                        onClick={() => setEvidenceModalSiswaId(item.siswaId)}
+                        aria-label={`Lihat bukti asesmen ${item.nama}`}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: 5,
+                          padding: '1px 6px',
+                          fontSize: 10.5,
+                          color: '#1d4ed8',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
+                        }}
+                      >
+                        <ClipboardList size={10} aria-hidden="true" />
+                        Bukti ({item.buktiAsesmenSubTP?.length || 0})
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -828,7 +1154,8 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
           </tbody>
         </table>
         <div style={{ padding: '9px 12px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: 12, color: '#64748b' }}>
-          <strong style={{ color: '#334155' }}>Keterangan KKTP (Standar Terpadu):</strong> 86–100 (Sangat Baik) · 71–85 (Baik) · 61–70 (Cukup) · 0–60 (Perlu Bimbingan). Sel kosong (<code>-</code>) menandakan belum dinilai dan berbeda dari skor <code>0</code>.
+          <strong style={{ color: '#334155' }}>Keterangan KKTP Dinamis (Min. Tuntas {kktpBands.minTuntas}):</strong>{' '}
+          {kktpBands.sangatBaikMin}–100 (Sangat Baik) · {kktpBands.minTuntas}–{Math.max(kktpBands.minTuntas, kktpBands.sangatBaikMin - 1)} (Baik) · {kktpBands.cukupMin}–{Math.max(kktpBands.cukupMin, kktpBands.minTuntas - 1)} (Cukup) · 0–{Math.max(0, kktpBands.cukupMin - 1)} (Perlu Bimbingan). Sel kosong (<code>-</code>) berstatus <strong>Belum Dinilai</strong> dan berbeda dari skor <code>0</code>.
         </div>
       </div>
 
@@ -869,6 +1196,18 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
         currentCount={kelasHarian.daftarSiswa.length}
         rombelName={schoolProfile.rombelAktif}
         existingStudents={kelasHarian.daftarSiswa}
+      />
+
+      {/* Modal Bukti Asesmen & Rincian Ketercapaian TP/Sub-TP */}
+      <StudentEvidenceModal
+        isOpen={Boolean(activeEvidenceStudent)}
+        siswaNilai={activeEvidenceStudent}
+        tpList={tpList}
+        bobotPolicy={activeBobot}
+        schoolProfile={schoolProfile}
+        onAddEvidence={handleAddEvidence}
+        onRemoveEvidence={handleRemoveEvidence}
+        onClose={() => setEvidenceModalSiswaId(null)}
       />
     </div>
   );
