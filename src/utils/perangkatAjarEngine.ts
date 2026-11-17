@@ -615,9 +615,11 @@ export function buildSmartProta(
     activeSemesterTpList
   );
 
-  const sem1TopicKeys = new Set(
-    sem1Resolved.list.map((tp) => normalizeProtaTopicKey(tp.materiPokok)).filter(Boolean)
-  );
+  const sem1ByTopicKey = new Map<string, CustomTPItem>();
+  for (const tp of sem1Resolved.list) {
+    const norm = normalizeProtaTopicKey(tp.materiPokok);
+    if (norm && !sem1ByTopicKey.has(norm)) sem1ByTopicKey.set(norm, tp);
+  }
 
   const itemsSemester1: ProtaItem[] = sem1Resolved.list.map((tp, idx) => ({
     no: idx + 1,
@@ -632,16 +634,33 @@ export function buildSmartProta(
     keterangan: 'Tuntas Semester Ganjil',
   }));
 
-  let hasSpiralTopic = false;
+  let hasDocumentedSpiralTopic = false;
+  let hasUnverifiedCloneTopic = false;
   const itemsSemester2: ProtaItem[] = sem2Resolved.list.map((tp, idx) => {
     const normTopic = normalizeProtaTopicKey(tp.materiPokok);
-    const isSpiralContinuation = normTopic !== '' && sem1TopicKeys.has(normTopic);
-    if (isSpiralContinuation) {
-      hasSpiralTopic = true;
+    const matchingSem1 = normTopic ? sem1ByTopicKey.get(normTopic) : undefined;
+    const hasExplicitSpiralRelation = Boolean(
+      tp.spiralRelation?.newCompetency?.trim() && tp.spiralRelation?.pedagogicalReason?.trim()
+    );
+    const hasDistinctGoal =
+      matchingSem1 &&
+      normalizeProtaTopicKey(tp.tujuanPembelajaran) !== normalizeProtaTopicKey(matchingSem1.tujuanPembelajaran);
+
+    let progresSpiral: string | undefined;
+    let keterangan = 'Tuntas Semester Genap';
+
+    if (hasExplicitSpiralRelation && tp.spiralRelation) {
+      hasDocumentedSpiralTopic = true;
+      progresSpiral = `Spiral terdokumentasi: ${tp.spiralRelation.newCompetency} (${tp.spiralRelation.pedagogicalReason})`;
+      keterangan = 'Pendalaman Spiral Terdokumentasi';
+    } else if (matchingSem1 && hasDistinctGoal) {
+      hasDocumentedSpiralTopic = true;
+      progresSpiral = `Kelanjutan konsep Sem 1 dengan target kompetensi baru: ${tp.tujuanPembelajaran}`;
+      keterangan = 'Pendalaman Spiral (Lanjutan Sem 1)';
+    } else if (matchingSem1 && !hasDistinctGoal) {
+      hasUnverifiedCloneTopic = true;
+      keterangan = 'Perlu Tinjauan Guru (Serupa Sem 1)';
     }
-    const progresSpiral = isSpiralContinuation
-      ? 'Pembelajaran spiral: pendalaman konsep, variasi kasus kompleks, dan transfer lintas konteks dari Semester 1'
-      : undefined;
 
     return {
       no: idx + 1,
@@ -654,9 +673,7 @@ export function buildSmartProta(
       mingguMulai: tp.mingguMulai,
       mingguSelesai: tp.mingguSelesai,
       progresSpiral,
-      keterangan: isSpiralContinuation
-        ? 'Pendalaman Spiral (Lanjutan Sem 1)'
-        : 'Tuntas Semester Genap',
+      keterangan,
     };
   });
 
@@ -688,9 +705,14 @@ export function buildSmartProta(
       `Semester 2 kelebihan alokasi TP (${totalJPSemester2} JP vs kapasitas ${kapasitasJPSemester2} JP pada ${mingguEfektifSemester2} minggu efektif).`
     );
   }
-  if (hasSpiralTopic) {
+  if (hasDocumentedSpiralTopic) {
     peringatanProta.push(
-      'Beberapa lingkup materi muncul kembali di Semester 2 sebagai kelanjutan spiral (pendalaman kompetensi bertahap), bukan duplikasi materi identik.'
+      'Terdapat materi Semester 2 yang terhubung secara spiral terdokumentasi dengan pengayaan kompetensi baru dari Semester 1.'
+    );
+  }
+  if (hasUnverifiedCloneTopic) {
+    peringatanProta.push(
+      'Perlu ditinjau: ada materi Semester 2 yang identik dengan Semester 1 tanpa penjelasan peningkatan kompetensi.'
     );
   }
 

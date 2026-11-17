@@ -191,7 +191,7 @@ describe('Task 4 — Prota & Promes Integrity, School Calendar & JP Config', () 
     expect(protaWhenSem2Active.totalJPTahunan).toBe(45);
   });
 
-  it('4-5. Topik spiral yang sama antarsemester dipertahankan secara sah dengan penjelasan progres kompetensi + total JP & minggu efektif tahunan akurat', () => {
+  it('4-5. Semester 2 progresif (tidak menduplikasi Sem 1), sementara topik spiral terdokumentasi menampilkan progres kompetensi + total JP & minggu efektif tahunan akurat', () => {
     const profile = makeTestProfile({ semester: '1 (Ganjil)' });
     const sem1TP = getSemesterCurriculumPlan('Matematika', 'Fase D (Kelas 7-9 SMP)', '8', '1 (Ganjil)', {
       schoolId: profile.schoolId,
@@ -202,12 +202,37 @@ describe('Task 4 — Prota & Promes Integrity, School Calendar & JP Config', () 
       tahunAjaran: profile.tahunAjaran,
     }).tpList;
 
-    const prota = buildSmartProta(profile, sem1TP, { tpListSem1: sem1TP, tpListSem2: sem2TP });
+    // Task 8.3C: rencana default Sem 2 tidak boleh sekadar mengulang topik Sem 1 dengan akhiran spiral palsu
+    const sem1Titles = new Set(sem1TP.map((t) => t.materiPokok.toLowerCase().trim()));
+    expect(sem2TP.some((t) => !sem1Titles.has(t.materiPokok.toLowerCase().trim()))).toBe(true);
 
-    // Topik yang sama di Sem 2 tetap dipertahankan tanpa mengarang topik fiktif, namun dijelaskan progres spiralnya
+    // Uji skenario topik spiral yang SAH dan terdokumentasi di Semester 2 (berisi progres kompetensi nyata)
+    const documentedSpiralSem2: CustomTPItem[] = [
+      {
+        ...sem2TP[0],
+        materiPokok: sem1TP[0].materiPokok,
+        tujuanPembelajaran:
+          'Mengaplikasikan SPLDV bersama grafik fungsi linear untuk memodelkan titik impas dan optimasi multi-kendala.',
+        spiralRelation: {
+          previousTopicId: sem1TP[0].id,
+          reactivatedConcept: 'Pemodelan dua variabel SPLDV',
+          newCompetency: 'Integrasi titik potong grafik linear dengan interpretasi optimasi biaya',
+          depthDifference: 'Dari penyelesaian aljabar dasar menuju transfer lintas-konteks multi-kendala',
+          newContextOrApplication: 'Analisis titik impas dan pergeseran grafik fungsi',
+          pedagogicalReason: 'Konsep SPLDV Sem 1 diperluas ke pemodelan grafik fungsi di Sem 2.',
+        },
+      },
+      ...sem2TP.slice(1),
+    ];
+
+    const prota = buildSmartProta(profile, sem1TP, {
+      tpListSem1: sem1TP,
+      tpListSem2: documentedSpiralSem2,
+    });
+
     const spiralItems = prota.itemsSemester2.filter((it) => Boolean(it.progresSpiral));
     expect(spiralItems.length).toBeGreaterThanOrEqual(1);
-    expect(spiralItems[0].lingkupMateri).toBe(sem2TP[0].materiPokok);
+    expect(spiralItems[0].lingkupMateri).toBe(sem1TP[0].materiPokok);
     expect(spiralItems[0].keterangan).toMatch(/Spiral/i);
 
     expect(prota.totalJPTahunan).toBe(prota.totalJPSemester1 + prota.totalJPSemester2);

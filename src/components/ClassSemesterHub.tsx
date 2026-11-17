@@ -528,6 +528,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
                   onToggleReviewTP={handleToggleReviewTP}
                   onAddNewTP={handleAddNewTP}
                   onCreateTPFromAnalysis={handleCreateTPFromAnalysis}
+                  onUpdateTPList={handleBulkUpdateTPList}
                   onDeleteTP={handleDeleteTP}
                   onResetDefaultTP={handleResetDefaultTP}
                   onOpenModulAjar={onOpenModulAjar}

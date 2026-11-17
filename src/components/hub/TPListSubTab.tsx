@@ -13,11 +13,19 @@ import {
   Layers,
   ChevronDown,
   ChevronUp,
+  ArrowUp,
+  ArrowDown,
+  GitBranch,
 } from 'lucide-react';
 import type { CPReferenceMeta, SchoolProfile, CustomTPItem } from '../../utils/schoolProfileStorage';
 import { getSavedCPEntries, resolveCPStatusLabel, type SavedCPEntry } from '../../utils/cpStorage';
+import {
+  PROGRESSION_STAGE_LABELS,
+  TOPIC_SOURCE_KIND_LABELS,
+} from '../../data/kurikulumTopicBankTypes';
 import { workspaceAccordionTransition } from '../../utils/motionPresets';
 import { CPWorkspacePanel } from './CPWorkspacePanel';
+import { TopicBankBrowserPanel } from './TopicBankBrowserPanel';
 import { TPEditorForm } from './TPEditorForm';
 
 interface TPListSubTabProps {
@@ -37,6 +45,7 @@ interface TPListSubTabProps {
   onToggleReviewTP?: (tp: CustomTPItem) => void;
   onAddNewTP: () => void;
   onCreateTPFromAnalysis?: (newTP: CustomTPItem) => void;
+  onUpdateTPList?: (nextList: CustomTPItem[]) => void;
   onDeleteTP: (id: string, kode: string) => void;
   onResetDefaultTP: () => void;
   onOpenModulAjar: (tp: CustomTPItem, profile: SchoolProfile) => void;
@@ -67,6 +76,7 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
   onToggleReviewTP,
   onAddNewTP,
   onCreateTPFromAnalysis,
+  onUpdateTPList,
   onDeleteTP,
   onResetDefaultTP,
   onOpenModulAjar,
@@ -80,11 +90,33 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
   onToast,
 }) => {
   const [showCPDetail, setShowCPDetail] = useState(false);
+  const [showTopicBank, setShowTopicBank] = useState(false);
   const [activeGeneratingTPId, setActiveGeneratingTPId] = useState<string | null>(null);
   const [savedCPEntries, setSavedCPEntries] = useState<SavedCPEntry[]>(() =>
     getSavedCPEntries(schoolProfile, currentFase)
   );
   const isBusy = isGeneratingAssessment || isGeneratingRangkuman;
+
+  const handleAddTopicDraftAsTP = (newTP: CustomTPItem) => {
+    if (onUpdateTPList) {
+      onUpdateTPList([...tpList, newTP]);
+      if (onToast) {
+        onToast(`Topik "${newTP.materiPokok}" diturunkan ke daftar TP (${newTP.kode}) sebagai draf untuk ditinjau.`);
+      }
+    } else if (onCreateTPFromAnalysis) {
+      onCreateTPFromAnalysis(newTP);
+    }
+  };
+
+  const handleMoveTP = (index: number, delta: -1 | 1) => {
+    if (!onUpdateTPList) return;
+    const targetIdx = index + delta;
+    if (targetIdx < 0 || targetIdx >= tpList.length) return;
+    const next = [...tpList];
+    const [moved] = next.splice(index, 1);
+    next.splice(targetIdx, 0, moved);
+    onUpdateTPList(next);
+  };
 
   useEffect(() => {
     setSavedCPEntries(getSavedCPEntries(schoolProfile, currentFase));
@@ -131,6 +163,27 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
             >
               <span>{showCPDetail ? 'Tutup Panel CP & Analisis CP' : 'Kelola Sumber CP & Analisis CP'}</span>
               {showCPDetail ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTopicBank(!showTopicBank)}
+              aria-expanded={showTopicBank || tpList.length === 0}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#0f766e',
+                fontFamily: 'var(--font-family)',
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: 0,
+              }}
+            >
+              <span>{showTopicBank || tpList.length === 0 ? 'Tutup Bank Topik & Progresi' : 'Lihat Bank Topik & Progresi Semester'}</span>
+              {showTopicBank || tpList.length === 0 ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
             </button>
           </div>
         </div>
@@ -185,6 +238,20 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {(showTopicBank || tpList.length === 0) && (
+        <TopicBankBrowserPanel
+          schoolProfile={schoolProfile}
+          currentFase={currentFase}
+          tpList={tpList}
+          savedCPEntries={savedCPEntries}
+          onOpenCPPanel={() => setShowCPDetail(true)}
+          onAddNewTP={onAddNewTP}
+          onAddTopicDraftAsTP={handleAddTopicDraftAsTP}
+          onUpdateTPList={onUpdateTPList}
+          onToast={onToast}
+        />
+      )}
 
       {/* Daftar Tujuan Pembelajaran */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -305,6 +372,36 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                               : 'Perlu Review Guru'}
                           </button>
                         )}
+                        {tp.progressionStage && (
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 600,
+                              padding: '2px 7px',
+                              borderRadius: 99,
+                              background: '#eef2ff',
+                              color: '#3730a3',
+                              border: '1px solid #c7d2fe',
+                            }}
+                          >
+                            Tahap: {PROGRESSION_STAGE_LABELS[tp.progressionStage] || tp.progressionStage}
+                          </span>
+                        )}
+                        {tp.topicJenisKonten && (
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 600,
+                              padding: '2px 7px',
+                              borderRadius: 6,
+                              background: tp.topicJenisKonten === 'usulan_ai' ? '#faf5ff' : '#f1f5f9',
+                              color: tp.topicJenisKonten === 'usulan_ai' ? '#6d28d9' : '#475569',
+                              border: tp.topicJenisKonten === 'usulan_ai' ? '1px solid #ddd6fe' : '1px solid #e2e8f0',
+                            }}
+                          >
+                            {TOPIC_SOURCE_KIND_LABELS[tp.topicJenisKonten] || tp.topicJenisKonten}
+                          </span>
+                        )}
                       </div>
 
                       <div style={{ fontSize: 15.5, fontWeight: 700, color: '#172033', marginBottom: 3 }}>
@@ -355,6 +452,14 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                                 tp.referensiCP.terverifikasiResmi,
                                 tp.referensiCP.asalCP
                               )}
+                            </div>
+                          )}
+                          {tp.spiralRelation && (
+                            <div style={{ fontSize: 11.5, color: '#1d4ed8', background: '#eff6ff', padding: '5px 8px', borderRadius: 6, border: '1px solid #bfdbfe', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+                              <GitBranch size={12} style={{ marginTop: 2, flexShrink: 0 }} aria-hidden="true" />
+                              <span>
+                                <strong>Progresi Spiral Terdokumentasi:</strong> {tp.spiralRelation.newCompetency} — <em>{tp.spiralRelation.pedagogicalReason}</em>
+                              </span>
                             </div>
                           )}
                         </div>
@@ -459,6 +564,33 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
                       >
                         <Sliders size={12} aria-hidden="true" /> Atur Rangkuman
                       </button>
+
+                      {onUpdateTPList && tpList.length > 1 && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={index === 0}
+                            onClick={() => handleMoveTP(index, -1)}
+                            className="btn btn-sm btn-outline"
+                            style={{ fontSize: 12, padding: '5px 7px' }}
+                            title="Naikkan urutan materi"
+                            aria-label={`Naikkan urutan ${tp.kode}`}
+                          >
+                            <ArrowUp size={12} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={index === tpList.length - 1}
+                            onClick={() => handleMoveTP(index, 1)}
+                            className="btn btn-sm btn-outline"
+                            style={{ fontSize: 12, padding: '5px 7px' }}
+                            title="Turunkan urutan materi"
+                            aria-label={`Turunkan urutan ${tp.kode}`}
+                          >
+                            <ArrowDown size={12} aria-hidden="true" />
+                          </button>
+                        </>
+                      )}
 
                       <button
                         type="button"

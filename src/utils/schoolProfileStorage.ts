@@ -74,6 +74,30 @@ export interface CustomTPItem {
   referensiCP?: CPReferenceMeta;
   analisisCPId?: string;
   subTP?: SubTPItem[];
+  // Task 8.3C backward-compatible metadata asal topik & progresi semester
+  sourceTopicId?: string;
+  progressionStage?: 'pengenalan' | 'pengembangan' | 'penerapan' | 'integrasi' | 'pendalaman';
+  topicJenisKonten?: 'referensi_resmi' | 'contoh_panduan' | 'kurasi_sistem' | 'usulan_ai' | 'input_guru';
+  topicStatusVerifikasi?:
+    | 'terkurasi_dan_terverifikasi'
+    | 'berdasarkan_contoh_panduan'
+    | 'kurasi_internal'
+    | 'input_guru_dibutuhkan'
+    | 'belum_tersedia';
+  spiralRelation?: {
+    previousTopicId: string;
+    previousTopicTitle?: string;
+    reactivatedConcept: string;
+    newCompetency: string;
+    depthDifference: string;
+    newContextOrApplication: string;
+    pedagogicalReason: string;
+  };
+  legacyDuplicationReview?: {
+    isSuspectedLegacyClone: boolean;
+    status: 'perlu_ditinjau' | 'disetujui_guru';
+    reason: string;
+  };
 }
 
 export function computeTPContentHash(
