@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CheckCircle2, ClipboardList, Plus, Trash2, X } from 'lucide-react';
 import type {
   BobotNilaiKebijakan,
@@ -73,6 +74,17 @@ export const StudentEvidenceModal: React.FC<StudentEvidenceModalProps> = ({
     [tpList, selectedTpId]
   );
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !siswaNilai || !overview) return null;
 
   const subTpOptions = Array.isArray(activeTp?.subTP) ? activeTp!.subTP : [];
@@ -111,14 +123,32 @@ export const StudentEvidenceModal: React.FC<StudentEvidenceModalProps> = ({
     setManualStatus('Belum Dinilai');
   };
 
-  return (
+  const modalNode = (
     <div
       className="modal-overlay no-print"
       role="dialog"
       aria-modal="true"
       aria-labelledby="evidence-modal-title"
+      onClick={onClose}
+      style={{
+        zIndex: 1200,
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 12,
+      }}
     >
-      <div className="modal-content atp-modal-dialog" style={{ maxWidth: 680 }}>
+      <div
+        className="modal-content atp-modal-dialog"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxWidth: 680,
+          width: '100%',
+          maxHeight: '88dvh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
         <div
           style={{
             display: 'flex',
@@ -528,4 +558,6 @@ export const StudentEvidenceModal: React.FC<StudentEvidenceModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
 };
