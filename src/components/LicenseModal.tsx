@@ -267,6 +267,8 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const isUnlocked = isLicensed(quota.tier);
   const isPro = isUnlocked;
   const currentPlan = ONE_TIME_PLANS[selectedPlanId] || ONE_TIME_PLANS['pro_individu'];
+  const activePaymentUrl = getMayarPaymentLink(selectedPlanId);
+  const isOnlineCheckoutReady = Boolean(activePaymentUrl && !currentPlan.isComingSoon);
   const activeSeatInfo = isUnlocked && quota.licenseKey ? getLicenseSeatStatus(quota.licenseKey) : null;
   const lastLicenseStatus = !isUnlocked ? getLastLicenseStatusMetadata() : null;
   const tierName = getTierDisplayName(quota.tier);
@@ -290,8 +292,8 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
       });
     } else {
       setStatusMessage({
-        text: 'Tautan Payment Link Mayar.id belum diisi oleh Admin. Ketik "@admin" pada kolom Kode Lisensi di bawah untuk menempelkan URL Payment Link Mayar Anda.',
-        isError: true,
+        text: 'Pembayaran online otomatis belum diaktifkan pada rilis ini. Silakan gunakan aktivasi Kode Lisensi resmi pada kolom di bawah atau lanjutkan dalam Mode Pratinjau.',
+        isError: false,
       });
     }
   };
@@ -1627,13 +1629,13 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                   })}
                 </div>
 
-                {/* 2. Tombol Langsung ke Checkout Resmi Mayar.id */}
+                {/* 2. Tombol Langsung ke Checkout Resmi Mayar.id (hanya aktif jika payment link dikonfigurasi) */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <button
                     type="button"
                     onClick={handlePayViaMayar}
                     className="btn btn-primary"
-                    disabled={Boolean(currentPlan.isComingSoon)}
+                    disabled={!isOnlineCheckoutReady}
                     style={{
                       width: '100%',
                       padding: '13px 20px',
@@ -1641,16 +1643,26 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                       fontWeight: 800,
                       display: 'flex',
                       alignItems: 'center',
-                      opacity: currentPlan.isComingSoon ? 0.6 : 1,
-                      cursor: currentPlan.isComingSoon ? 'not-allowed' : 'pointer',
+                      opacity: isOnlineCheckoutReady ? 1 : 0.65,
+                      cursor: isOnlineCheckoutReady ? 'pointer' : 'not-allowed',
                       justifyContent: 'center',
                       gap: 8,
                     }}
                   >
-                    <ExternalLink size={17} /> Bayar Sekali {currentPlan.priceFormatted} via Payment Gateway (QRIS / Bank / E-Wallet) &rarr;
+                    {currentPlan.isComingSoon ? (
+                      'Paket Segera Hadir — Pilih Paket Guru Mandiri / Sekolah'
+                    ) : !activePaymentUrl ? (
+                      'Pembelian Online Otomatis Belum Aktif — Gunakan Kode Lisensi di Bawah'
+                    ) : (
+                      <>
+                        <ExternalLink size={17} /> Bayar Sekali {currentPlan.priceFormatted} via Payment Gateway (QRIS / Bank / E-Wallet) &rarr;
+                      </>
+                    )}
                   </button>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', textAlign: 'center' }}>
-                    Mendukung QRIS (Semua Bank & E-Wallet), BRI, Mandiri, BCA, BNI, GoPay, DANA, OVO & ShopeePay melalui Mayar Payment Gateway.
+                    {!activePaymentUrl && !currentPlan.isComingSoon
+                      ? 'Rilis awal menggunakan aktivasi Kode Lisensi Resmi / Mitra pada kolom di bawah atau akses Mode Pratinjau. Anda tidak diarahkan ke checkout yang belum aktif.'
+                      : 'Mendukung QRIS (Semua Bank & E-Wallet), BRI, Mandiri, BCA, BNI, GoPay, DANA, OVO & ShopeePay melalui Mayar Payment Gateway.'}
                   </div>
                 </div>
 
