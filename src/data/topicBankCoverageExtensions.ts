@@ -26,6 +26,9 @@ function ext(
     sumberDokumen?: string;
     urlReferensi?: string;
     tahunVersi?: string;
+    nomorHalamanAtauBagian?: string;
+    statusVerifikasiSumber?: CurriculumTopicEntry['statusVerifikasiSumber'];
+    jenisKonten?: CurriculumTopicEntry['jenisKonten'];
   }
 ): CurriculumTopicEntry {
   return makeTopicEntry({
@@ -51,8 +54,9 @@ function ext(
       'Kurasi Pedagogis AsesMerdeka — Merujuk SK Kepala BSKAP No. 046/H/KR/2025 & Panduan Mapel Kemendikdasmen',
     tahunVersi: opts?.tahunVersi || '2025/2026',
     urlReferensi: opts?.urlReferensi || 'https://kurikulum.kemendikdasmen.go.id/panduan-mapel',
-    statusVerifikasiSumber: 'kurasi_internal',
-    jenisKonten: 'kurasi_sistem',
+    nomorHalamanAtauBagian: opts?.nomorHalamanAtauBagian,
+    statusVerifikasiSumber: opts?.statusVerifikasiSumber || 'kurasi_internal',
+    jenisKonten: opts?.jenisKonten || 'kurasi_sistem',
   });
 }
 
@@ -1885,7 +1889,7 @@ export const EXTENSION_SUBJECT_TOPICS: CurriculumTopicEntry[] = [
     'Mengenali arsitektur bentuk lagu dan fungsi progresi akord dalam penyajian musikal.',
     ['Notasi & ansambel Fase D'],
     ['Bagan analisis bentuk lagu memetakan tiap seksi tepat bersama perubahan progresi akord dasar'],
-    '1 (Ganjil)', 'pengembangan', { suggestedGrade: '10', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025' }
+    '1 (Ganjil)', 'pengembangan', { suggestedGrade: '10', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025', nomorHalamanAtauBagian: 'Fase E — hlm. 13, 17–18, 73–76, 107–108, 146–162', statusVerifikasiSumber: 'berdasarkan_contoh_panduan', jenisKonten: 'contoh_panduan' }
   ),
   ext(
     'musik-fe-sma-s2-pertunjukan-lintas-budaya-e', 'Seni Musik', 'SMA/MA', 'Fase E', 'Berpikir Artistik & Berdampak',
@@ -1895,7 +1899,7 @@ export const EXTENSION_SUBJECT_TOPICS: CurriculumTopicEntry[] = [
     'Mengelola aspek teknis penyajian panggung agar pesan artistik musik tersampaikan jernih.',
     ['Aransemen lintas budaya Sem 2'],
     ['Pertunjukan menerapkan penataan balance suara baik dan catatan soundcheck terdokumentasi'],
-    '2 (Genap)', 'penerapan', { suggestedGrade: '10', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025' }
+    '2 (Genap)', 'penerapan', { suggestedGrade: '10', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025', nomorHalamanAtauBagian: 'Fase E — hlm. 13, 18, 78–80, 109–110', statusVerifikasiSumber: 'berdasarkan_contoh_panduan', jenisKonten: 'contoh_panduan' }
   ),
   ext(
     'musik-ff-sma-s1-musikologi-tradisi-kontemporer', 'Seni Musik', 'SMA/MA', 'Fase F', 'Mengalami & Merefleksikan',
@@ -1905,7 +1909,7 @@ export const EXTENSION_SUBJECT_TOPICS: CurriculumTopicEntry[] = [
     'Mengevaluasi dinamika pelestarian vs inovasi musik tradisi dalam lanskap budaya kontemporer.',
     ['Estetika eksperimen bunyi & kritik musik Fase E'],
     ['Esai kajian membandingkan fungsi musik tradisi asli dan wujud inovasi kontemporernya dengan bukti audio'],
-    '1 (Ganjil)', 'penerapan', { suggestedGrade: '11', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025' }
+    '1 (Ganjil)', 'penerapan', { suggestedGrade: '11', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025', nomorHalamanAtauBagian: 'Fase F — hlm. 14, 17–18, 84–85', statusVerifikasiSumber: 'berdasarkan_contoh_panduan', jenisKonten: 'contoh_panduan' }
   ),
   ext(
     'musik-ff-sma-s1-orkestrasi-aransemen-multi-instrumen', 'Seni Musik', 'SMA/MA', 'Fase F', 'Menciptakan & Berpikir Artistik',
@@ -1915,7 +1919,7 @@ export const EXTENSION_SUBJECT_TOPICS: CurriculumTopicEntry[] = [
     'Mengembangkan kecakapan menulis aransemen polifonis/homofonis berlapis yang playable dan musikal.',
     ['Harmoni lanjutan Sem 1'],
     ['Partitur mencantumkan tanda dinamika, tempo, serta rentang nada sesuai karakter instrumen'],
-    '1 (Ganjil)', 'integrasi', { prasyaratTopicIds: ['musik-ff-sma-s1-harmoni-lanjutan-musikologi'], relatedTopicIds: ['musik-ff-sma-s1-harmoni-lanjutan-musikologi'], suggestedGrade: '11', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025' }
+    '1 (Ganjil)', 'integrasi', { prasyaratTopicIds: ['musik-ff-sma-s1-harmoni-lanjutan-musikologi'], relatedTopicIds: ['musik-ff-sma-s1-harmoni-lanjutan-musikologi'], suggestedGrade: '11', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025', nomorHalamanAtauBagian: 'Fase F — hlm. 14, 18, 81–86', statusVerifikasiSumber: 'berdasarkan_contoh_panduan', jenisKonten: 'contoh_panduan' }
   ),
   ext(
     'musik-ff-sma-s2-produksi-rekaman-portofolio', 'Seni Musik', 'SMA/MA', 'Fase F', 'Berpikir Artistik & Menciptakan',
@@ -1925,7 +1929,7 @@ export const EXTENSION_SUBJECT_TOPICS: CurriculumTopicEntry[] = [
     'Menghasilkan rekaman dokumentasi karya bermutu baik yang siap menjadi portofolio pasca-SMA.',
     ['Aransemen multi-instrumen & produksi awal Fase E'],
     ['Master audio/video tidak distorsi (clipping), seimbang antarkanal, dan disertai kredit HAKI lengkap'],
-    '2 (Genap)', 'integrasi', { suggestedGrade: '12', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025' }
+    '2 (Genap)', 'integrasi', { suggestedGrade: '12', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025', nomorHalamanAtauBagian: 'Fase F — hlm. 14, 18, 83–87', statusVerifikasiSumber: 'berdasarkan_contoh_panduan', jenisKonten: 'contoh_panduan' }
   ),
   ext(
     'musik-ff-sma-s2-kurasi-resensi-estetika-akhir', 'Seni Musik', 'SMA/MA', 'Fase F', 'Merefleksikan & Berdampak',
@@ -1935,7 +1939,7 @@ export const EXTENSION_SUBJECT_TOPICS: CurriculumTopicEntry[] = [
     'Mengintegrasikan kemampuan berpikir estetis, kerja artistik, dan tanggung jawab sosial budaya.',
     ['Komposisi & produksi konser'],
     ['Program notes menjelaskan latar karya tepat dan laporan evaluasi konser berbasis data umpan balik audiens'],
-    '2 (Genap)', 'pendalaman', { prasyaratTopicIds: ['musik-ff-sma-s2-komposisi-manajemen-konser'], relatedTopicIds: ['musik-ff-sma-s2-komposisi-manajemen-konser'], suggestedGrade: '12', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025' }
+    '2 (Genap)', 'pendalaman', { prasyaratTopicIds: ['musik-ff-sma-s2-komposisi-manajemen-konser'], relatedTopicIds: ['musik-ff-sma-s2-komposisi-manajemen-konser'], suggestedGrade: '12', sumberDokumen: 'Contoh & Inspirasi Panduan Mata Pelajaran Seni Musik (Revisi 3, 13 September 2025 — Kemendikdasmen)', urlReferensi: 'https://kurikulum.kemendikdasmen.go.id/file/panduan/dokumen/19.%20Final%20Panduan%20Mata%20Pelajaran%20Seni%20Musik_13_09_2025_Revisi%203.pdf', tahunVersi: '2025', nomorHalamanAtauBagian: 'Fase F — hlm. 14, 17–18, 82–88', statusVerifikasiSumber: 'berdasarkan_contoh_panduan', jenisKonten: 'contoh_panduan' }
   ),
 
   // =====================================================================

@@ -5,12 +5,20 @@ import {
   getRichCurriculumTopics,
   lookupCuratedTopicBank,
   resolveNormalizedJenjang,
+  type CurriculumContextKind,
   type CurriculumTopicEntry,
+  type TopicDocumentSourceStatus,
+  type TopicJenjangCategory,
+  type TopicPedagogicalReviewStatus,
   type TopicSourceVerificationStatus,
 } from '../data/kurikulumTopicBank';
 import {
   getAvailableCPReferenceEntries,
+  isAgamaBudiPekertiSubject,
+  isKemenagSubject,
+  isKepercayaanSubject,
   resolveCPReferenceMetadata,
+  resolveDefaultCPRegulationPreset,
 } from '../data/kurikulumMerdekaCP';
 import { createImmutableDefaultTPId } from './storageIdentity';
 import { resolveDefaultSubjectJPConfig } from './jpConfigStorage';
@@ -25,16 +33,27 @@ export interface JenjangConfig {
   kelasList: { kelas: string; fase: JenjangFase }[];
   mapelUmum: string[];
   mapelMadrasah: string[];
+  mapelAgamaBudiPekerti: string[];
+  mapelKepercayaan: string[];
+  mapelSeniDanPilihan: string[];
+  mapelKejuruanSMK?: string[];
+  mapelKonsentrasiKeahlianSMK?: string[];
 }
 
-export const KURIKULUM_CATALOG: Record<JenjangKategori, {
-  id: JenjangKategori;
-  label: string;
-  subLabel: string;
-  kelasList: { kelas: string; fase: JenjangFase }[];
-  mapelUmum: string[];
-  mapelMadrasah: string[];
-}> = {
+export const STANDARD_AGAMA_BUDI_PEKERTI_LIST: string[] = [
+  'Pendidikan Agama Islam & Budi Pekerti',
+  'Pendidikan Agama Kristen dan Budi Pekerti',
+  'Pendidikan Agama Katolik dan Budi Pekerti',
+  'Pendidikan Agama Hindu dan Budi Pekerti',
+  'Pendidikan Agama Buddha dan Budi Pekerti',
+  'Pendidikan Agama Khonghucu dan Budi Pekerti',
+];
+
+export const STANDARD_KEPERCAYAAN_LIST: string[] = [
+  'Pendidikan Kepercayaan terhadap Tuhan Yang Maha Esa dan Budi Pekerti',
+];
+
+export const KURIKULUM_CATALOG: Record<JenjangKategori, JenjangConfig> = {
   'SD/MI': {
     id: 'SD/MI',
     label: 'SD / MI',
@@ -54,6 +73,7 @@ export const KURIKULUM_CATALOG: Record<JenjangKategori, {
       'Pendidikan Pancasila',
       'Bahasa Inggris',
       'SENI dan Budaya',
+      'Seni Musik',
       'PJOK',
       'Pendidikan Agama Islam & Budi Pekerti',
     ],
@@ -63,6 +83,15 @@ export const KURIKULUM_CATALOG: Record<JenjangKategori, {
       'Fikih (MI)',
       'Sejarah Kebudayaan Islam / SKI (MI)',
       'Bahasa Arab (MI)',
+    ],
+    mapelAgamaBudiPekerti: STANDARD_AGAMA_BUDI_PEKERTI_LIST,
+    mapelKepercayaan: STANDARD_KEPERCAYAAN_LIST,
+    mapelSeniDanPilihan: [
+      'Seni Musik',
+      'Seni Rupa',
+      'Seni Tari',
+      'Seni Teater',
+      'SENI dan Budaya',
     ],
   },
   'SMP/MTs': {
@@ -94,6 +123,15 @@ export const KURIKULUM_CATALOG: Record<JenjangKategori, {
       'Sejarah Kebudayaan Islam / SKI (MTs)',
       'Bahasa Arab (MTs)',
     ],
+    mapelAgamaBudiPekerti: STANDARD_AGAMA_BUDI_PEKERTI_LIST,
+    mapelKepercayaan: STANDARD_KEPERCAYAAN_LIST,
+    mapelSeniDanPilihan: [
+      'Seni Musik',
+      'Seni Rupa',
+      'Seni Tari',
+      'Seni Teater',
+      'Seni Budaya / Prakarya',
+    ],
   },
   'SMA/MA': {
     id: 'SMA/MA',
@@ -117,6 +155,7 @@ export const KURIKULUM_CATALOG: Record<JenjangKategori, {
       'Sejarah',
       'Pendidikan Pancasila',
       'Informatika',
+      'PJOK',
       'Seni Musik',
     ],
     mapelMadrasah: [
@@ -125,6 +164,14 @@ export const KURIKULUM_CATALOG: Record<JenjangKategori, {
       'Fikih / Ushul Fikih (MA)',
       'Sejarah Kebudayaan Islam / SKI (MA)',
       'Bahasa Arab (MA)',
+    ],
+    mapelAgamaBudiPekerti: STANDARD_AGAMA_BUDI_PEKERTI_LIST,
+    mapelKepercayaan: STANDARD_KEPERCAYAAN_LIST,
+    mapelSeniDanPilihan: [
+      'Seni Musik',
+      'Seni Rupa',
+      'Seni Tari',
+      'Seni Teater',
     ],
   },
   'SMK': {
@@ -145,13 +192,243 @@ export const KURIKULUM_CATALOG: Record<JenjangKategori, {
       'Produk Kreatif dan Kewirausahaan (PKK)',
       'Pendidikan Pancasila',
       'Sejarah',
+      'Seni Musik (Umum)',
     ],
     mapelMadrasah: [
       'Pendidikan Agama Islam & Budi Pekerti',
       'Bahasa Arab Kejuruan',
     ],
+    mapelAgamaBudiPekerti: STANDARD_AGAMA_BUDI_PEKERTI_LIST,
+    mapelKepercayaan: STANDARD_KEPERCAYAAN_LIST,
+    mapelSeniDanPilihan: [
+      'Seni Musik (Umum)',
+      'Seni Rupa (Umum)',
+      'Seni Tari (Umum)',
+      'Seni Teater (Umum)',
+    ],
+    mapelKejuruanSMK: [
+      'Matematika Kejuruan',
+      'Bahasa Inggris Profesi',
+      'Projek IPAS (SMK)',
+      'Informatika / Dasar Kejuruan',
+      'Produk Kreatif dan Kewirausahaan (PKK)',
+      'Bahasa Arab Kejuruan',
+    ],
+    mapelKonsentrasiKeahlianSMK: [
+      'Konsentrasi Keahlian Seni Musik / Pertunjukan Musik (SMK)',
+      'Konsentrasi Keahlian Produksi & Siaran Program Musik/Audio (SMK)',
+      'Konsentrasi Keahlian Teknik Komputer & Jaringan (SMK)',
+      'Konsentrasi Keahlian Rekayasa Perangkat Lunak (SMK)',
+      'Konsentrasi Keahlian Akuntansi & Keuangan Lembaga (SMK)',
+      'Konsentrasi Keahlian Desain Komunikasi Visual / DKV (SMK)',
+      'Konsentrasi Keahlian Kuliner / Perhotelan (SMK)',
+    ],
   },
 };
+
+export interface SelectableSubjectGroup {
+  id:
+    | 'umum'
+    | 'agama'
+    | 'kepercayaan'
+    | 'seni_pilihan'
+    | 'kejuruan_smk'
+    | 'konsentrasi_smk'
+    | 'madrasah_kemenag';
+  label: string;
+  regulationHint: string;
+  subjects: string[];
+}
+
+export function getSelectableSubjectGroups(
+  jenjang: JenjangKategori,
+  options?: { madrasahMode?: boolean }
+): SelectableSubjectGroup[] {
+  const cfg = KURIKULUM_CATALOG[jenjang] || KURIKULUM_CATALOG['SMP/MTs'];
+  if (options?.madrasahMode) {
+    return [
+      {
+        id: 'madrasah_kemenag',
+        label:
+          jenjang === 'SMK'
+            ? 'Rumpun Agama & Bahasa Arab Kejuruan'
+            : 'Rumpun PAI & Bahasa Arab Madrasah (KMA Kemenag)',
+        regulationHint:
+          jenjang === 'SMK'
+            ? 'Regulasi Agama BKPDM 020/2026 & Kejuruan SMK'
+            : 'Regulasi CP Kemenag (KMA) — terpisah dari sekolah umum',
+        subjects: cfg.mapelMadrasah,
+      },
+      {
+        id: 'umum',
+        label: 'Mata Pelajaran Umum Pendukung di Madrasah',
+        regulationHint: 'SK Kepala BSKAP No. 046/H/KR/2025',
+        subjects: cfg.mapelUmum.filter((m) => !isAgamaBudiPekertiSubject(m)),
+      },
+    ];
+  }
+
+  const seniSet = new Set(cfg.mapelSeniDanPilihan);
+  const agamaSet = new Set(cfg.mapelAgamaBudiPekerti);
+  const kepercayaanSet = new Set(cfg.mapelKepercayaan);
+  const kejuruanSet = new Set(cfg.mapelKejuruanSMK || []);
+
+  const umumCore = cfg.mapelUmum.filter(
+    (m) =>
+      !seniSet.has(m) &&
+      !agamaSet.has(m) &&
+      !kepercayaanSet.has(m) &&
+      !kejuruanSet.has(m)
+  );
+  if (jenjang === 'SMK' && !umumCore.includes('PJOK')) {
+    umumCore.push('PJOK');
+  }
+
+  const groups: SelectableSubjectGroup[] = [
+    {
+      id: 'umum',
+      label: 'Mata Pelajaran Umum',
+      regulationHint: 'SK Kepala BSKAP No. 046/H/KR/2025',
+      subjects: umumCore,
+    },
+    {
+      id: 'agama',
+      label: 'Pendidikan Agama dan Budi Pekerti (BKPDM No. 020/2026)',
+      regulationHint: 'Keputusan Kepala BKPDM No. 020 Tahun 2026',
+      subjects: cfg.mapelAgamaBudiPekerti,
+    },
+    {
+      id: 'kepercayaan',
+      label: 'Pendidikan Kepercayaan terhadap Tuhan YME (BKPDM No. 021/2026)',
+      regulationHint: 'Keputusan Kepala BKPDM No. 021 Tahun 2026 (tersendiri)',
+      subjects: cfg.mapelKepercayaan,
+    },
+    {
+      id: 'seni_pilihan',
+      label:
+        jenjang === 'SMK'
+          ? 'Seni & Mata Pelajaran Umum Pilihan (Bukan Konsentrasi SMK)'
+          : 'Mata Pelajaran Seni & Pilihan',
+      regulationHint: 'SK Kepala BSKAP No. 046/H/KR/2025 & Panduan Seni 2025',
+      subjects: cfg.mapelSeniDanPilihan,
+    },
+  ];
+
+  if (jenjang === 'SMK') {
+    if (cfg.mapelKejuruanSMK && cfg.mapelKejuruanSMK.length > 0) {
+      groups.push({
+        id: 'kejuruan_smk',
+        label: 'Mata Pelajaran Kelompok Kejuruan SMK',
+        regulationHint: 'SK BSKAP 046/H/KR/2025 & Spektrum Keahlian SMK',
+        subjects: cfg.mapelKejuruanSMK,
+      });
+    }
+    if (cfg.mapelKonsentrasiKeahlianSMK && cfg.mapelKonsentrasiKeahlianSMK.length > 0) {
+      groups.push({
+        id: 'konsentrasi_smk',
+        label: 'Konsentrasi Keahlian SMK (Wajib Input / Verifikasi CP Sekolah)',
+        regulationHint: 'CP Program/Konsentrasi Keahlian SMK',
+        subjects: cfg.mapelKonsentrasiKeahlianSMK,
+      });
+    }
+  }
+
+  return groups;
+}
+
+export function getAllSelectableSubjectsForJenjang(
+  jenjang: JenjangKategori,
+  options?: { includeMadrasah?: boolean }
+): string[] {
+  const regular = getSelectableSubjectGroups(jenjang, { madrasahMode: false }).flatMap(
+    (g) => g.subjects
+  );
+  const madrasah = options?.includeMadrasah
+    ? getSelectableSubjectGroups(jenjang, { madrasahMode: true }).flatMap((g) => g.subjects)
+    : [];
+  return Array.from(new Set([...regular, ...madrasah]));
+}
+
+export interface SubjectCatalogMetadata {
+  mataPelajaran: string;
+  jenjang: JenjangKategori;
+  konteksKurikulum: CurriculumContextKind;
+  konteksLabel: string;
+  regulationNomor: string;
+  regulationLabel: string;
+  regulationUrl: string;
+  isMadrasah: boolean;
+  isKepercayaan: boolean;
+  isAgama: boolean;
+  isKejuruanSMK: boolean;
+  isKonsentrasiSMK: boolean;
+}
+
+export function resolveSubjectCatalogMetadata(
+  mataPelajaran: string,
+  jenjang: JenjangKategori
+): SubjectCatalogMetadata {
+  const clean = (mataPelajaran || '').trim();
+  const lower = clean.toLowerCase();
+  const cfg = KURIKULUM_CATALOG[jenjang] || KURIKULUM_CATALOG['SMP/MTs'];
+  const preset = resolveDefaultCPRegulationPreset(clean);
+  const isMadrasah = isKemenagSubject(clean) || cfg.mapelMadrasah.includes(clean);
+  const isKepercayaan = isKepercayaanSubject(clean);
+  const isAgama = isAgamaBudiPekertiSubject(clean);
+  const isKonsentrasiSMK =
+    jenjang === 'SMK' &&
+    ((cfg.mapelKonsentrasiKeahlianSMK || []).includes(clean) ||
+      lower.includes('konsentrasi keahlian') ||
+      lower.includes('pertunjukan musik') ||
+      lower.includes('produksi & siaran') ||
+      (lower.includes('seni musik') && !lower.includes('(umum)')));
+  const isKejuruanSMK =
+    jenjang === 'SMK' &&
+    !isKonsentrasiSMK &&
+    ((cfg.mapelKejuruanSMK || []).includes(clean) ||
+      lower.includes('kejuruan') ||
+      lower.includes('profesi') ||
+      lower.includes('pkk') ||
+      lower.includes('projek ipas'));
+
+  let konteksKurikulum: CurriculumContextKind = 'umum';
+  let konteksLabel = 'Mata Pelajaran Umum';
+  if (isMadrasah) {
+    konteksKurikulum = 'madrasah_kemenag';
+    konteksLabel = 'Konteks Madrasah / Kemenag (KMA)';
+  } else if (isKepercayaan) {
+    konteksKurikulum = 'kepercayaan';
+    konteksLabel = 'Pendidikan Kepercayaan (Terpisah dari Agama)';
+  } else if (isAgama) {
+    konteksKurikulum = 'agama_budi_pekerti';
+    konteksLabel = 'Pendidikan Agama & Budi Pekerti';
+  } else if (isKonsentrasiSMK) {
+    konteksKurikulum = 'konsentrasi_keahlian_smk';
+    konteksLabel = 'Konsentrasi Keahlian SMK';
+  } else if (isKejuruanSMK) {
+    konteksKurikulum = 'kejuruan_smk';
+    konteksLabel = 'Mata Pelajaran Kejuruan SMK';
+  }
+
+  return {
+    mataPelajaran: clean,
+    jenjang,
+    konteksKurikulum,
+    konteksLabel,
+    regulationNomor: isKonsentrasiSMK
+      ? 'CP Konsentrasi Keahlian SMK (Sesuai Program Keahlian Sekolah)'
+      : preset.nomorDokumen,
+    regulationLabel: isKonsentrasiSMK
+      ? 'Konsentrasi Keahlian SMK — Gunakan CP Konsentrasi Resmi Sekolah'
+      : preset.label,
+    regulationUrl: preset.urlReferensi,
+    isMadrasah,
+    isKepercayaan,
+    isAgama,
+    isKejuruanSMK,
+    isKonsentrasiSMK,
+  };
+}
 
 export function detectKategoriFromFase(fase: JenjangFase, mataPelajaran?: string): JenjangKategori {
   return resolveNormalizedJenjang(fase, mataPelajaran || '');
@@ -202,6 +479,9 @@ export interface SemesterCurriculumPlan {
   referensiCP?: CustomTPItem['referensiCP'];
   tpList: CustomTPItem[];
   coverageStatus?: TopicSourceVerificationStatus;
+  statusSumberDokumen?: TopicDocumentSourceStatus;
+  statusReviewPedagogis?: TopicPedagogicalReviewStatus;
+  konteksKurikulum?: CurriculumContextKind;
   isEmptyState?: boolean;
   emptyStateMessage?: string;
   emptyStateActions?: Array<'tempel_cp' | 'pilih_referensi_cp' | 'susun_manual' | 'usulan_ai'>;
@@ -214,6 +494,7 @@ export interface SemesterCurriculumPlan {
 export interface SemesterPlanContext {
   schoolId?: string;
   tahunAjaran?: string;
+  jenjang?: TopicJenjangCategory;
   savedCPEntries?: SavedCPEntry[];
   phaseATPPlan?: PhaseATPPlan | null;
   availablePhaseTPs?: CustomTPItem[];
@@ -374,7 +655,13 @@ export function getSemesterCurriculumPlan(
   }
 
   // 2. Cari bank topik terkurasi khusus Mapel × Jenjang × Fase × Semester (TANPA cloning Sem 1 → Sem 2)
-  const bankResult = lookupCuratedTopicBank(mataPelajaran, jenjangFase, kelas, normSemester);
+  const bankResult = lookupCuratedTopicBank(
+    mataPelajaran,
+    jenjangFase,
+    kelas,
+    normSemester,
+    context?.jenjang ? { jenjang: context.jenjang } : undefined
+  );
   const cpCandidates = getAvailableCPReferenceEntries(mataPelajaran, jenjangFase);
   const savedCPPrimary = context?.savedCPEntries?.[0];
   const baseRefCP = resolveCPReferenceMetadata(
@@ -398,6 +685,9 @@ export function getSemesterCurriculumPlan(
       referensiCP: baseRefCP,
       tpList: [],
       coverageStatus: bankResult.coverageStatus,
+      statusSumberDokumen: bankResult.statusSumberDokumen,
+      statusReviewPedagogis: bankResult.statusReviewPedagogis,
+      konteksKurikulum: bankResult.konteksKurikulum,
       isEmptyState: true,
       emptyStateMessage: emptyMessage,
       emptyStateActions: bankResult.emptyStateActions || [
@@ -500,6 +790,9 @@ export function getSemesterCurriculumPlan(
     referensiCP: firstRef,
     tpList,
     coverageStatus: bankResult.coverageStatus,
+    statusSumberDokumen: bankResult.statusSumberDokumen,
+    statusReviewPedagogis: bankResult.statusReviewPedagogis,
+    konteksKurikulum: bankResult.konteksKurikulum,
     isEmptyState: false,
     hasVerifiedOfficialCP: Boolean(savedCPPrimary?.terverifikasiResmi),
     isSyntheticSummary: !hasRealCP,

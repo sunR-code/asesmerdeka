@@ -21,6 +21,31 @@ export type TopicSourceVerificationStatus =
   | 'input_guru_dibutuhkan'
   | 'belum_tersedia';
 
+/** Dimensi 1 (terpisah): Status verifikasi sumber dokumen */
+export type TopicDocumentSourceStatus =
+  | 'dokumen_resmi_teridentifikasi'
+  | 'teks_dokumen_terverifikasi'
+  | 'contoh_panduan'
+  | 'kurasi_internal'
+  | 'input_guru'
+  | 'usulan_ai'
+  | 'belum_terverifikasi';
+
+/** Dimensi 2 (terpisah): Status review pedagogis (tidak boleh diklaim sepihak oleh AI/sistem) */
+export type TopicPedagogicalReviewStatus =
+  | 'belum_ditinjau'
+  | 'ditinjau_guru'
+  | 'perlu_revisi'
+  | 'ditinjau_ahli_mapel';
+
+export type CurriculumContextKind =
+  | 'umum'
+  | 'agama_budi_pekerti'
+  | 'kepercayaan'
+  | 'madrasah_kemenag'
+  | 'kejuruan_smk'
+  | 'konsentrasi_keahlian_smk';
+
 export type TopicJenjangCategory = 'SD/MI' | 'SMP/MTs' | 'SMA/MA' | 'SMK';
 
 export type ExactFaseCode = 'Fase A' | 'Fase B' | 'Fase C' | 'Fase D' | 'Fase E' | 'Fase F';
@@ -79,6 +104,10 @@ export interface CurriculumTopicEntry extends RichTopicSuggestion {
   nomorHalamanAtauBagian?: string;
   statusVerifikasiSumber: TopicSourceVerificationStatus;
   jenisKonten: TopicSourceKind;
+  statusSumberDokumen: TopicDocumentSourceStatus;
+  statusReviewPedagogis: TopicPedagogicalReviewStatus;
+  expertReviewerName?: string;
+  expertReviewedAt?: string;
 }
 
 export interface SubjectFaseCoverageEntry {
@@ -91,6 +120,13 @@ export interface SubjectFaseCoverageEntry {
   totalTopikSem2: number;
   sumberUtama: string;
   catatan: string;
+  rujukanCP: string;
+  panduanMapel: string;
+  elemenCPTercakup: string[];
+  tingkatKelengkapan: string;
+  statusSumberDokumen: TopicDocumentSourceStatus;
+  statusReviewPedagogis: TopicPedagogicalReviewStatus;
+  catatanKesenjanganKonten: string;
 }
 
 export interface TopicBankQueryResult {
@@ -101,6 +137,9 @@ export interface TopicBankQueryResult {
   kelas: string;
   semester: '1 (Ganjil)' | '2 (Genap)';
   coverageStatus: TopicSourceVerificationStatus;
+  statusSumberDokumen: TopicDocumentSourceStatus;
+  statusReviewPedagogis: TopicPedagogicalReviewStatus;
+  konteksKurikulum?: CurriculumContextKind;
   sumberDokumen: string;
   urlReferensi: string;
   isAvailable: boolean;
@@ -169,6 +208,53 @@ export const TOPIC_VERIFICATION_LABELS: Record<TopicSourceVerificationStatus, st
   input_guru_dibutuhkan: 'Perlu Penyesuaian / Input Guru',
   belum_tersedia: 'Belum Tersedia di Bank Topik',
 };
+
+export const TOPIC_DOCUMENT_SOURCE_STATUS_LABELS: Record<TopicDocumentSourceStatus, string> = {
+  dokumen_resmi_teridentifikasi: 'Dokumen Resmi Teridentifikasi (Teks Belum Diverifikasi Penuh)',
+  teks_dokumen_terverifikasi: 'Teks Dokumen Resmi Terverifikasi',
+  contoh_panduan: 'Berdasarkan Contoh Panduan Mata Pelajaran',
+  kurasi_internal: 'Kurasi Internal Sistem',
+  input_guru: 'Input / Penyesuaian Guru',
+  usulan_ai: 'Usulan AI — Perlu Ditinjau Guru',
+  belum_terverifikasi: 'Sumber Belum Terverifikasi / Belum Tersedia',
+};
+
+export const TOPIC_PEDAGOGICAL_REVIEW_STATUS_LABELS: Record<TopicPedagogicalReviewStatus, string> = {
+  belum_ditinjau: 'Belum Ditinjau Pedagogis',
+  ditinjau_guru: 'Sudah Ditinjau Guru',
+  perlu_revisi: 'Ditandai Perlu Revisi',
+  ditinjau_ahli_mapel: 'Ditinjau Ahli Mapel / Praktisi',
+};
+
+export function resolveSafePedagogicalReviewStatus(
+  status?: TopicPedagogicalReviewStatus,
+  expertReviewerName?: string,
+  expertReviewedAt?: string
+): TopicPedagogicalReviewStatus {
+  if (status === 'ditinjau_ahli_mapel') {
+    const hasVerifier = Boolean(expertReviewerName?.trim() && expertReviewedAt?.trim());
+    return hasVerifier ? 'ditinjau_ahli_mapel' : 'belum_ditinjau';
+  }
+  return status || 'belum_ditinjau';
+}
+
+export function deriveDefaultDocumentSourceStatus(
+  statusVerifikasiSumber?: TopicSourceVerificationStatus,
+  jenisKonten?: TopicSourceKind
+): TopicDocumentSourceStatus {
+  if (jenisKonten === 'input_guru') return 'input_guru';
+  if (jenisKonten === 'usulan_ai') return 'usulan_ai';
+  if (statusVerifikasiSumber === 'berdasarkan_contoh_panduan' || jenisKonten === 'contoh_panduan') {
+    return 'contoh_panduan';
+  }
+  if (statusVerifikasiSumber === 'terkurasi_dan_terverifikasi' || jenisKonten === 'referensi_resmi') {
+    return 'teks_dokumen_terverifikasi';
+  }
+  if (statusVerifikasiSumber === 'belum_tersedia') {
+    return 'belum_terverifikasi';
+  }
+  return 'kurasi_internal';
+}
 
 export function createDefaultSubTPs(
   topik: string,
@@ -254,7 +340,18 @@ export function resolveNormalizedJenjang(
 ): TopicJenjangCategory {
   const f = (jenjangFase || '').toLowerCase();
   const m = (mataPelajaran || '').toLowerCase();
+  if (m.includes('seni musik (umum)')) {
+    const faseCode = parseExactFaseCode(jenjangFase, kelas);
+    if (faseCode === 'Fase A' || faseCode === 'Fase B' || faseCode === 'Fase C') return 'SD/MI';
+    if (faseCode === 'Fase D') return 'SMP/MTs';
+    return f.includes('smk') && !f.includes('sma/smk') ? 'SMK' : 'SMA/MA';
+  }
   if (
+    m.includes('seni musik smk') ||
+    m.includes('seni musik (smk)') ||
+    m.includes('seni musik kejuruan') ||
+    m.includes('konsentrasi keahlian seni musik') ||
+    m.includes('pertunjukan musik') ||
     m.includes('kejuruan') ||
     m.includes('profesi') ||
     m.includes('pkk') ||
@@ -263,7 +360,7 @@ export function resolveNormalizedJenjang(
     m.includes('konsentrasi') ||
     m.includes('(smk)') ||
     /\bsmk\b/.test(m) ||
-    /\bsmk\b/.test(f) && !f.includes('sma/smk')
+    (/\bsmk\b/.test(f) && !f.includes('sma/smk'))
   ) {
     return 'SMK';
   }
@@ -305,11 +402,24 @@ export interface MakeTopicInput {
   nomorHalamanAtauBagian?: string;
   statusVerifikasiSumber?: TopicSourceVerificationStatus;
   jenisKonten?: TopicSourceKind;
+  statusSumberDokumen?: TopicDocumentSourceStatus;
+  statusReviewPedagogis?: TopicPedagogicalReviewStatus;
+  expertReviewerName?: string;
+  expertReviewedAt?: string;
 }
 
 export function makeTopicEntry(input: MakeTopicInput): CurriculumTopicEntry {
   const fase = input.fase || faseCodeToDefaultJenjangFase(input.faseCode, input.jenjang);
   const estimasiMenitSesi = input.estimasiMenitSesi ?? 80;
+  const statusVerifikasiSumber = input.statusVerifikasiSumber || 'kurasi_internal';
+  const jenisKonten = input.jenisKonten || 'kurasi_sistem';
+  const statusSumberDokumen =
+    input.statusSumberDokumen || deriveDefaultDocumentSourceStatus(statusVerifikasiSumber, jenisKonten);
+  const statusReviewPedagogis = resolveSafePedagogicalReviewStatus(
+    input.statusReviewPedagogis,
+    input.expertReviewerName,
+    input.expertReviewedAt
+  );
   return {
     topicId: input.topicId,
     mataPelajaran: input.mataPelajaran,
@@ -345,7 +455,11 @@ export function makeTopicEntry(input: MakeTopicInput): CurriculumTopicEntry {
     tahunVersi: input.tahunVersi || '2025/2026',
     urlReferensi: input.urlReferensi || 'https://kurikulum.kemendikdasmen.go.id/',
     nomorHalamanAtauBagian: input.nomorHalamanAtauBagian,
-    statusVerifikasiSumber: input.statusVerifikasiSumber || 'kurasi_internal',
-    jenisKonten: input.jenisKonten || 'kurasi_sistem',
+    statusVerifikasiSumber,
+    jenisKonten,
+    statusSumberDokumen,
+    statusReviewPedagogis,
+    expertReviewerName: input.expertReviewerName,
+    expertReviewedAt: input.expertReviewedAt,
   };
 }

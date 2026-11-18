@@ -1,25 +1,32 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   BookOpen,
   CheckCircle2,
+  Edit3,
   ExternalLink,
   FileText,
   GitBranch,
+  Info,
   Layers,
   Plus,
   RefreshCw,
+  RotateCcw,
   ShieldAlert,
   Sparkles,
 } from 'lucide-react';
 import {
   PROGRESSION_STAGE_LABELS,
+  TOPIC_DOCUMENT_SOURCE_STATUS_LABELS,
+  TOPIC_PEDAGOGICAL_REVIEW_STATUS_LABELS,
   TOPIC_SOURCE_KIND_LABELS,
   TOPIC_VERIFICATION_LABELS,
   getTopicById,
   lookupCuratedTopicBank,
   type CurriculumTopicEntry,
+  type TopicPedagogicalReviewStatus,
 } from '../../data/kurikulumTopicBank';
 import {
   buildCustomTPFromTopicEntry,
@@ -32,6 +39,14 @@ import {
   type SchoolProfile,
 } from '../../utils/schoolProfileStorage';
 import { detectSuspectedLegacySem2Clones } from '../../utils/topicProgressionValidator';
+import {
+  applyTeacherAdjustmentsToTopicList,
+  getTopicAdjustmentsForScope,
+  removeTopicAdjustment,
+  saveTopicAdjustment,
+  type AdjustedCurriculumTopicEntry,
+  type TeacherTopicAdjustment,
+} from '../../utils/topicAdjustmentStorage';
 import type { SavedCPEntry } from '../../utils/cpStorage';
 import { analyzeCPWithAI } from '../../utils/cpAnalysisService';
 import type { JenjangFase } from '../../types/assessment';
@@ -45,6 +60,7 @@ interface TopicBankBrowserPanelProps {
   onAddNewTP: () => void;
   onAddTopicDraftAsTP: (tp: CustomTPItem) => void;
   onUpdateTPList?: (nextList: CustomTPItem[]) => void;
+  onReturnToSubjectSelector?: () => void;
   onToast?: (msg: string) => void;
 }
 
@@ -76,6 +92,7 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
   onAddNewTP,
   onAddTopicDraftAsTP,
   onUpdateTPList,
+  onReturnToSubjectSelector,
   onToast,
 }) => {
   const initialSem: '1 (Ganjil)' | '2 (Genap)' = schoolProfile.semester.startsWith('2')
@@ -85,8 +102,40 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
     initialSem === '2 (Genap)' ? 'sem2' : 'sem1'
   );
   const [expandedSpiralId, setExpandedSpiralId] = useState<string | null>(null);
+  const [showVerificationDetail, setShowVerificationDetail] = useState(false);
+  const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
+  const [adjForm, setAdjForm] = useState<{
+    proposedTitle: string;
+    proposedLingkupMateri: string;
+    proposedSemester: '' | '1 (Ganjil)' | '2 (Genap)';
+    cpAlignmentNote: string;
+    inappropriateReason: string;
+    pedagogicalReviewStatus: TopicPedagogicalReviewStatus;
+    needsReReview: boolean;
+  }>({
+    proposedTitle: '',
+    proposedLingkupMateri: '',
+    proposedSemester: '',
+    cpAlignmentNote: '',
+    inappropriateReason: '',
+    pedagogicalReviewStatus: 'ditinjau_guru',
+    needsReReview: false,
+  });
+  const [adjustmentsMap, setAdjustmentsMap] = useState<Record<string, TeacherTopicAdjustment>>(() =>
+    getTopicAdjustmentsForScope(schoolProfile, currentFase)
+  );
   const [aiProposedTopics, setAiProposedTopics] = useState<CustomTPItem[]>([]);
   const [isGeneratingAIProposal, setIsGeneratingAIProposal] = useState(false);
+
+  useEffect(() => {
+    setAdjustmentsMap(getTopicAdjustmentsForScope(schoolProfile, currentFase));
+    setEditingTopicId(null);
+  }, [
+    schoolProfile.schoolId,
+    schoolProfile.jenjang,
+    schoolProfile.mataPelajaranUtama,
+    currentFase,
+  ]);
 
   const sem1Bank = useMemo(
     () =>
@@ -94,9 +143,10 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
         schoolProfile.mataPelajaranUtama,
         currentFase,
         schoolProfile.kelasUtama,
-        '1 (Ganjil)'
+        '1 (Ganjil)',
+        { jenjang: schoolProfile.jenjang }
       ),
-    [schoolProfile.mataPelajaranUtama, currentFase, schoolProfile.kelasUtama]
+    [schoolProfile.mataPelajaranUtama, currentFase, schoolProfile.kelasUtama, schoolProfile.jenjang]
   );
 
   const sem2Bank = useMemo(
@@ -105,13 +155,28 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
         schoolProfile.mataPelajaranUtama,
         currentFase,
         schoolProfile.kelasUtama,
-        '2 (Genap)'
+        '2 (Genap)',
+        { jenjang: schoolProfile.jenjang }
       ),
-    [schoolProfile.mataPelajaranUtama, currentFase, schoolProfile.kelasUtama]
+    [schoolProfile.mataPelajaranUtama, currentFase, schoolProfile.kelasUtama, schoolProfile.jenjang]
   );
 
   const activeBank = viewMode === 'sem2' ? sem2Bank : sem1Bank;
   const verifStyle = VERIF_STYLE_MAP[activeBank.coverageStatus] || VERIF_STYLE_MAP.belum_tersedia;
+
+  const adjustedAllTopics = useMemo(
+    () => applyTeacherAdjustmentsToTopicList(sem1Bank.allPhaseTopics, adjustmentsMap),
+    [sem1Bank.allPhaseTopics, adjustmentsMap]
+  );
+  const adjustedSem1Topics = useMemo(
+    () => adjustedAllTopics.filter((t) => t.suggestedSemester === '1 (Ganjil)'),
+    [adjustedAllTopics]
+  );
+  const adjustedSem2Topics = useMemo(
+    () => adjustedAllTopics.filter((t) => t.suggestedSemester === '2 (Genap)'),
+    [adjustedAllTopics]
+  );
+  const displayedActiveTopics = viewMode === 'sem2' ? adjustedSem2Topics : adjustedSem1Topics;
 
   // Audit duplikasi data tersimpan Semester 2 secara non-destruktif
   const legacyCloneAudit = useMemo(() => {
@@ -229,9 +294,68 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
     }
   };
 
-  const renderTopicCard = (entry: CurriculumTopicEntry) => {
+  const openCorrectionForm = (entry: AdjustedCurriculumTopicEntry) => {
+    const existing = adjustmentsMap[entry.topicId];
+    setEditingTopicId(entry.topicId);
+    setAdjForm({
+      proposedTitle: existing?.proposedTitle || entry.judulTopik,
+      proposedLingkupMateri: existing?.proposedLingkupMateri || entry.lingkupMateri,
+      proposedSemester: existing?.proposedSemester || '',
+      cpAlignmentNote: existing?.cpAlignmentNote || '',
+      inappropriateReason: existing?.inappropriateReason || '',
+      pedagogicalReviewStatus:
+        existing?.pedagogicalReviewStatus && existing.pedagogicalReviewStatus !== 'ditinjau_ahli_mapel'
+          ? existing.pedagogicalReviewStatus
+          : 'ditinjau_guru',
+      needsReReview: Boolean(existing?.needsReReview),
+    });
+  };
+
+  const handleSaveCorrection = (entry: AdjustedCurriculumTopicEntry) => {
+    const originalTopic = getTopicById(entry.topicId) || entry;
+    saveTopicAdjustment(
+      schoolProfile,
+      {
+        topicId: entry.topicId,
+        originalTitle: originalTopic.judulTopik,
+        proposedTitle:
+          adjForm.proposedTitle.trim() !== originalTopic.judulTopik
+            ? adjForm.proposedTitle.trim()
+            : undefined,
+        proposedLingkupMateri:
+          adjForm.proposedLingkupMateri.trim() !== originalTopic.lingkupMateri
+            ? adjForm.proposedLingkupMateri.trim()
+            : undefined,
+        proposedSemester: adjForm.proposedSemester,
+        cpAlignmentNote: adjForm.cpAlignmentNote,
+        inappropriateReason: adjForm.inappropriateReason,
+        pedagogicalReviewStatus: adjForm.pedagogicalReviewStatus,
+        needsReReview: adjForm.needsReReview,
+      },
+      currentFase
+    );
+    setAdjustmentsMap(getTopicAdjustmentsForScope(schoolProfile, currentFase));
+    setEditingTopicId(null);
+    if (onToast) {
+      onToast('Penyesuaian topik lokal sekolah disimpan. Bank topik bawaan dan TP tersimpan tidak berubah.');
+    }
+  };
+
+  const handleResetCorrection = (topicId: string) => {
+    removeTopicAdjustment(schoolProfile, topicId, currentFase);
+    setAdjustmentsMap(getTopicAdjustmentsForScope(schoolProfile, currentFase));
+    setEditingTopicId(null);
+    if (onToast) {
+      onToast('Penyesuaian lokal dihapus; rekomendasi topik kembali mengikuti bank bawaan.');
+    }
+  };
+
+  const renderTopicCard = (entry: AdjustedCurriculumTopicEntry) => {
     const stageStyle = STAGE_STYLE_MAP[entry.progressionStage] || STAGE_STYLE_MAP.pengenalan;
     const isSpiralExpanded = expandedSpiralId === entry.topicId;
+    const isEditingThis = editingTopicId === entry.topicId;
+    const adj = entry.teacherAdjustment;
+    const rawOriginal = getTopicById(entry.topicId);
     const alreadyInList = existingTopicKeys.has(entry.topik.toLowerCase().trim());
     const prereqTitles = (entry.prasyaratTopicIds || [])
       .map((pid) => getTopicById(pid)?.judulTopik || pid)
@@ -242,7 +366,11 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
         key={entry.topicId}
         style={{
           background: '#ffffff',
-          border: '1px solid #e2e8f0',
+          border: adj?.needsReReview || adj?.pedagogicalReviewStatus === 'perlu_revisi'
+            ? '1px solid #f59e0b'
+            : entry.hasTeacherAdjustment
+            ? '1px solid #93c5fd'
+            : '1px solid #e2e8f0',
           borderRadius: 9,
           padding: '11px 13px',
           display: 'flex',
@@ -280,30 +408,264 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
                 border: '1px solid #e2e8f0',
               }}
             >
-              {TOPIC_SOURCE_KIND_LABELS[entry.jenisKonten]}
+              Sumber: {TOPIC_DOCUMENT_SOURCE_STATUS_LABELS[entry.statusSumberDokumen] || TOPIC_SOURCE_KIND_LABELS[entry.jenisKonten]}
             </span>
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                padding: '1px 6px',
+                borderRadius: 6,
+                background:
+                  entry.statusReviewPedagogis === 'ditinjau_guru'
+                    ? '#f0fdf4'
+                    : entry.statusReviewPedagogis === 'perlu_revisi'
+                    ? '#fef3c7'
+                    : '#f8fafc',
+                color:
+                  entry.statusReviewPedagogis === 'ditinjau_guru'
+                    ? '#166534'
+                    : entry.statusReviewPedagogis === 'perlu_revisi'
+                    ? '#92400e'
+                    : '#64748b',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              Review: {TOPIC_PEDAGOGICAL_REVIEW_STATUS_LABELS[entry.statusReviewPedagogis]}
+            </span>
+            {entry.hasTeacherAdjustment && (
+              <span
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 6,
+                  background: '#dbeafe',
+                  color: '#1e40af',
+                }}
+              >
+                Penyesuaian Lokal Sekolah
+              </span>
+            )}
           </div>
 
-          <button
-            type="button"
-            className={`btn btn-sm ${alreadyInList ? 'btn-outline' : 'btn-primary'}`}
-            style={{ fontSize: 11, padding: '4px 9px', minHeight: 28 }}
-            onClick={() => handleDeriveTopicToTP(entry)}
-          >
-            <Plus size={12} aria-hidden="true" />
-            {alreadyInList ? 'Tambah Lagi ke TP' : 'Turunkan ke Draf TP'}
-          </button>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              style={{ fontSize: 11, padding: '4px 8px', minHeight: 28 }}
+              onClick={() => (isEditingThis ? setEditingTopicId(null) : openCorrectionForm(entry))}
+            >
+              <Edit3 size={11} aria-hidden="true" />
+              {isEditingThis ? 'Tutup Koreksi' : 'Koreksi / Sesuaikan Topik'}
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${alreadyInList ? 'btn-outline' : 'btn-primary'}`}
+              style={{ fontSize: 11, padding: '4px 9px', minHeight: 28 }}
+              onClick={() => handleDeriveTopicToTP(entry)}
+            >
+              <Plus size={12} aria-hidden="true" />
+              {alreadyInList ? 'Tambah Lagi ke TP' : 'Turunkan ke Draf TP'}
+            </button>
+          </div>
         </div>
 
         <div style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a', overflowWrap: 'anywhere' }}>
           {entry.judulTopik}
         </div>
+        {entry.hasTeacherAdjustment && rawOriginal && rawOriginal.judulTopik !== entry.judulTopik && (
+          <div style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic', overflowWrap: 'anywhere' }}>
+            Judul bawaan sistem (tetap utuh): {rawOriginal.judulTopik}
+          </div>
+        )}
         <div style={{ fontSize: 12, color: '#334155', lineHeight: 1.5, overflowWrap: 'anywhere' }}>
           <strong>Kompetensi dikembangkan:</strong> {entry.kompetensiYangDikembangkan}
         </div>
         <div style={{ fontSize: 11.5, color: '#475569', lineHeight: 1.45, overflowWrap: 'anywhere' }}>
           <strong>Relevansi CP ({entry.faseCode}):</strong> {entry.relevansiCP}
+          {entry.nomorHalamanAtauBagian && (
+            <span style={{ color: '#64748b' }}> · Rujukan: {entry.nomorHalamanAtauBagian}</span>
+          )}
         </div>
+
+        {adj && (adj.cpAlignmentNote || adj.inappropriateReason || adj.proposedSemester || adj.proposedLingkupMateri) && (
+          <div
+            style={{
+              fontSize: 11.5,
+              background: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              borderRadius: 7,
+              padding: '6px 9px',
+              color: '#1e3a8a',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 3,
+              overflowWrap: 'anywhere',
+            }}
+          >
+            <div><strong>Catatan Koreksi Guru (Lokal Sekolah):</strong></div>
+            {adj.proposedLingkupMateri && (
+              <div>• Lingkup disesuaikan: {adj.proposedLingkupMateri}</div>
+            )}
+            {adj.proposedSemester && (
+              <div>• Usulan pemindahan semester: Semester {adj.proposedSemester}</div>
+            )}
+            {adj.cpAlignmentNote && <div>• Kesesuaian CP: {adj.cpAlignmentNote}</div>}
+            {adj.inappropriateReason && <div>• Catatan perbaikan: {adj.inappropriateReason}</div>}
+          </div>
+        )}
+
+        {isEditingThis && (
+          <div
+            style={{
+              marginTop: 4,
+              padding: '10px 12px',
+              borderRadius: 8,
+              background: '#f8fafc',
+              border: '1px solid #93c5fd',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              minWidth: 0,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#1e40af' }}>
+              Koreksi &amp; Penyesuaian Topik (Simpan Lokal Sekolah — Bank Bawaan &amp; TP Aktif Tidak Berubah)
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#334155', marginBottom: 3 }}>
+                  Status Review Pedagogis Guru
+                </label>
+                <select
+                  className="form-select"
+                  aria-label="Status review pedagogis"
+                  value={adjForm.pedagogicalReviewStatus}
+                  onChange={(e) =>
+                    setAdjForm((prev) => ({
+                      ...prev,
+                      pedagogicalReviewStatus: e.target.value as TopicPedagogicalReviewStatus,
+                    }))
+                  }
+                  style={{ fontSize: 12, padding: '6px 8px' }}
+                >
+                  <option value="ditinjau_guru">Sudah Ditinjau Guru</option>
+                  <option value="perlu_revisi">Tandai Perlu Revisi</option>
+                  <option value="belum_ditinjau">Belum Ditinjau Pedagogis</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#334155', marginBottom: 3 }}>
+                  Usulan Pindah Semester
+                </label>
+                <select
+                  className="form-select"
+                  aria-label="Usulan pindah semester"
+                  value={adjForm.proposedSemester}
+                  onChange={(e) =>
+                    setAdjForm((prev) => ({
+                      ...prev,
+                      proposedSemester: e.target.value as '' | '1 (Ganjil)' | '2 (Genap)',
+                    }))
+                  }
+                  style={{ fontSize: 12, padding: '6px 8px' }}
+                >
+                  <option value="">Tetap sesuai rekomendasi bawaan</option>
+                  <option value="1 (Ganjil)">Pindah ke Semester 1 (Ganjil)</option>
+                  <option value="2 (Genap)">Pindah ke Semester 2 (Genap)</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#334155', marginBottom: 3 }}>
+                Usulan Judul Topik (Versi Sekolah)
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                aria-label="Usulan judul topik"
+                value={adjForm.proposedTitle}
+                onChange={(e) => setAdjForm((prev) => ({ ...prev, proposedTitle: e.target.value }))}
+                style={{ fontSize: 12 }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#334155', marginBottom: 3 }}>
+                Usulan Lingkup Materi
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                aria-label="Usulan lingkup materi"
+                value={adjForm.proposedLingkupMateri}
+                onChange={(e) => setAdjForm((prev) => ({ ...prev, proposedLingkupMateri: e.target.value }))}
+                style={{ fontSize: 12 }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#334155', marginBottom: 3 }}>
+                Catatan Kesesuaian dengan CP
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                aria-label="Catatan kesesuaian CP"
+                placeholder="Mis. Selaras dengan CP Elemen Mengalami; tambah konteks lagu daerah setempat"
+                value={adjForm.cpAlignmentNote}
+                onChange={(e) => setAdjForm((prev) => ({ ...prev, cpAlignmentNote: e.target.value }))}
+                style={{ fontSize: 12 }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#334155', marginBottom: 3 }}>
+                Catatan Ketidaksesuaian Topik (jika perlu perbaikan)
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                aria-label="Catatan ketidaksesuaian topik"
+                placeholder="Mis. Alat musik yang disebut tidak tersedia di sekolah, sesuaikan ke perkusi lokal"
+                value={adjForm.inappropriateReason}
+                onChange={(e) => setAdjForm((prev) => ({ ...prev, inappropriateReason: e.target.value }))}
+                style={{ fontSize: 12 }}
+              />
+            </div>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#334155', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={adjForm.needsReReview}
+                onChange={(e) => setAdjForm((prev) => ({ ...prev, needsReReview: e.target.checked }))}
+              />
+              <span>Tandai topik ini perlu ditinjau ulang bersama tim guru/MGMP</span>
+            </label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={() => handleSaveCorrection(entry)}
+              >
+                Simpan Penyesuaian Lokal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={() => setEditingTopicId(null)}
+              >
+                Batal
+              </button>
+              {entry.hasTeacherAdjustment && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline"
+                  onClick={() => handleResetCorrection(entry.topicId)}
+                >
+                  <RotateCcw size={11} aria-hidden="true" /> Kembalikan ke Bawaan
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {prereqTitles.length > 0 && (
           <div style={{ fontSize: 11, color: '#475569', background: '#f8fafc', padding: '5px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
@@ -405,6 +767,19 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
             >
               {TOPIC_VERIFICATION_LABELS[activeBank.coverageStatus]}
             </span>
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                padding: '2px 7px',
+                borderRadius: 99,
+                background: '#f8fafc',
+                color: '#475569',
+                border: '1px solid #cbd5e1',
+              }}
+            >
+              {TOPIC_PEDAGOGICAL_REVIEW_STATUS_LABELS[activeBank.statusReviewPedagogis]}
+            </span>
           </div>
           <div style={{ fontSize: 11.5, color: '#475569', marginTop: 4, overflowWrap: 'anywhere' }}>
             <strong>{activeBank.mataPelajaran}</strong> · {activeBank.jenjang} · {activeBank.faseCode} ·{' '}
@@ -423,10 +798,54 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
               </>
             )}
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 5 }}>
+            <button
+              type="button"
+              onClick={() => setShowVerificationDetail((prev) => !prev)}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#2563eb',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                fontFamily: 'var(--font-family)',
+              }}
+            >
+              <Info size={12} aria-hidden="true" />
+              {showVerificationDetail ? 'Tutup Detail Status Verifikasi' : 'Lihat Status Sumber & Verifikasi'}
+            </button>
+            {onReturnToSubjectSelector && (
+              <button
+                type="button"
+                onClick={onReturnToSubjectSelector}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: '#475569',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontFamily: 'var(--font-family)',
+                  textDecoration: 'underline',
+                }}
+              >
+                <ArrowLeft size={11} aria-hidden="true" /> Kembali ke Pilihan Mata Pelajaran
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Toggle Semester 1 / Semester 2 / Perbandingan */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: '100%' }}>
           {(
             [
               { id: 'sem1', label: 'Semester 1 (Ganjil)' },
@@ -446,6 +865,41 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
           ))}
         </div>
       </div>
+
+      {/* Panel Transparansi 2 Dimensi: Status Sumber vs Review Pedagogis */}
+      {showVerificationDetail && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: '#ffffff',
+            border: '1px solid #cbd5e1',
+            fontSize: 11.5,
+            color: '#334155',
+            lineHeight: 1.5,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            overflowWrap: 'anywhere',
+          }}
+        >
+          <div>
+            <strong>1. Status Verifikasi Sumber Dokumen:</strong>{' '}
+            {TOPIC_DOCUMENT_SOURCE_STATUS_LABELS[activeBank.statusSumberDokumen]}
+          </div>
+          <div>
+            <strong>2. Status Review Pedagogis:</strong>{' '}
+            {TOPIC_PEDAGOGICAL_REVIEW_STATUS_LABELS[activeBank.statusReviewPedagogis]}{' '}
+            <span style={{ color: '#64748b' }}>
+              (Status &ldquo;Ditinjau Ahli Mapel&rdquo; hanya diberikan setelah ada pemeriksaan nyata ahli/praktisi tercatat, bukan klaim otomatis AI.)
+            </span>
+          </div>
+          <div>
+            <strong>Dokumen Rujukan:</strong> {activeBank.sumberDokumen}
+          </div>
+        </div>
+      )}
 
       {/* Peringatan Non-Destruktif Data Duplikat Lama Semester 2 (Section 15) */}
       {legacyCloneAudit && legacyCloneAudit.hasSuspectedClones && (
@@ -567,6 +1021,22 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
               <Sparkles size={13} aria-hidden="true" />
               {isGeneratingAIProposal ? 'Menyusun Usulan AI...' : 'Buat Usulan Topik dari CP (AI)'}
             </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              onClick={() => setShowVerificationDetail((prev) => !prev)}
+            >
+              <Info size={13} aria-hidden="true" /> Lihat Status Sumber &amp; Verifikasi
+            </button>
+            {onReturnToSubjectSelector && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={onReturnToSubjectSelector}
+              >
+                <ArrowLeft size={13} aria-hidden="true" /> Kembali ke Pilihan Mata Pelajaran
+              </button>
+            )}
           </div>
 
           {aiProposedTopics.length > 0 && (
@@ -625,9 +1095,9 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
                 fontWeight: 700,
               }}
             >
-              Semester 1 (Ganjil) — Kompetensi Fondasi ({sem1Bank.topics.length} topik)
+              Semester 1 (Ganjil) — Kompetensi Fondasi ({adjustedSem1Topics.length} topik)
             </div>
-            {sem1Bank.topics.map(renderTopicCard)}
+            {adjustedSem1Topics.map(renderTopicCard)}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
@@ -645,10 +1115,10 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
               }}
             >
               <ArrowRight size={13} aria-hidden="true" />
-              Semester 2 (Genap) — Progresi Kompetensi Lanjutan ({sem2Bank.topics.length} topik)
+              Semester 2 (Genap) — Progresi Kompetensi Lanjutan ({adjustedSem2Topics.length} topik)
             </div>
-            {sem2Bank.topics.length > 0 ? (
-              sem2Bank.topics.map(renderTopicCard)
+            {adjustedSem2Topics.length > 0 ? (
+              adjustedSem2Topics.map(renderTopicCard)
             ) : (
               <div style={{ padding: 12, background: '#ffffff', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, color: '#64748b' }}>
                 Topik rekomendasi Semester 2 belum tersedia; silakan susun manual atau atur pemetaan di ATP Fase.
@@ -658,7 +1128,7 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
-          {activeBank.topics.map(renderTopicCard)}
+          {displayedActiveTopics.map(renderTopicCard)}
         </div>
       )}
     </section>

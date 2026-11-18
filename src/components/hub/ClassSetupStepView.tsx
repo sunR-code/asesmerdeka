@@ -9,9 +9,17 @@ import {
   Plus,
 } from 'lucide-react';
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
-import { angkaKeRomawiKelas } from '../../utils/schoolProfileStorage';
-import { KURIKULUM_CATALOG } from '../../utils/kurikulumCatalog';
+import { angkaKeRomawiKelas, jenjangToDefaultFase } from '../../utils/schoolProfileStorage';
+import {
+  KURIKULUM_CATALOG,
+  getSelectableSubjectGroups,
+  resolveSubjectCatalogMetadata,
+} from '../../utils/kurikulumCatalog';
 import type { JenjangKategori } from '../../utils/kurikulumCatalog';
+import {
+  TOPIC_VERIFICATION_LABELS,
+  getSubjectFaseCoverageStatus,
+} from '../../data/kurikulumTopicBank';
 import {
   workspaceSectionVariants,
   workspaceAccordionTransition,
@@ -62,13 +70,30 @@ export const ClassSetupStepView: React.FC<ClassSetupStepViewProps> = ({
       schoolProfile.mataPelajaranUtama.toLowerCase().includes('qur')
   );
   const [customRombelInput, setCustomRombelInput] = useState('');
+  const [showCustomSubjectInput, setShowCustomSubjectInput] = useState(false);
+  const [customSubjectDraft, setCustomSubjectDraft] = useState('');
 
   const currentJenjangConfig =
     KURIKULUM_CATALOG[schoolProfile.jenjang] || KURIKULUM_CATALOG['SMP/MTs'];
 
-  const activeMapelList = showMadrasah
-    ? currentJenjangConfig.mapelMadrasah
-    : currentJenjangConfig.mapelUmum;
+  const subjectGroups = getSelectableSubjectGroups(schoolProfile.jenjang, {
+    madrasahMode: showMadrasah,
+  });
+  const catalogSubjectsFlat = subjectGroups.flatMap((g) => g.subjects);
+  const isCustomSubjectSelected =
+    Boolean(schoolProfile.mataPelajaranUtama?.trim()) &&
+    !catalogSubjectsFlat.includes(schoolProfile.mataPelajaranUtama);
+  const activeFase = jenjangToDefaultFase(schoolProfile.jenjang, schoolProfile.kelasUtama);
+  const subjectMeta = resolveSubjectCatalogMetadata(
+    schoolProfile.mataPelajaranUtama,
+    schoolProfile.jenjang
+  );
+  const subjectBankStatus = getSubjectFaseCoverageStatus(
+    schoolProfile.mataPelajaranUtama,
+    activeFase,
+    schoolProfile.kelasUtama,
+    { jenjang: schoolProfile.jenjang }
+  );
 
   const handleJenjangChange = (newJenjang: JenjangKategori) => {
     const cfg = KURIKULUM_CATALOG[newJenjang];
@@ -365,12 +390,147 @@ export const ClassSetupStepView: React.FC<ClassSetupStepViewProps> = ({
                   })
                 }
               >
-                {activeMapelList.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
+                {subjectGroups.map((group) => (
+                  <optgroup key={group.id} label={group.label}>
+                    {group.subjects.map((m) => (
+                      <option key={`${group.id}::${m}`} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
+                {isCustomSubjectSelected && (
+                  <optgroup label="Mata Pelajaran Kustom Sekolah">
+                    <option value={schoolProfile.mataPelajaranUtama}>
+                      {schoolProfile.mataPelajaranUtama}
+                    </option>
+                  </optgroup>
+                )}
               </select>
+
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    fontSize: 11.5,
+                    color: '#334155',
+                  }}
+                >
+                  <span style={{ overflowWrap: 'anywhere' }}>
+                    <strong>Konteks &amp; Regulasi:</strong> {subjectMeta.konteksLabel} ·{' '}
+                    <span style={{ color: '#1d4ed8', fontWeight: 600 }}>
+                      {subjectMeta.regulationNomor}
+                    </span>
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      padding: '2px 7px',
+                      borderRadius: 99,
+                      background:
+                        subjectBankStatus === 'belum_tersedia' ||
+                        subjectBankStatus === 'input_guru_dibutuhkan'
+                          ? '#fff7ed'
+                          : '#eff6ff',
+                      color:
+                        subjectBankStatus === 'belum_tersedia' ||
+                        subjectBankStatus === 'input_guru_dibutuhkan'
+                          ? '#9a3412'
+                          : '#1d4ed8',
+                      border:
+                        subjectBankStatus === 'belum_tersedia' ||
+                        subjectBankStatus === 'input_guru_dibutuhkan'
+                          ? '1px solid #fed7aa'
+                          : '1px solid #bfdbfe',
+                    }}
+                  >
+                    {TOPIC_VERIFICATION_LABELS[subjectBankStatus]}
+                  </span>
+                </div>
+
+                {(subjectBankStatus === 'belum_tersedia' ||
+                  subjectBankStatus === 'input_guru_dibutuhkan') && (
+                  <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.45 }}>
+                    Mata pelajaran ini tetap aktif dibuka. Sistem menampilkan empty state jujur (tanpa topik palsu) sehingga Anda dapat menempelkan/memilih CP dan menyusun topik serta TP secara mandiri.
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCustomSubjectInput((prev) => !prev);
+                      setCustomSubjectDraft(schoolProfile.mataPelajaranUtama || '');
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      color: '#2563eb',
+                      cursor: 'pointer',
+                      textDecoration: 'underline',
+                      fontFamily: 'var(--font-family)',
+                    }}
+                  >
+                    {showCustomSubjectInput
+                      ? 'Tutup input mapel kustom'
+                      : 'Tulis nama mapel / konsentrasi kustom'}
+                  </button>
+                </div>
+
+                {showCustomSubjectInput && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 6,
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      marginTop: 2,
+                    }}
+                  >
+                    <input
+                      type="text"
+                      className="form-input"
+                      aria-label="Nama mata pelajaran atau konsentrasi kustom"
+                      placeholder="Mis. Konsentrasi Keahlian Karawitan / Bahasa Sunda"
+                      value={customSubjectDraft}
+                      onChange={(e) => setCustomSubjectDraft(e.target.value)}
+                      style={{ flex: '1 1 200px', fontSize: 12, minHeight: 32 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      onClick={() => {
+                        const clean = customSubjectDraft.trim();
+                        if (!clean) return;
+                        updateAndPersistProfile({ mataPelajaranUtama: clean });
+                        setShowCustomSubjectInput(false);
+                        onToast(`Mata pelajaran diatur ke "${clean}".`);
+                      }}
+                    >
+                      Terapkan Mapel
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </section>
 

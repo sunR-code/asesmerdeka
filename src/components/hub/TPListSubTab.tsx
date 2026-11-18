@@ -56,6 +56,7 @@ interface TPListSubTabProps {
   onCustomRangkumanForm: (tp: CustomTPItem, profile: SchoolProfile) => void;
   isGeneratingAssessment: boolean;
   isGeneratingRangkuman: boolean;
+  onReturnToSubjectSelector?: () => void;
   onToast?: (msg: string) => void;
 }
 
@@ -87,6 +88,7 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
   onCustomRangkumanForm,
   isGeneratingAssessment,
   isGeneratingRangkuman,
+  onReturnToSubjectSelector,
   onToast,
 }) => {
   const [showCPDetail, setShowCPDetail] = useState(false);
@@ -249,6 +251,7 @@ export const TPListSubTab: React.FC<TPListSubTabProps> = ({
           onAddNewTP={onAddNewTP}
           onAddTopicDraftAsTP={handleAddTopicDraftAsTP}
           onUpdateTPList={onUpdateTPList}
+          onReturnToSubjectSelector={onReturnToSubjectSelector}
           onToast={onToast}
         />
       )}

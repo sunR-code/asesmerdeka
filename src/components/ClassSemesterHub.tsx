@@ -121,7 +121,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     currentFase,
     schoolProfile.kelasUtama,
     schoolProfile.semester,
-    { schoolId: schoolProfile.schoolId, tahunAjaran: schoolProfile.tahunAjaran }
+    { schoolId: schoolProfile.schoolId, tahunAjaran: schoolProfile.tahunAjaran, jenjang: schoolProfile.jenjang }
   );
 
   const [tpList, setTpList] = useState<CustomTPItem[]>(defaultPlan.tpList);
@@ -153,7 +153,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
         jenjangToDefaultFase(schoolProfile.jenjang, schoolProfile.kelasUtama),
         schoolProfile.kelasUtama,
         schoolProfile.semester,
-        { schoolId: schoolProfile.schoolId, tahunAjaran: schoolProfile.tahunAjaran }
+        { schoolId: schoolProfile.schoolId, tahunAjaran: schoolProfile.tahunAjaran, jenjang: schoolProfile.jenjang }
       );
       setTpList(plan.tpList);
       setIsCustomTP(false);
@@ -539,6 +539,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
                   onCustomRangkumanForm={onCustomRangkumanForm}
                   isGeneratingAssessment={isGeneratingAssessment}
                   isGeneratingRangkuman={isGeneratingRangkuman}
+                  onReturnToSubjectSelector={() => setConfirmedState(false)}
                   onToast={triggerToast}
                 />
               )}

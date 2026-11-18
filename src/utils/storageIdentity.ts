@@ -29,11 +29,13 @@ export interface ResolvedAcademicContext {
 export const SCHOOL_ID_STORAGE_KEY = 'asesmerdeka_school_id_v1';
 export const CP_STORAGE_V2_KEY = 'asesmerdeka_cp_v2';
 export const ATP_STORAGE_V2_KEY = 'asesmerdeka_atp_v2';
+export const TOPIC_ADJUSTMENT_STORAGE_V2_KEY = 'asesmerdeka_topic_adj_v2';
 
 export const V2_BACKUP_STORAGE_PREFIXES = [
   SCHOOL_ID_STORAGE_KEY,
   CP_STORAGE_V2_KEY,
   ATP_STORAGE_V2_KEY,
+  TOPIC_ADJUSTMENT_STORAGE_V2_KEY,
   'asesmerdeka_roster_v2__',
   'asesmerdeka_harian_v2__',
   'asesmerdeka_custom_tp_v2',
@@ -224,6 +226,16 @@ export function buildCPScopeKey(
   const sMapel = normalizeNamespaceSegment(ctx.mataPelajaran, 'mapel');
   const sFase = normalizeNamespaceSegment(ctx.fase, 'fase');
   return `${sSchool}__jnj_${sJenjang}__mpl_${sMapel}__fas_${sFase}`;
+}
+
+/**
+ * Scope Penyesuaian / Koreksi Topik Lokal Sekolah per Sekolah + Jenjang + Mapel + Fase.
+ */
+export function buildTopicAdjustmentScopeKey(
+  profile?: AcademicProfileLike | null,
+  explicitFase?: string
+): string {
+  return buildCPScopeKey(profile, explicitFase);
 }
 
 /**
