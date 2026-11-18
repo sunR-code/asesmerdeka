@@ -528,12 +528,14 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
               flexDirection: 'column',
               gap: 8,
               minWidth: 0,
+              width: '100%',
+              boxSizing: 'border-box',
             }}
           >
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#1e40af' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#1e40af', overflowWrap: 'anywhere' }}>
               Koreksi &amp; Penyesuaian Topik (Simpan Lokal Sekolah — Bank Bawaan &amp; TP Aktif Tidak Berubah)
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 8, minWidth: 0 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#334155', marginBottom: 3 }}>
                   Status Review Pedagogis Guru
@@ -639,11 +641,12 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
               />
               <span>Tandai topik ini perlu ditinjau ulang bersama tim guru/MGMP</span>
             </label>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', maxWidth: '100%' }}>
               <button
                 type="button"
                 className="btn btn-sm btn-primary"
                 onClick={() => handleSaveCorrection(entry)}
+                style={{ maxWidth: '100%', whiteSpace: 'normal', textAlign: 'center', height: 'auto', lineHeight: 1.3 }}
               >
                 Simpan Penyesuaian Lokal
               </button>
@@ -651,6 +654,7 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
                 type="button"
                 className="btn btn-sm btn-outline"
                 onClick={() => setEditingTopicId(null)}
+                style={{ maxWidth: '100%', whiteSpace: 'normal', textAlign: 'center', height: 'auto', lineHeight: 1.3 }}
               >
                 Batal
               </button>
@@ -659,6 +663,7 @@ export const TopicBankBrowserPanel: React.FC<TopicBankBrowserPanelProps> = ({
                   type="button"
                   className="btn btn-sm btn-outline"
                   onClick={() => handleResetCorrection(entry.topicId)}
+                  style={{ maxWidth: '100%', whiteSpace: 'normal', textAlign: 'center', height: 'auto', lineHeight: 1.3 }}
                 >
                   <RotateCcw size={11} aria-hidden="true" /> Kembalikan ke Bawaan
                 </button>
