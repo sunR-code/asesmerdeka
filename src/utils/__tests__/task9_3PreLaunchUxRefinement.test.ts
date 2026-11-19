@@ -127,7 +127,11 @@ describe('Task 9.3 — Pre-Launch UX Refinement (License Packages, WhatsApp Purc
     expect(html).toContain('25 Guru');
     expect(html).toContain('SPJ Dana BOS');
 
-    // Dua paket AI PRO tidak tampil di UI publik
+    // Dua paket AI PRO tidak tampil di UI publik dan aria-label dialog sesuai fungsi aktual
+    expect(html).toContain('aria-label="Aktivasi Lisensi Resmi — Cukup Sekali Beli"');
+    expect(html).toContain('aria-label="Tutup jendela lisensi"');
+    expect(html).not.toContain('Pembelian Sekali Beli &amp; Aktivasi Lisensi Guru PRO');
+    expect(html).not.toContain('Pembelian Sekali Beli & Aktivasi Lisensi Guru PRO');
     expect(html).not.toContain('Lisensi Guru Mandiri PRO');
     expect(html).not.toContain('Rp 199.000');
     expect(html).not.toContain('Lisensi Kolektif Sekolah PRO');
@@ -284,5 +288,9 @@ describe('Task 9.3 — Pre-Launch UX Refinement (License Packages, WhatsApp Purc
     expect(staticPanduanHtml).toContain('Kembali ke Aplikasi');
     expect(staticPanduanHtml).toContain('Auto-Deskripsi e-Rapor');
     expect(staticPanduanHtml).toContain('Paket Siap Supervisi');
+    expect(staticPanduanHtml).toContain('Tambah pertemuan');
+    expect(staticPanduanHtml).toContain('Auto-Isi dari TP');
+    expect(staticPanduanHtml).toContain('Finalisasi Rapor Kelas');
+    expect(staticPanduanHtml).toContain('Mulai dengan kelas kosong');
   });
 });

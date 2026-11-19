@@ -563,7 +563,11 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Pembelian Sekali Beli & Aktivasi Lisensi Guru PRO"
+      aria-label={
+        isUnlocked
+          ? `Lisensi ${tierName} Aktif Permanen`
+          : 'Aktivasi Lisensi Resmi — Cukup Sekali Beli'
+      }
       className="modal-overlay"
       onClick={onClose}
     >
@@ -611,8 +615,15 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="btn btn-outline btn-sm" style={{ padding: 6, borderRadius: '50%' }}>
-            <X size={16} />
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn btn-outline btn-sm"
+            style={{ padding: 6, borderRadius: '50%' }}
+            aria-label="Tutup jendela lisensi"
+            title="Tutup jendela lisensi"
+          >
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
 

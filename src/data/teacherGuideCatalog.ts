@@ -598,17 +598,17 @@ export const TEACHER_GUIDE_CHAPTERS: GuideChapter[] = [
       {
         action: 'Buka menu "Presensi Siswa" di menu sebelah kiri (atau sub-tab "Presensi siswa")',
         detail:
-          'Jika kelas masih menampilkan pemberitahuan kuning "Data Simulasi / Contoh", klik "Impor Excel" (atau klik tombol mulai kelas kosong / "+ Tambah Siswa") untuk mengganti seluruh nama contoh dengan nama siswa kelas Bapak/Ibu yang sesungguhnya.',
+          'Jika kelas masih menampilkan pemberitahuan kuning "Mode Data Contoh / Simulasi Aktif", klik "Impor daftar siswa" / "Impor Excel" (atau klik "Mulai dengan kelas kosong" lalu "+ Tambah siswa") untuk mengganti seluruh nama contoh dengan nama siswa kelas Bapak/Ibu yang sesungguhnya.',
       },
       {
         action: 'Catat kehadiran murid per pertemuan dengan status Hadir (H), Sakit (S), Izin (I), atau Alfa (A)',
         detail:
-          'Di layar HP tersedia Mode Fokus per pertemuan serta tombol cepat "Tandai Semua Hadir", lalu cukup ketuk siswa yang Sakit, Izin, atau Alfa. Persentase kehadiran per siswa dan total kelas dihitung otomatis.',
+          'Di layar HP tersedia Mode Fokus per pertemuan serta tombol cepat "Tandai semua hadir (P1)" sesuai pertemuan aktif, lalu cukup ketuk siswa yang Sakit, Izin, atau Alfa. Persentase kehadiran per siswa dan total kelas dihitung otomatis.',
       },
       {
         action: 'Buka menu "Jurnal Mengajar" untuk mencatat agenda pembelajaran hari ini',
         detail:
-          'Klik "+ Tambah Agenda" (atau edit baris agenda pertemuan). Pilih tanggal, jam pelajaran, jumlah JP, serta pilih Kode TP dari daftar TP aktif — materi pokok dan keterkaitan TP langsung terhubung otomatis tanpa ketik ulang.',
+          'Klik "Tambah pertemuan" (atau klik "Auto-Isi dari TP" / edit baris pertemuan yang ada). Pilih tanggal, jam pelajaran, jumlah JP, serta pilih Kode TP dari daftar TP aktif — materi pokok dan keterkaitan TP langsung terhubung otomatis tanpa ketik ulang.',
       },
       {
         action: 'Tambahkan uraian kegiatan, catatan siswa tidak hadir (dapat disinkronkan dari Presensi), serta refleksi',
@@ -624,7 +624,7 @@ export const TEACHER_GUIDE_CHAPTERS: GuideChapter[] = [
     hasilDiharapkan: [
       'Daftar siswa asli Bapak/Ibu tersimpan di menu Presensi sekaligus langsung muncul di Buku Nilai dan Auto-Deskripsi e-Rapor untuk rombel tersebut.',
       'Rekap total Hadir (H), Sakit (S), Izin (I), Alfa (A) dan total JP terlaksana pada Jurnal tampil akurat.',
-      'Tersedia juga tombol "Unduh Presensi (.docx)" dan "Unduh Jurnal (.docx)" bila ingin dicetak terpisah.',
+      'Tersedia juga tombol "Unduh .docx" (di Presensi Siswa) dan "Unduh Jurnal (.docx)" (di Jurnal Mengajar) bila ingin dicetak terpisah.',
     ],
     kesalahanUmum: [
       {
@@ -635,7 +635,7 @@ export const TEACHER_GUIDE_CHAPTERS: GuideChapter[] = [
       {
         mistake: 'Mengira data contoh siswa (simulasi) adalah data sekolah sungguhan lalu langsung mengekspor ke Word.',
         solution:
-          'AsesMerdeka memberi spanduk penanda jelas jika kelas masih menggunakan data simulasi dan menanyakan konfirmasi saat ekspor. Impor daftar siswa asli dari menu "Impor Excel" atau mulai kelas kosong agar berkas resmi bersih 100% berisi siswa Anda.',
+          'AsesMerdeka memberi spanduk penanda jelas jika kelas masih menggunakan data simulasi dan menanyakan konfirmasi saat ekspor. Impor daftar siswa asli dari tombol "Impor Excel" / "Impor daftar siswa" atau klik "Mulai dengan kelas kosong" agar berkas resmi bersih 100% berisi siswa Anda.',
       },
     ],
     langkahSelanjutnya: {
@@ -645,14 +645,14 @@ export const TEACHER_GUIDE_CHAPTERS: GuideChapter[] = [
     },
     importantCallout: {
       title: 'Cara Membedakan Data Asli dan Contoh Simulasi',
-      body: 'Jika Bapak/Ibu hanya ingin melihat contoh tampilan aplikasi, klik tombol "Pratinjau Data Demo". Data asli kelas Bapak/Ibu tetap terpisah aman dan tidak akan tertimpa oleh data contoh simulasi.',
+      body: 'Jika Bapak/Ibu hanya ingin melihat contoh tampilan aplikasi, klik tombol "Lanjut lihat data demo" atau "Lihat data demo terpisah". Data asli kelas Bapak/Ibu tetap terpisah aman dan tidak akan tertimpa oleh data contoh simulasi.',
       tone: 'info',
     },
     faqs: [
       {
         question: 'Bagaimana jika ada murid baru masuk atau pindah kelas di tengah semester?',
         answer:
-          'Di menu Presensi Siswa tersedia tombol "+ Tambah Siswa" untuk menambah murid baru, tombol edit di baris siswa, serta fitur pemindahan/arsip siswa antar-rombel agar catatan semester tidak berantakan.',
+          'Di menu Presensi Siswa tersedia tombol "Tambah siswa" untuk menambah murid baru, tombol edit di baris siswa, serta fitur pemindahan/arsip siswa antar-rombel agar catatan semester tidak berantakan.',
       },
       {
         question: 'Apakah saya harus memasukkan nama siswa ulang di Buku Nilai dan e-Rapor?',
@@ -693,9 +693,9 @@ export const TEACHER_GUIDE_CHAPTERS: GuideChapter[] = [
           'Biarkan kolom nilai kosong ("-") jika murid belum mengikuti penilaian. Jangan menuliskan angka 0 hanya karena tugas belum dinilai, kecuali memang nilainya nol murni — agar aplikasi membedakan antara "Belum Dinilai" dan "Perlu Bimbingan".',
       },
       {
-        action: 'Catat bukti rincian per indikator Sub-TP lewat tombol "Bukti" / "Bukti Asesmen" pada siswa (jika tersedia Sub-TP)',
+        action: 'Catat bukti rincian per indikator Sub-TP lewat tombol "Bukti (0)" pada kolom predikat siswa (jika tersedia Sub-TP)',
         detail:
-          'Di baris siswa tersedia akses modal Bukti Asesmen Sub-TP untuk mencatat ketercapaian tiap indikator Sub-TP, jenis bukti (tertulis/observasi/kinerja), dan catatan guru bila diperlukan.',
+          'Di baris siswa pada kolom Predikat tersedia tombol "Bukti (...)" untuk membuka modal Bukti Asesmen Sub-TP dan mencatat ketercapaian tiap indikator Sub-TP, jenis bukti (tertulis/observasi/kinerja), serta catatan guru bila diperlukan.',
       },
       {
         action: 'Klik tombol "Analisis TP" untuk membaca ringkasan ketercapaian dan rekomendasi tindak lanjut',
@@ -705,7 +705,7 @@ export const TEACHER_GUIDE_CHAPTERS: GuideChapter[] = [
       {
         action: 'Buka menu "Auto-Deskripsi e-Rapor" untuk menyusun dan memfinalisasi narasi rapor',
         detail:
-          'Periksa nilai akhir, predikat KKTP, capaian tertinggi, serta bagian yang perlu bimbingan untuk setiap siswa. Klik ikon salin ("Salin") di kartu siswa untuk menempel langsung ke aplikasi e-Rapor sekolah/kementerian, atau ubah status rapor dari "Draf" ke "Final" setelah lengkap. Anda juga dapat mengunduh rekapnya lewat "Unduh Nilai (.docx)" atau unduh rekap e-Rapor Word.',
+          'Periksa nilai akhir, predikat KKTP, capaian tertinggi, serta bagian yang perlu bimbingan untuk setiap siswa. Klik "Susun Ulang Deskripsi" bila baru mengubah nilai/KKTP, klik ikon salin pada siswa (atau "Salin Semua (Excel/e-Rapor)"), lalu klik "Finalisasi Rapor Kelas" bila semua komponen sudah lengkap. Rekap dapat diunduh lewat tombol "Unduh Nilai (.docx)" di Buku Nilai atau "Word (.docx)" di menu e-Rapor.',
       },
     ],
     hasilDiharapkan: [
