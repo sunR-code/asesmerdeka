@@ -30,6 +30,10 @@ import {
   isLicensed,
   verifyActiveLicenseWithServer,
 } from './utils/licenseManager';
+import {
+  OPEN_ADMIN_PORTAL_EVENT,
+  checkIsAdminUrl,
+} from './utils/adminPortalRouting';
 import { generateAsesmen, generateRangkumanMateri } from './services/aiGenerator';
 import { getBankSoal, saveToBankSoal, deleteFromBankSoal } from './utils/bankSoalStorage';
 import { saveToBankRangkuman } from './utils/bankRangkumanStorage';
@@ -114,14 +118,6 @@ export type AppTab =
   | 'rangkuman_view'
   | 'modul_ajar'
   | 'lkpd';
-
-const checkIsAdminUrl = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  const params = new URLSearchParams(window.location.search);
-  const page = params.get('page');
-  const admin = params.get('admin');
-  return page === 'admin' || admin === 'portal' || admin === '1';
-};
 
 const checkIsPanduanUrl = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -233,10 +229,13 @@ export function App() {
   }, [bankList.length, schoolProfile]);
 
   const handleOpenAdminPortal = () => {
+    setIsLicenseModalOpen(false);
+    setIsPanduanOpen(false);
     setIsAdminPortalOpen(true);
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('page', 'admin');
+      url.searchParams.delete('admin');
       window.history.pushState({}, '', url.toString());
     } catch {
       // fallback
@@ -245,6 +244,7 @@ export function App() {
 
   const handleCloseAdminPortal = () => {
     setIsAdminPortalOpen(false);
+    setIsLicenseModalOpen(false);
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('page');
@@ -291,11 +291,11 @@ export function App() {
     };
 
     window.addEventListener('popstate', handlePopState);
-    window.addEventListener('asesmerdeka:open-admin-portal', handleOpenPortalEvent);
+    window.addEventListener(OPEN_ADMIN_PORTAL_EVENT, handleOpenPortalEvent);
 
     return () => {
       window.removeEventListener('popstate', handlePopState);
-      window.removeEventListener('asesmerdeka:open-admin-portal', handleOpenPortalEvent);
+      window.removeEventListener(OPEN_ADMIN_PORTAL_EVENT, handleOpenPortalEvent);
     };
   }, []);
 

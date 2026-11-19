@@ -11,7 +11,6 @@ import {
   CheckCircle2,
   ExternalLink,
   Lock,
-  Link2,
   MessageCircle,
   Users,
   ArrowLeft,
@@ -22,20 +21,11 @@ import {
   activateLicense,
   saveGeminiKey,
   getSavedGeminiKey,
-  computeLicenseCodeForDevice,
-  generateSchoolBatchLicenses,
-  verifyAdminKeygenPin,
   getConfiguredIndividuMaxDevices,
-  setConfiguredIndividuMaxDevices,
   getLicenseSeatStatus,
   getCloudSeatTrackerUrl,
-  saveCloudSeatTrackerUrl,
   verifyAndClaimSeatOnline,
   verifyMayarLicenseOnline,
-  getMayarProductId,
-  saveMayarProductId,
-  getMayarSchoolProductId,
-  saveMayarSchoolProductId,
   isLicensed,
   getTierDisplayName,
   getTierBadgeLabel,
@@ -47,8 +37,6 @@ import {
   ONE_TIME_PLANS,
   PUBLIC_VISIBLE_PLAN_IDS,
   buildAdminWhatsAppPurchaseUrl,
-  getMayarPaymentLink,
-  saveMayarPaymentLinks,
   type OneTimePlanId,
 } from '../utils/paymentGateway';
 import {
@@ -75,6 +63,10 @@ import {
   type ConflictChoice,
   type HonestCloudStatus,
 } from '../utils/cloudSyncManager';
+import {
+  isAdminShortcutInput,
+  triggerAdminPortalShortcut,
+} from '../utils/adminPortalRouting';
 
 function formatConflictPreviewValue(val: unknown): string {
   if (val === undefined || val === null || val === '') return '(Kosong)';
@@ -87,42 +79,6 @@ function formatConflictPreviewValue(val: unknown): string {
     return String(val);
   }
 }
-
-const GOOGLE_APPS_SCRIPT_TEMPLATE = `// Tempel kode ini di Google Sheet -> Extensions -> Apps Script -> Deploy as Web App (Anyone)
-function doPost(e) {
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    var body = JSON.parse(e.postData.contents);
-    var code = String(body.licenseCode || '').toUpperCase().trim();
-    var deviceId = String(body.deviceId || '').toUpperCase().trim();
-    var maxSeats = Number(body.maxSeats || 2);
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
-    var data = sheet.getDataRange().getValues();
-    var devices = [];
-    for (var i = 1; i < data.length; i++) {
-      if (String(data[i][0]) === code) {
-        if (devices.indexOf(String(data[i][1])) === -1) devices.push(String(data[i][1]));
-      }
-    }
-    if (devices.indexOf(deviceId) !== -1) {
-      return ContentService.createTextOutput(JSON.stringify({ allowed: true, usedSeats: devices.length, maxSeats: maxSeats })).setMimeType(ContentService.MimeType.JSON);
-    }
-    if (devices.length >= maxSeats) {
-      return ContentService.createTextOutput(JSON.stringify({
-        allowed: false,
-        usedSeats: devices.length,
-        maxSeats: maxSeats,
-        message: 'Batas perangkat terlampaui (' + devices.length + '/' + maxSeats + ' perangkat). Kode lisensi sudah terkunci pada perangkat pemilik pertama dan tidak dapat dijual ulang.'
-      })).setMimeType(ContentService.MimeType.JSON);
-    }
-    sheet.appendRow([code, deviceId, body.hardwareFp || '', new Date().toISOString()]);
-    devices.push(deviceId);
-    return ContentService.createTextOutput(JSON.stringify({ allowed: true, usedSeats: devices.length, maxSeats: maxSeats })).setMimeType(ContentService.MimeType.JSON);
-  } finally {
-    lock.releaseLock();
-  }
-}`;
 
 interface LicenseModalProps {
   isOpen: boolean;
@@ -184,33 +140,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     initialWhatsAppModalPlanId
   );
   const [activeSubTab, setActiveSubTab] = useState<'order' | 'byok'>('order');
-
-  // State khusus Panel Kalkulator Kode Lisensi & Konfigurasi Mayar Admin / Mitra (Ketik @admin)
-  const [showAdminGate, setShowAdminGate] = useState(() => {
-    try {
-      return new URLSearchParams(window.location.search).get('admin') === '1';
-    } catch {
-      return false;
-    }
-  });
-  const [adminPinInput, setAdminPinInput] = useState('');
-  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
-  const [targetBuyerDeviceId, setTargetBuyerDeviceId] = useState('');
-  const [generatedBuyerKey, setGeneratedBuyerKey] = useState('');
-  const [schoolBatchPrefix, setSchoolBatchPrefix] = useState('MAYAR');
-  const [batchCount, setBatchCount] = useState(100);
-  const [generatedBatchKeys, setGeneratedBatchKeys] = useState<string[]>([]);
-  const [copiedAdminKey, setCopiedAdminKey] = useState(false);
-  const [copiedScript, setCopiedScript] = useState(false);
-  const [adminSaveFeedback, setAdminSaveFeedback] = useState<{ text: string; isError: boolean } | null>(null);
-
-  // State Link Mayar & Batas Perangkat di Panel Admin
-  const [mayarIndividuUrl, setMayarIndividuUrl] = useState(() => getMayarPaymentLink('pro_individu'));
-  const [mayarSekolahUrl, setMayarSekolahUrl] = useState(() => getMayarPaymentLink('pro_sekolah'));
-  const [mayarProductIdInput, setMayarProductIdInput] = useState(() => getMayarProductId());
-  const [mayarSchoolProductIdInput, setMayarSchoolProductIdInput] = useState(() => getMayarSchoolProductId());
-  const [maxIndividuSeats, setMaxIndividuSeats] = useState(() => getConfiguredIndividuMaxDevices());
-  const [cloudTrackerUrl, setCloudTrackerUrl] = useState(() => getCloudSeatTrackerUrl());
+  const maxIndividuSeats = getConfiguredIndividuMaxDevices();
 
   const refreshCloudSyncSnapshot = () => {
     setLastSyncTime(getLastCloudSyncAt());
@@ -315,11 +245,12 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     const trimmed = licenseInput.trim();
     if (!trimmed) return;
 
-    // Pintu rahasia Admin/Mitra: ketik "@admin" untuk membuka verifikasi PIN Keygen & Link Mayar
-    if (trimmed.toLowerCase() === '@admin') {
-      setShowAdminGate(true);
+    // Pintasan Admin: tutup modal lisensi dan buka Dedicated Admin Portal (Lock Screen)
+    if (isAdminShortcutInput(trimmed)) {
       setLicenseInput('');
       setStatusMessage(null);
+      setWhatsAppModalPlanId(null);
+      triggerAdminPortalShortcut(onClose);
       return;
     }
 
@@ -497,66 +428,6 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     navigator.clipboard.writeText(quota.deviceId);
     setCopiedDevice(true);
     setTimeout(() => setCopiedDevice(false), 2000);
-  };
-
-  const handleUnlockAdmin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (verifyAdminKeygenPin(adminPinInput)) {
-      setIsAdminUnlocked(true);
-      setTargetBuyerDeviceId(quota.deviceId);
-      setGeneratedBuyerKey(computeLicenseCodeForDevice(quota.deviceId));
-      setStatusMessage(null);
-    } else {
-      setStatusMessage({
-        text: 'PIN Admin tidak sesuai.',
-        isError: true,
-      });
-    }
-  };
-
-  const handleSaveMayarLinks = () => {
-    const showFeedback = (text: string, isError: boolean) => {
-      setAdminSaveFeedback({ text, isError });
-      setTimeout(() => setAdminSaveFeedback(null), 6000);
-    };
-
-    const individu = mayarIndividuUrl.trim();
-    const sekolah = mayarSekolahUrl.trim();
-    const tracker = cloudTrackerUrl.trim();
-
-    // Validasi input sebelum disimpan
-    if (!individu && !sekolah) {
-      showFeedback('❌ Gagal: Isi minimal 1 URL Payment Link Mayar (Paket Individu atau Sekolah).', true);
-      return;
-    }
-    const invalidUrl = [individu, sekolah, tracker].find((u) => u && !/^https:\/\/\S+$/i.test(u));
-    if (invalidUrl) {
-      showFeedback(`❌ Gagal: URL tidak valid (wajib diawali https://): ${invalidUrl}`, true);
-      return;
-    }
-
-    saveMayarPaymentLinks(individu, sekolah);
-    saveMayarProductId(mayarProductIdInput);
-    saveMayarSchoolProductId(mayarSchoolProductIdInput);
-    setConfiguredIndividuMaxDevices(maxIndividuSeats);
-    saveCloudSeatTrackerUrl(tracker);
-
-    // Verifikasi ulang bahwa data benar-benar tersimpan di browser
-    const savedIndividu = getMayarPaymentLink('pro_individu');
-    const savedSekolah = getMayarPaymentLink('pro_sekolah');
-    const ok = (!individu || savedIndividu === individu) && (!sekolah || savedSekolah === sekolah);
-
-    if (ok) {
-      showFeedback(
-        `✅ Berhasil disimpan! Link Mayar aktif • Batas ${maxIndividuSeats} perangkat per kode Individu.`,
-        false
-      );
-    } else {
-      showFeedback(
-        '❌ Gagal menyimpan ke browser (penyimpanan diblokir / mode penyamaran). Coba gunakan browser biasa.',
-        true
-      );
-    }
   };
 
   return (
@@ -1825,301 +1696,6 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                   </form>
                 </div>
               </>
-            )}
-
-            {/* Panel Mitra / Admin (Hanya muncul jika mengetik "@admin" di kolom lisensi di atas) */}
-            {showAdminGate && (
-              <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 10 }}>
-                {!isAdminUnlocked ? (
-                  <form
-                    onSubmit={handleUnlockAdmin}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      background: '#f1f5f9',
-                      padding: '10px 12px',
-                      borderRadius: 8,
-                    }}
-                  >
-                    <Lock size={14} color="#475569" />
-                    <input
-                      type="password"
-                      className="form-input"
-                      placeholder="Masukkan PIN Admin..."
-                      value={adminPinInput}
-                      onChange={(e) => setAdminPinInput(e.target.value)}
-                      style={{ fontSize: 12, padding: '6px 10px', maxWidth: 200 }}
-                    />
-                    <button type="submit" className="btn btn-sm btn-primary" style={{ fontSize: 11.5 }}>
-                      Buka Panel Admin
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowAdminGate(false)}
-                      className="btn btn-sm btn-outline"
-                      style={{ fontSize: 11.5 }}
-                    >
-                      Tutup
-                    </button>
-                  </form>
-                ) : (
-                  <div
-                    style={{
-                      background: '#eff6ff',
-                      border: '1px solid #93c5fd',
-                      borderRadius: 10,
-                      padding: 14,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 12,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 800, color: '#1e3a8a' }}>
-                        🔑 Panel Admin, Link Mayar.id & Kunci Batas Perangkat
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsAdminUnlocked(false);
-                          setShowAdminGate(false);
-                          setAdminPinInput('');
-                        }}
-                        className="btn btn-outline btn-sm"
-                        style={{ fontSize: 11, padding: '2px 8px' }}
-                      >
-                        Kunci Kembali
-                      </button>
-                    </div>
-
-                    {/* A. Pengaturan Link Checkout Mayar.id & Batas Perangkat */}
-                    <div style={{ background: '#ffffff', padding: 10, borderRadius: 8, border: '1px solid #bfdbfe' }}>
-                      <div style={{ fontSize: 11.5, fontWeight: 800, color: '#1e293b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <Link2 size={13} color="#2563eb" /> 1. Atur URL Payment Link Mayar.id & Batas Perangkat:
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <input
-                          type="url"
-                          className="form-input"
-                          placeholder="URL Mayar Paket Individu Rp 99.000 (https://...mayar.link/...)"
-                          value={mayarIndividuUrl}
-                          onChange={(e) => setMayarIndividuUrl(e.target.value)}
-                          style={{ fontSize: 12, padding: '6px 10px' }}
-                        />
-                        <input
-                          type="url"
-                          className="form-input"
-                          placeholder="URL Mayar Paket Sekolah Rp 749.000 (https://...mayar.link/...)"
-                          value={mayarSekolahUrl}
-                          onChange={(e) => setMayarSekolahUrl(e.target.value)}
-                          style={{ fontSize: 12, padding: '6px 10px' }}
-                        />
-                        <input
-                          type="text"
-                          className="form-input"
-                          placeholder="ID Produk Mayar Individu (Contoh: c1db962a-7cc5-46cc-969e-2c7c930f5bdc)"
-                          value={mayarProductIdInput}
-                          onChange={(e) => setMayarProductIdInput(e.target.value)}
-                          style={{ fontSize: 12, padding: '6px 10px', fontFamily: 'monospace' }}
-                        />
-                        <input
-                          type="text"
-                          className="form-input"
-                          placeholder="ID Produk Mayar Sekolah (Contoh: 17cece7f-e711-4fdc-af44-e6ceb4b4bff7)"
-                          value={mayarSchoolProductIdInput}
-                          onChange={(e) => setMayarSchoolProductIdInput(e.target.value)}
-                          style={{ fontSize: 12, padding: '6px 10px', fontFamily: 'monospace' }}
-                        />
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                          <span style={{ fontSize: 11.5, fontWeight: 700, color: '#334155' }}>
-                            Batas Maksimal Perangkat Kode Individu (MAYAR / BIBI):
-                          </span>
-                          <select
-                            className="form-select"
-                            value={maxIndividuSeats}
-                            onChange={(e) => setMaxIndividuSeats(Number(e.target.value))}
-                            style={{ fontSize: 11.5, padding: '4px 8px', maxWidth: 240 }}
-                          >
-                            <option value={1}>Ketat: Maksimal 1 Perangkat Saja</option>
-                            <option value={2}>Standar: Maksimal 2 Perangkat (1 Laptop + 1 HP)</option>
-                            <option value={3}>Longgar: Maksimal 3 Perangkat</option>
-                          </select>
-                        </div>
-
-                        <input
-                          type="url"
-                          className="form-input"
-                          placeholder="(Opsional) URL Google Apps Script Anti-Share Lintas Internet (https://script.google.com/macros/s/.../exec)"
-                          value={cloudTrackerUrl}
-                          onChange={(e) => setCloudTrackerUrl(e.target.value)}
-                          style={{ fontSize: 11.5, padding: '6px 10px' }}
-                        />
-
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-                          <button
-                            type="button"
-                            onClick={handleSaveMayarLinks}
-                            className="btn btn-sm btn-primary"
-                            style={{ fontSize: 11.5 }}
-                          >
-                            Simpan Konfigurasi Mayar & Kunci Perangkat
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_TEMPLATE);
-                              setCopiedScript(true);
-                              setTimeout(() => setCopiedScript(false), 2500);
-                            }}
-                            className="btn btn-sm btn-outline"
-                            style={{ fontSize: 11 }}
-                            title="Salin kode Google Apps Script gratis untuk melacak pemakaian 100 kode Mayar secara online di Google Sheet"
-                          >
-                            {copiedScript ? 'Script Tersalin!' : 'Salin Script Google Sheet (Cloud Lock Gratis)'}
-                          </button>
-                        </div>
-                        {adminSaveFeedback && (
-                          <div
-                            role="status"
-                            aria-live="polite"
-                            style={{
-                              marginTop: 6,
-                              padding: '8px 12px',
-                              borderRadius: 6,
-                              fontSize: 12,
-                              fontWeight: 700,
-                              lineHeight: 1.45,
-                              background: adminSaveFeedback.isError ? '#fef2f2' : '#f0fdf4',
-                              border: `1px solid ${adminSaveFeedback.isError ? '#ef4444' : '#10b981'}`,
-                              color: adminSaveFeedback.isError ? '#b91c1c' : '#15803d',
-                            }}
-                          >
-                            {adminSaveFeedback.text}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* B. Generator Stok Kode Lisensi Mayar / Bibi */}
-                    <div style={{ background: '#ffffff', padding: 10, borderRadius: 8, border: '1px solid #bfdbfe' }}>
-                      <div style={{ fontSize: 11.5, fontWeight: 800, color: '#1e293b', marginBottom: 6 }}>
-                        2. Cetak Stok Kode Lisensi (Prefix SOLO = 1 Device, MAYAR/BIBI = {maxIndividuSeats} Device, SEKOLAH = 25 Device):
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <input
-                          type="text"
-                          className="form-input"
-                          placeholder="Prefix (MAYAR / BIBI / SOLO)"
-                          value={schoolBatchPrefix}
-                          onChange={(e) => setSchoolBatchPrefix(e.target.value)}
-                          style={{ fontSize: 12, padding: '6px 10px', maxWidth: 140 }}
-                        />
-                        <input
-                          type="number"
-                          className="form-input"
-                          min={1}
-                          max={500}
-                          value={batchCount}
-                          onChange={(e) => setBatchCount(Number(e.target.value) || 100)}
-                          style={{ fontSize: 12, padding: '6px 10px', maxWidth: 90 }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const batch = generateSchoolBatchLicenses(schoolBatchPrefix, batchCount);
-                            setGeneratedBatchKeys(batch);
-                          }}
-                          className="btn btn-sm btn-primary"
-                          style={{ fontSize: 11.5 }}
-                        >
-                          Buat {batchCount} Kode Lisensi
-                        </button>
-                        {generatedBatchKeys.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(generatedBatchKeys.join('\n'));
-                              setCopiedAdminKey(true);
-                              setTimeout(() => setCopiedAdminKey(false), 2000);
-                            }}
-                            className="btn btn-sm btn-outline"
-                            style={{ fontSize: 11.5 }}
-                          >
-                            {copiedAdminKey ? 'Tersalin!' : 'Salin Semua Kode'}
-                          </button>
-                        )}
-                      </div>
-                      {generatedBatchKeys.length > 0 && (
-                        <textarea
-                          readOnly
-                          value={generatedBatchKeys.join('\n')}
-                          rows={5}
-                          style={{
-                            width: '100%',
-                            marginTop: 8,
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                            padding: 8,
-                            borderRadius: 6,
-                            border: '1px solid #cbd5e1',
-                            background: '#f8fafc',
-                          }}
-                        />
-                      )}
-                    </div>
-
-                    {/* C. Generator Kode Perangkat Individu (100% Terkunci Mati ke 1 Device ID Tanpa Database) */}
-                    <div style={{ background: '#ffffff', padding: 10, borderRadius: 8, border: '1px solid #bfdbfe' }}>
-                      <div style={{ fontSize: 11.5, fontWeight: 800, color: '#1e293b', marginBottom: 6 }}>
-                        3. Cetak Kode Kunci Mati 1 ID Perangkat (100% Tidak Bisa Dipakai di Perangkat Lain):
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                        <input
-                          type="text"
-                          className="form-input"
-                          placeholder="Contoh: DEV-ZL9NEV96-MVJ9TZQ0"
-                          value={targetBuyerDeviceId}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setTargetBuyerDeviceId(val);
-                            setGeneratedBuyerKey(val.trim() ? computeLicenseCodeForDevice(val) : '');
-                          }}
-                          style={{ fontSize: 12, padding: '6px 10px', fontFamily: 'monospace' }}
-                        />
-                      </div>
-                      {generatedBuyerKey && (
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            background: '#ecfdf5',
-                            border: '1px solid #a7f3d0',
-                            padding: '6px 10px',
-                            borderRadius: 6,
-                          }}
-                        >
-                          <code style={{ fontSize: 13, fontWeight: 900, color: '#065f46' }}>{generatedBuyerKey}</code>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(generatedBuyerKey);
-                              setCopiedAdminKey(true);
-                              setTimeout(() => setCopiedAdminKey(false), 2000);
-                            }}
-                            className="btn btn-sm btn-outline"
-                            style={{ fontSize: 11, padding: '3px 8px', background: '#ffffff' }}
-                          >
-                            {copiedAdminKey ? 'Tersalin!' : 'Salin Kode Guru'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
             )}
           </div>
         )}
