@@ -62,6 +62,12 @@ import {
   validateSessionTimeBudget,
 } from '../utils/modulTimeBudget';
 import { resolveModulKKTPConfig } from '../utils/modulOperationalContent';
+import {
+  CURATED_EXAMPLE_NON_OFFICIAL_DISCLAIMER,
+  cloneCuratedExampleAsTeacherDraft,
+  getCuratedModulExamples,
+  type CuratedModulExample,
+} from '../utils/modulCuratedExamples';
 import { buildSmartModulAjar } from '../utils/perangkatAjarEngine';
 import {
   fetchSharedCurriculum,
@@ -227,6 +233,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
   const [saveStatus, setSaveStatus] = useState<'Tersimpan' | 'Menyimpan...' | 'Gagal menyimpan'>('Tersimpan');
 
   const [showRefForm, setShowRefForm] = useState(false);
+  const [showExamplesPanel, setShowExamplesPanel] = useState(false);
+  const [previewingExample, setPreviewingExample] = useState<CuratedModulExample | null>(null);
+  const [confirmUseExample, setConfirmUseExample] = useState(false);
   const [editingRefId, setEditingRefId] = useState<string | null>(null);
   const [refFormError, setRefFormError] = useState<string | null>(null);
   const [refFormWarning, setRefFormWarning] = useState<string | null>(null);
@@ -267,6 +276,10 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
       }),
     [activeProfile, jpPerPertemuan, menitPerJP, smkTrackOverride]
   );
+  const curatedExamples = useMemo(() => getCuratedModulExamples(), []);
+  const isExamplePreview = previewingExample !== null;
+  const displayDoc = previewingExample ? previewingExample.modul : editableDoc;
+  const sheetProfile = previewingExample ? previewingExample.sampleProfile : activeProfile;
 
   const effectiveTP: CustomTPItem = customTP || {
     id: editableDoc.tpId || modul.tpId || `tp-${modul.tpKode}`,
@@ -306,8 +319,12 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
     [editableDoc, activeProfile]
   );
   const kktpDisplay = useMemo(
-    () => resolveModulKKTPConfig(effectiveTP, activeProfile),
-    [effectiveTP, activeProfile]
+    () =>
+      resolveModulKKTPConfig(
+        previewingExample ? previewingExample.tp : effectiveTP,
+        previewingExample ? previewingExample.sampleProfile : activeProfile
+      ),
+    [previewingExample, effectiveTP, activeProfile]
   );
   const linkedLKPDStudioDraft = useMemo(
     () => loadLatestLKPDDraft(activeProfile, effectiveTP),
@@ -484,6 +501,8 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
 
     let isMounted = true;
     setPendingModelSwitch(null);
+    setPreviewingExample(null);
+    setConfirmUseExample(false);
     setShowRefForm(false);
     setEditingRefId(null);
     setRefFormError(null);
@@ -1031,13 +1050,54 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
     }
   };
 
+  const applyCuratedExampleCopy = (example: CuratedModulExample) => {
+    flushModulSaveNow();
+    const cloned = cloneCuratedExampleAsTeacherDraft(
+      example.id,
+      activeProfile,
+      effectiveTP,
+      editableDoc.referensiSumber
+    );
+    setEditableDoc(cloned);
+    if (isValidModulAjarModelType(cloned.modelType)) {
+      setSelectedModel(cloned.modelType);
+    }
+    syncTimeStatesFromDoc(cloned);
+    setPendingModelSwitch(null);
+    setAiFailureNotice(null);
+    setIsFromCommunity(false);
+    setPreviewingExample(null);
+    setConfirmUseExample(false);
+    setShowExamplesPanel(false);
+    saveToLocalStorage(
+      cloned,
+      'user_edited',
+      cloned.modelType || example.modelType
+    );
+    showToast(
+      `Contoh "${example.tema}" (${example.jenjang}) disalin ke draf Anda & siap disesuaikan.`
+    );
+  };
+
+  const handleRequestUseExample = (example: CuratedModulExample) => {
+    const hasTeacherChanges =
+      editableDoc.draftSource === 'user_edited' ||
+      editableDoc.draftSource === 'ai_generated' ||
+      isLegacyDifferentiatedDraft;
+    if (hasTeacherChanges) {
+      setConfirmUseExample(true);
+      return;
+    }
+    applyCuratedExampleCopy(example);
+  };
+
   const handleCopyText = () => {
-    let text = `MODUL AJAR KURIKULUM MERDEKA: ${editableDoc.materiPokok}\n`;
-    text += `Mata Pelajaran: ${editableDoc.mataPelajaran} | Kelas: ${editableDoc.kelas} (${editableDoc.jenjangFase})\n`;
-    text += `Alokasi Waktu: ${editableDoc.alokasiWaktu}\n\n`;
-    text += `TUJUAN PEMBELAJARAN (TP ${editableDoc.tpKode}):\n${editableDoc.tujuanPembelajaran}\n\n`;
-    text += `PEMAHAMAN BERMAKNA:\n${editableDoc.pemahamanBermakna}\n\n`;
-    text += `PERTANYAAN PEMANTIK:\n${(editableDoc.pertanyaanPemantik || []).map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\n`;
+    let text = `MODUL AJAR KURIKULUM MERDEKA: ${displayDoc.materiPokok}\n`;
+    text += `Mata Pelajaran: ${displayDoc.mataPelajaran} | Kelas: ${displayDoc.kelas} (${displayDoc.jenjangFase})\n`;
+    text += `Alokasi Waktu: ${displayDoc.alokasiWaktu}\n\n`;
+    text += `TUJUAN PEMBELAJARAN (TP ${displayDoc.tpKode}):\n${displayDoc.tujuanPembelajaran}\n\n`;
+    text += `PEMAHAMAN BERMAKNA:\n${displayDoc.pemahamanBermakna}\n\n`;
+    text += `PERTANYAAN PEMANTIK:\n${(displayDoc.pertanyaanPemantik || []).map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\n`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     showToast('Teks Modul Ajar berhasil disalin!');
@@ -1152,6 +1212,22 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              data-testid="modul-open-examples-btn"
+              onClick={() => setShowExamplesPanel((prev) => !prev)}
+              className="btn btn-sm btn-outline"
+              style={{
+                borderColor: showExamplesPanel || isExamplePreview ? '#0f766e' : '#94a3b8',
+                background: showExamplesPanel || isExamplePreview ? '#f0fdfa' : '#ffffff',
+                color: showExamplesPanel || isExamplePreview ? '#0f766e' : '#1e293b',
+                fontWeight: 700,
+              }}
+              title="Lihat 4 contoh modul siap ajar (SD, SMP, SMA, SMK) sebagai template acuan"
+            >
+              <BookOpen size={14} /> {showExamplesPanel ? 'Tutup Contoh' : 'Contoh Modul (4 Jenjang)'}
+            </button>
+
             <button onClick={handleCopyText} className="btn btn-sm btn-outline">
               {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
               {copied ? 'Tersalin!' : 'Salin Teks'}
@@ -1160,7 +1236,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             <button
               onClick={async () => {
                 try {
-                  const ok = await exportModulAjarToDocx(editableDoc, activeProfile);
+                  const ok = await exportModulAjarToDocx(displayDoc, sheetProfile);
                   if (ok) {
                     showToast('File Word (.docx) berhasil diunduh!');
                   }
@@ -2025,6 +2101,133 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           )}
         </div>
 
+        {/* Galeri 4 Contoh Modul Terkurasi Siap Ajar (SD, SMP, SMA, SMK) — Task 12.4 */}
+        {showExamplesPanel && (
+          <div
+            data-testid="modul-curated-examples-panel"
+            style={{
+              borderTop: '1px solid #e2e8f0',
+              paddingTop: 12,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              boxSizing: 'border-box',
+              minWidth: 0,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 8,
+              }}
+            >
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: '#0f766e' }}>
+                📚 Contoh Modul Pembelajaran Terkurasi Siap Ajar (SD, SMP, SMA, SMK)
+              </div>
+              <span style={{ fontSize: 11, color: '#475569' }}>
+                {CURATED_EXAMPLE_NON_OFFICIAL_DISCLAIMER}
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                gap: 10,
+                boxSizing: 'border-box',
+                minWidth: 0,
+              }}
+            >
+              {curatedExamples.map((ex) => {
+                const isSelectedPreview = previewingExample?.id === ex.id;
+                const isJenjangMatch = ex.jenjang === resolvedTimePreset.jenjangKategori;
+                return (
+                  <div
+                    key={ex.id}
+                    data-testid={`modul-example-card-${ex.id}`}
+                    style={{
+                      background: isSelectedPreview ? '#f0fdfa' : '#ffffff',
+                      border: `1px solid ${isSelectedPreview ? '#0f766e' : '#cbd5e1'}`,
+                      borderRadius: 10,
+                      padding: '10px 12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      boxSizing: 'border-box',
+                      minWidth: 0,
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+                        <span
+                          style={{
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            padding: '2px 7px',
+                            borderRadius: 99,
+                            background: '#e0f2fe',
+                            color: '#0369a1',
+                          }}
+                        >
+                          {ex.badgeLabel}
+                        </span>
+                        {isJenjangMatch && (
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 700,
+                              padding: '2px 7px',
+                              borderRadius: 99,
+                              background: '#dcfce7',
+                              color: '#166534',
+                            }}
+                          >
+                            Sesuai Jenjang Anda
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12.5, fontWeight: 800, color: '#0f172a' }}>
+                        {ex.jenjang} Kelas {ex.kelas} • {ex.mataPelajaran}
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#1e3a8a' }}>
+                        {ex.tema}
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#0f766e' }}>
+                        {ex.modelLabel} · {ex.alokasiRingkas}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: '#475569', lineHeight: 1.4 }}>
+                        {ex.ringkasanKeunggulan}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      data-testid={`modul-preview-example-${ex.id}`}
+                      onClick={() => {
+                        setPreviewingExample(ex);
+                        setConfirmUseExample(false);
+                      }}
+                      className={isSelectedPreview ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline'}
+                      style={
+                        isSelectedPreview
+                          ? { background: '#0f766e', borderColor: '#0f766e', color: '#fff', fontWeight: 700 }
+                          : { fontWeight: 700 }
+                      }
+                    >
+                      {isSelectedPreview ? 'Sedang Dipratinjau' : 'Pratinjau Contoh'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Peringatan Konfirmasi Pergantian Model (saat draf telah disunting guru) */}
         {pendingModelSwitch && (
           <div
@@ -2157,7 +2360,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         )}
 
         {/* Ringkasan Status Validasi Kualitas Modul */}
-        {editableDoc.catatanValidasi && (
+        {!isExamplePreview && editableDoc.catatanValidasi && (
           <div
             data-testid="modul-quality-validation-note"
             style={{
@@ -2187,8 +2390,114 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         )}
       </div>
 
+      {/* Banner Mode Pratinjau Contoh Terkurasi (Read-only Preview, Non-destructive) */}
+      {previewingExample && (
+        <div
+          className="no-print"
+          data-testid="modul-example-preview-banner"
+          style={{
+            padding: '12px 16px',
+            background: '#f0fdfa',
+            border: '1px solid #5eead4',
+            borderRadius: 10,
+            color: '#134e4a',
+            fontSize: 12.5,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            marginBottom: 16,
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 10,
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, overflowWrap: 'anywhere' }}>
+              <div style={{ fontWeight: 800 }}>
+                [{previewingExample.badgeLabel}] Mode Pratinjau: {previewingExample.jenjang} Kelas {previewingExample.kelas} — {previewingExample.mataPelajaran} ({previewingExample.tema})
+              </div>
+              <div style={{ fontSize: 11.5, color: '#0f766e' }}>
+                Pratinjau ini bersifat baca-saja dan <strong>tidak mengubah draf Anda yang sedang dibuka</strong>. {previewingExample.provenanceDisclaimer}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                data-testid="modul-use-example-btn"
+                onClick={() => handleRequestUseExample(previewingExample)}
+                className="btn btn-sm btn-primary"
+                style={{ background: '#0f766e', borderColor: '#0f766e', color: '#fff', fontWeight: 700 }}
+              >
+                Gunakan Contoh Ini (Salin ke Draf)
+              </button>
+              <button
+                type="button"
+                data-testid="modul-exit-example-preview-btn"
+                onClick={() => {
+                  setPreviewingExample(null);
+                  setConfirmUseExample(false);
+                }}
+                className="btn btn-sm btn-outline"
+                style={{ fontWeight: 700 }}
+              >
+                <ArrowLeft size={13} /> Kembali ke Draf Saya
+              </button>
+            </div>
+          </div>
+
+          {confirmUseExample && (
+            <div
+              role="alert"
+              data-testid="modul-use-example-confirm"
+              style={{
+                background: '#fffbeb',
+                border: '1px solid #f59e0b',
+                borderRadius: 8,
+                padding: '8px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 8,
+                color: '#92400e',
+                fontSize: 12,
+              }}
+            >
+              <div>
+                <strong>Konfirmasi Salin ke Draf:</strong> Draf aktif saat ini sudah berisi suntingan atau hasil AI. Menyalin contoh ini akan membuat salinan baru pada TP aktif (template asli tetap utuh).
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  data-testid="modul-confirm-use-example-btn"
+                  onClick={() => applyCuratedExampleCopy(previewingExample)}
+                  className="btn btn-sm btn-primary"
+                  style={{ background: '#b45309', borderColor: '#b45309', color: '#fff', fontWeight: 700 }}
+                >
+                  Ya, Salin ke Draf Saya
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmUseExample(false)}
+                  className="btn btn-sm btn-outline"
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Community Reference Banner */}
-      {isFromCommunity && (
+      {!isExamplePreview && isFromCommunity && (
         <div
           className="no-print"
           style={{
@@ -2232,24 +2541,24 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             marginBottom: 24,
           }}
         >
-          {activeProfile.pakaiFormatKopSekolah && activeProfile.instansiDinas && (
+          {sheetProfile.pakaiFormatKopSekolah && sheetProfile.instansiDinas && (
             <div style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: '#475569', marginBottom: 2 }}>
-              {activeProfile.instansiDinas}
+              {sheetProfile.instansiDinas}
             </div>
           )}
           <h2 style={{ fontSize: 17, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, color: '#0f172a' }}>
-            {editableDoc.namaSekolah || activeProfile.namaSekolah}
+            {displayDoc.namaSekolah || sheetProfile.namaSekolah}
           </h2>
-          {activeProfile.pakaiFormatKopSekolah && activeProfile.alamatSekolah && (
+          {sheetProfile.pakaiFormatKopSekolah && sheetProfile.alamatSekolah && (
             <p style={{ fontSize: 11, color: '#64748b', margin: '2px 0' }}>
-              {activeProfile.alamatSekolah} {activeProfile.kotaSekolah ? `• ${activeProfile.kotaSekolah}` : ''}
+              {sheetProfile.alamatSekolah} {sheetProfile.kotaSekolah ? `• ${sheetProfile.kotaSekolah}` : ''}
             </p>
           )}
           <h1 style={{ fontSize: 18, fontWeight: 800, color: '#1d4ed8', margin: '6px 0 2px' }}>
             MODUL AJAR KURIKULUM MERDEKA
           </h1>
           <p style={{ fontSize: 12, color: '#475569' }}>
-            TAHUN AJARAN {editableDoc.tahunAjaran || activeProfile.tahunAjaran} • SEMESTER {(editableDoc.semester || '1').toUpperCase()}
+            TAHUN AJARAN {displayDoc.tahunAjaran || sheetProfile.tahunAjaran} • SEMESTER {(displayDoc.semester || '1').toUpperCase()}
           </p>
         </div>
 
@@ -2264,31 +2573,31 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             <tbody>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '6px 8px', width: '28%', fontWeight: 700, color: '#475569' }}>Satuan Pendidikan</td>
-                <td style={{ padding: '6px 8px' }}>: {editableDoc.namaSekolah || activeProfile.namaSekolah}</td>
+                <td style={{ padding: '6px 8px' }}>: {displayDoc.namaSekolah || sheetProfile.namaSekolah}</td>
               </tr>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '6px 8px', fontWeight: 700, color: '#475569' }}>Penyusun / Guru Mapel</td>
-                <td style={{ padding: '6px 8px' }}>: {editableDoc.namaGuru || activeProfile.namaGuru}</td>
+                <td style={{ padding: '6px 8px' }}>: {displayDoc.namaGuru || sheetProfile.namaGuru}</td>
               </tr>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '6px 8px', fontWeight: 700, color: '#475569' }}>Mata Pelajaran</td>
-                <td style={{ padding: '6px 8px' }}>: <strong>{editableDoc.mataPelajaran}</strong></td>
+                <td style={{ padding: '6px 8px' }}>: <strong>{displayDoc.mataPelajaran}</strong></td>
               </tr>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '6px 8px', fontWeight: 700, color: '#475569' }}>Fase / Kelas / Rombel</td>
-                <td style={{ padding: '6px 8px' }}>: {editableDoc.jenjangFase} / Kelas {editableDoc.kelas} ({activeProfile.rombelAktif || editableDoc.rombel})</td>
+                <td style={{ padding: '6px 8px' }}>: {displayDoc.jenjangFase} / Kelas {displayDoc.kelas} ({isExamplePreview ? displayDoc.rombel : sheetProfile.rombelAktif || displayDoc.rombel})</td>
               </tr>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '6px 8px', fontWeight: 700, color: '#475569' }}>Elemen Capaian</td>
-                <td style={{ padding: '6px 8px' }}>: {editableDoc.elemen}</td>
+                <td style={{ padding: '6px 8px' }}>: {displayDoc.elemen}</td>
               </tr>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '6px 8px', fontWeight: 700, color: '#475569' }}>Alokasi Waktu</td>
-                <td style={{ padding: '6px 8px' }}>: {editableDoc.alokasiWaktu}</td>
+                <td style={{ padding: '6px 8px' }}>: {displayDoc.alokasiWaktu}</td>
               </tr>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '6px 8px', fontWeight: 700, color: '#475569' }}>Model Pembelajaran</td>
-                <td style={{ padding: '6px 8px' }}>: {editableDoc.modelPembelajaran}</td>
+                <td style={{ padding: '6px 8px' }}>: {displayDoc.modelPembelajaran}</td>
               </tr>
             </tbody>
           </table>
@@ -2298,11 +2607,13 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           <div style={{ background: '#f8fafc', padding: '14px 18px', borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12.5 }}>
             <div style={{ marginBottom: 10 }}>
               <strong style={{ color: '#1e40af' }}>Kompetensi Awal (Prasyarat Peserta Didik):</strong>
-              {(editableDoc.kompetensiAwal && editableDoc.kompetensiAwal.length > 0 ? editableDoc.kompetensiAwal : ['']).map((ka, idx) => (
+              {(displayDoc.kompetensiAwal && displayDoc.kompetensiAwal.length > 0 ? displayDoc.kompetensiAwal : ['']).map((ka, idx) => (
                 <div key={idx} style={{ marginTop: 4 }}>
                   <AutoExpandingTextarea
                     value={ka}
+                    readOnly={isExamplePreview}
                     onChange={(e) => {
+                      if (isExamplePreview) return;
                       const list = [...(editableDoc.kompetensiAwal || [''])];
                       list[idx] = e.target.value;
                       const updated = { ...editableDoc, kompetensiAwal: list };
@@ -2319,7 +2630,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             <div style={{ marginBottom: 8 }}>
               <strong style={{ color: '#1e40af' }}>Profil Pelajar Pancasila yang Dikembangkan:</strong>
               <ul style={{ margin: '4px 0 0 18px', padding: 0, color: '#334155' }}>
-                {(editableDoc.profilPelajarPancasila || []).map((p, i) => (
+                {(displayDoc.profilPelajarPancasila || []).map((p, i) => (
                   <li key={i}>{p}</li>
                 ))}
               </ul>
@@ -2327,7 +2638,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             <div>
               <strong style={{ color: '#1e40af' }}>Sarana & Prasarana:</strong>
               <ul style={{ margin: '4px 0 0 18px', padding: 0, color: '#334155' }}>
-                {(editableDoc.saranaPrasarana || []).map((s, i) => (
+                {(displayDoc.saranaPrasarana || []).map((s, i) => (
                   <li key={i}>{s}</li>
                 ))}
               </ul>
@@ -2343,16 +2654,16 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
 
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
-              A. Tujuan Pembelajaran (TP {editableDoc.tpKode}):
+              A. Tujuan Pembelajaran (TP {displayDoc.tpKode}):
             </div>
             <div style={{ fontSize: 13, color: '#1e293b', background: '#eff6ff', padding: '10px 14px', borderRadius: 8, marginTop: 4 }}>
-              {editableDoc.tujuanPembelajaran}
+              {displayDoc.tujuanPembelajaran}
             </div>
-            {editableDoc.targetSubTP && editableDoc.targetSubTP.length > 0 && (
+            {displayDoc.targetSubTP && displayDoc.targetSubTP.length > 0 && (
               <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: '#f8fafc', border: '1px solid #cbd5e1', fontSize: 12 }}>
                 <strong style={{ color: '#1e40af' }}>Target Sub-TP / Indikator Pertemuan:</strong>
                 <ul style={{ margin: '4px 0 0 18px', padding: 0, color: '#334155' }}>
-                  {editableDoc.targetSubTP.map((sub, sIdx) => (
+                  {displayDoc.targetSubTP.map((sub, sIdx) => (
                     <li key={sub.id || sIdx} style={{ marginBottom: 2 }}>
                       <strong>{sub.kode}:</strong> {sub.kompetensi}
                     </li>
@@ -2362,7 +2673,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             )}
           </div>
 
-          {editableDoc.bahanBacaan && (
+          {displayDoc.bahanBacaan && (
             <div
               data-testid="modul-materi-ajar-konkret"
               style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 12.5, color: '#1e293b' }}
@@ -2372,11 +2683,13 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               </div>
               <AutoExpandingTextarea
                 value={
-                  editableDoc.bahanBacaan.penjelasanKonsepUtama ||
-                  editableDoc.bahanBacaan.ringkasanInti ||
+                  displayDoc.bahanBacaan.penjelasanKonsepUtama ||
+                  displayDoc.bahanBacaan.ringkasanInti ||
                   ''
                 }
+                readOnly={isExamplePreview}
                 onChange={(e) => {
+                  if (isExamplePreview) return;
                   const updated = {
                     ...editableDoc,
                     bahanBacaan: {
@@ -2394,11 +2707,11 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 style={{ fontSize: 12.5, color: '#14532d' }}
               />
 
-              {editableDoc.bahanBacaan.subKonsep && editableDoc.bahanBacaan.subKonsep.length > 0 && (
+              {displayDoc.bahanBacaan.subKonsep && displayDoc.bahanBacaan.subKonsep.length > 0 && (
                 <div style={{ marginTop: 8 }}>
                   <strong style={{ color: '#166534' }}>Subkonsep Inti:</strong>
                   <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
-                    {editableDoc.bahanBacaan.subKonsep.map((sk, idx) => (
+                    {displayDoc.bahanBacaan.subKonsep.map((sk, idx) => (
                       <li key={idx} style={{ marginBottom: 3 }}>
                         <strong>{sk.judul}:</strong> {sk.uraian}
                       </li>
@@ -2407,11 +2720,11 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 </div>
               )}
 
-              {editableDoc.bahanBacaan.istilahPenting && editableDoc.bahanBacaan.istilahPenting.length > 0 && (
+              {displayDoc.bahanBacaan.istilahPenting && displayDoc.bahanBacaan.istilahPenting.length > 0 && (
                 <div style={{ marginTop: 8 }}>
                   <strong style={{ color: '#166534' }}>Istilah Penting:</strong>
                   <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
-                    {editableDoc.bahanBacaan.istilahPenting.map((it, idx) => (
+                    {displayDoc.bahanBacaan.istilahPenting.map((it, idx) => (
                       <li key={idx} style={{ marginBottom: 2 }}>
                         <strong>{it.istilah}:</strong> {it.pengertian}
                       </li>
@@ -2420,52 +2733,52 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 </div>
               )}
 
-              {editableDoc.bahanBacaan.contohKonkret && editableDoc.bahanBacaan.contohKonkret.length > 0 && (
+              {displayDoc.bahanBacaan.contohKonkret && displayDoc.bahanBacaan.contohKonkret.length > 0 && (
                 <div style={{ marginTop: 8 }}>
                   <strong style={{ color: '#166534' }}>Contoh Konkret Kontekstual:</strong>
                   <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
-                    {editableDoc.bahanBacaan.contohKonkret.map((ct, idx) => (
+                    {displayDoc.bahanBacaan.contohKonkret.map((ct, idx) => (
                       <li key={idx} style={{ marginBottom: 2 }}>{ct}</li>
                     ))}
                   </ul>
                 </div>
               )}
 
-              {editableDoc.bahanBacaan.contohPenyelesaian && (
+              {displayDoc.bahanBacaan.contohPenyelesaian && (
                 <div style={{ marginTop: 8, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 6, padding: '8px 10px' }}>
                   <div style={{ fontWeight: 700, color: '#15803d', marginBottom: 3 }}>
-                    {editableDoc.bahanBacaan.contohPenyelesaian.judulContoh}
+                    {displayDoc.bahanBacaan.contohPenyelesaian.judulContoh}
                   </div>
-                  {editableDoc.bahanBacaan.contohPenyelesaian.konteks && (
+                  {displayDoc.bahanBacaan.contohPenyelesaian.konteks && (
                     <div style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
-                      {editableDoc.bahanBacaan.contohPenyelesaian.konteks}
+                      {displayDoc.bahanBacaan.contohPenyelesaian.konteks}
                     </div>
                   )}
                   <ol style={{ margin: '2px 0 4px 18px', padding: 0, fontSize: 12 }}>
-                    {editableDoc.bahanBacaan.contohPenyelesaian.langkahPenyelesaian.map((lk, idx) => (
+                    {displayDoc.bahanBacaan.contohPenyelesaian.langkahPenyelesaian.map((lk, idx) => (
                       <li key={idx} style={{ marginBottom: 2 }}>{lk}</li>
                     ))}
                   </ol>
-                  {editableDoc.bahanBacaan.contohPenyelesaian.kesimpulanHasil && (
+                  {displayDoc.bahanBacaan.contohPenyelesaian.kesimpulanHasil && (
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#166534' }}>
-                      Simpulan: {editableDoc.bahanBacaan.contohPenyelesaian.kesimpulanHasil}
+                      Simpulan: {displayDoc.bahanBacaan.contohPenyelesaian.kesimpulanHasil}
                     </div>
                   )}
                 </div>
               )}
 
-              {editableDoc.bahanBacaan.hubunganDenganTP && (
+              {displayDoc.bahanBacaan.hubunganDenganTP && (
                 <div style={{ marginTop: 8, fontSize: 12 }}>
                   <strong style={{ color: '#166534' }}>Keterkaitan dengan TP:</strong>{' '}
-                  {editableDoc.bahanBacaan.hubunganDenganTP}
+                  {displayDoc.bahanBacaan.hubunganDenganTP}
                 </div>
               )}
 
-              {editableDoc.bahanBacaan.potensiMiskonsepsi && editableDoc.bahanBacaan.potensiMiskonsepsi.length > 0 && (
+              {displayDoc.bahanBacaan.potensiMiskonsepsi && displayDoc.bahanBacaan.potensiMiskonsepsi.length > 0 && (
                 <div style={{ marginTop: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px' }}>
                   <strong style={{ color: '#92400e' }}>Potensi Miskonsepsi &amp; Cara Guru Meluruskannya:</strong>
                   <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12, color: '#78350f' }}>
-                    {editableDoc.bahanBacaan.potensiMiskonsepsi.map((mk, idx) => (
+                    {displayDoc.bahanBacaan.potensiMiskonsepsi.map((mk, idx) => (
                       <li key={idx} style={{ marginBottom: 4 }}>
                         <strong>Miskonsepsi:</strong> {mk.miskonsepsi} → <strong>Pelurusan Guru:</strong> {mk.caraMeluruskan}
                       </li>
@@ -2474,9 +2787,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 </div>
               )}
 
-              {editableDoc.bahanBacaan.konsepKunci && editableDoc.bahanBacaan.konsepKunci.length > 0 && (
+              {displayDoc.bahanBacaan.konsepKunci && displayDoc.bahanBacaan.konsepKunci.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                  {editableDoc.bahanBacaan.konsepKunci.map((kk, kIdx) => (
+                  {displayDoc.bahanBacaan.konsepKunci.map((kk, kIdx) => (
                     <span
                       key={kIdx}
                       style={{
@@ -2494,9 +2807,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                   ))}
                 </div>
               )}
-              {editableDoc.bahanBacaan.referensiCatatan && (
+              {displayDoc.bahanBacaan.referensiCatatan && (
                 <div style={{ marginTop: 6, fontSize: 11, color: '#475569', fontStyle: 'italic' }}>
-                  {editableDoc.bahanBacaan.referensiCatatan}
+                  {displayDoc.bahanBacaan.referensiCatatan}
                 </div>
               )}
             </div>
@@ -2507,8 +2820,10 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               B. Pemahaman Bermakna:
             </div>
             <AutoExpandingTextarea
-              value={editableDoc.pemahamanBermakna || ''}
+              value={displayDoc.pemahamanBermakna || ''}
+              readOnly={isExamplePreview}
               onChange={(e) => {
+                if (isExamplePreview) return;
                 const updated = { ...editableDoc, pemahamanBermakna: e.target.value };
                 setEditableDoc(updated);
                 saveToLocalStorage(updated);
@@ -2523,11 +2838,13 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               C. Pertanyaan Pemantik:
             </div>
             <ol style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 13, color: '#334155' }}>
-              {(editableDoc.pertanyaanPemantik || []).map((q, i) => (
+              {(displayDoc.pertanyaanPemantik || []).map((q, i) => (
                 <li key={i} style={{ marginBottom: 4 }}>
                   <AutoExpandingTextarea
                     value={q}
+                    readOnly={isExamplePreview}
                     onChange={(e) => {
+                      if (isExamplePreview) return;
                       const list = [...(editableDoc.pertanyaanPemantik || [])];
                       list[i] = e.target.value;
                       const updated = { ...editableDoc, pertanyaanPemantik: list };
@@ -2548,11 +2865,16 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               D. Langkah-Langkah Kegiatan Pembelajaran:
             </div>
 
-            {(editableDoc.kegiatanPembelajaran || []).map((keg, kIdx) => {
+            {(displayDoc.kegiatanPembelajaran || []).map((keg, kIdx) => {
               const sessionVal = validateSessionTimeBudget(
                 keg,
-                keg.jpPertemuan || jpPerPertemuan,
-                menitPerJP
+                keg.jpPertemuan ||
+                  (isExamplePreview
+                    ? displayDoc.alokasiWaktuDetail?.jpPerPertemuan || jpPerPertemuan
+                    : jpPerPertemuan),
+                isExamplePreview
+                  ? displayDoc.alokasiWaktuDetail?.menitPerJP || menitPerJP
+                  : menitPerJP
               );
               const hasStructured =
                 Array.isArray(keg.tahapTerstruktur) && keg.tahapTerstruktur.length > 0;
@@ -2561,6 +2883,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 stageId: string,
                 patch: Partial<TahapKegiatanTerstruktur>
               ) => {
+                if (isExamplePreview) return;
                 const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
                 const targetKeg = { ...updatedKegiatan[kIdx] };
                 const nextStages = (targetKeg.tahapTerstruktur || []).map((st) =>
@@ -2629,8 +2952,10 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                                 max={180}
                                 aria-label={`Durasi menit tahap ${st.namaTahap}`}
                                 className="no-print"
+                                disabled={isExamplePreview}
                                 value={st.durasiMenit}
                                 onChange={(e) => {
+                                  if (isExamplePreview) return;
                                   const nextM = Math.max(1, Math.min(180, Math.round(Number(e.target.value) || 1)));
                                   updateStructuredStage(st.id, { durasiMenit: nextM });
                                 }}
@@ -2645,6 +2970,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                             <strong style={{ color: '#1e3a8a' }}>Aktivitas Guru:</strong>
                             <AutoExpandingTextarea
                               value={st.aktivitasGuru}
+                              readOnly={isExamplePreview}
                               onChange={(e) => updateStructuredStage(st.id, { aktivitasGuru: e.target.value })}
                               rows={1}
                               style={{ fontSize: 12, color: '#1e293b', marginTop: 2 }}
@@ -2654,6 +2980,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                             <strong style={{ color: '#047857' }}>Aktivitas Siswa:</strong>
                             <AutoExpandingTextarea
                               value={st.aktivitasSiswa}
+                              readOnly={isExamplePreview}
                               onChange={(e) => updateStructuredStage(st.id, { aktivitasSiswa: e.target.value })}
                               rows={1}
                               style={{ fontSize: 12, color: '#1e293b', marginTop: 2 }}
@@ -2710,7 +3037,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                   {hasStructured ? (
                     <>
                       {renderPhaseSection('pendahuluan', '1. Kegiatan Pendahuluan:', '#1e40af')}
-                      {renderPhaseSection('inti', `2. Kegiatan Inti (${editableDoc.modelPembelajaran || selectedModelDef.label}):`, '#047857')}
+                      {renderPhaseSection('inti', `2. Kegiatan Inti (${displayDoc.modelPembelajaran || selectedModelDef.label}):`, '#047857')}
                       {renderPhaseSection('penutup', '3. Kegiatan Penutup & Refleksi:', '#b45309')}
                     </>
                   ) : (
@@ -2722,7 +3049,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                             <li key={pIdx} style={{ marginBottom: 4 }}>
                               <AutoExpandingTextarea
                                 value={p}
+                                readOnly={isExamplePreview}
                                 onChange={(e) => {
+                                  if (isExamplePreview) return;
                                   const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
                                   const targetKeg = { ...updatedKegiatan[kIdx] };
                                   const newPendahuluan = [...(targetKeg.pendahuluan || [])];
@@ -2744,14 +3073,16 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
 
                       <div style={{ marginBottom: 8 }}>
                         <strong style={{ fontSize: 12.5, color: '#047857' }}>
-                          2. Kegiatan Inti ({editableDoc.modelPembelajaran || 'Model Terpilih'}):
+                          2. Kegiatan Inti ({displayDoc.modelPembelajaran || 'Model Terpilih'}):
                         </strong>
                         <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12.5, color: '#334155' }}>
                           {(keg.inti || []).map((it, iIdx) => (
                             <li key={iIdx} style={{ marginBottom: 4 }}>
                               <AutoExpandingTextarea
                                 value={it}
+                                readOnly={isExamplePreview}
                                 onChange={(e) => {
+                                  if (isExamplePreview) return;
                                   const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
                                   const targetKeg = { ...updatedKegiatan[kIdx] };
                                   const newInti = [...(targetKeg.inti || [])];
@@ -2778,7 +3109,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                             <li key={pnIdx} style={{ marginBottom: 4 }}>
                               <AutoExpandingTextarea
                                 value={pn}
+                                readOnly={isExamplePreview}
                                 onChange={(e) => {
+                                  if (isExamplePreview) return;
                                   const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
                                   const targetKeg = { ...updatedKegiatan[kIdx] };
                                   const newPenutup = [...(targetKeg.penutup || [])];
@@ -2815,8 +3148,10 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             <div style={{ marginBottom: 6 }}>
               <strong>• Asesmen Diagnostik:</strong>
               <AutoExpandingTextarea
-                value={editableDoc.asesmen?.diagnostik || ''}
+                value={displayDoc.asesmen?.diagnostik || ''}
+                readOnly={isExamplePreview}
                 onChange={(e) => {
+                  if (isExamplePreview) return;
                   const updated = {
                     ...editableDoc,
                     asesmen: {
@@ -2834,8 +3169,10 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             <div style={{ marginBottom: 6 }}>
               <strong>• Asesmen Formatif:</strong>
               <AutoExpandingTextarea
-                value={editableDoc.asesmen?.formatif || ''}
+                value={displayDoc.asesmen?.formatif || ''}
+                readOnly={isExamplePreview}
                 onChange={(e) => {
+                  if (isExamplePreview) return;
                   const updated = {
                     ...editableDoc,
                     asesmen: {
@@ -2853,8 +3190,10 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             <div>
               <strong>• Asesmen Sumatif:</strong>
               <AutoExpandingTextarea
-                value={editableDoc.asesmen?.sumatif || ''}
+                value={displayDoc.asesmen?.sumatif || ''}
+                readOnly={isExamplePreview}
                 onChange={(e) => {
+                  if (isExamplePreview) return;
                   const updated = {
                     ...editableDoc,
                     asesmen: {
@@ -2872,7 +3211,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           </div>
 
           {/* Instrumen Asesmen Konkret Terperinci (Task 12.2 Task C) */}
-          {editableDoc.asesmenDetail && (
+          {displayDoc.asesmenDetail && (
             <div
               data-testid="modul-asesmen-detail"
               style={{
@@ -2889,15 +3228,15 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                   <ClipboardCheck size={14} /> 1. Instrumen Asesmen Diagnostik Awal
                 </div>
                 <div style={{ marginBottom: 4 }}>
-                  <strong>Tujuan Prasyarat:</strong> {editableDoc.asesmenDetail.diagnostik.tujuanPemeriksaanPrasyarat}
+                  <strong>Tujuan Prasyarat:</strong> {displayDoc.asesmenDetail.diagnostik.tujuanPemeriksaanPrasyarat}
                 </div>
                 <ul style={{ margin: '2px 0 4px 18px', padding: 0 }}>
-                  {editableDoc.asesmenDetail.diagnostik.pertanyaanAtauTugasAwal.map((q, idx) => (
+                  {displayDoc.asesmenDetail.diagnostik.pertanyaanAtauTugasAwal.map((q, idx) => (
                     <li key={idx} style={{ marginBottom: 2 }}>{q}</li>
                   ))}
                 </ul>
                 <div style={{ color: '#475569' }}>
-                  <strong>Indikator Interpretasi:</strong> {editableDoc.asesmenDetail.diagnostik.indikatorInterpretasi}
+                  <strong>Indikator Interpretasi:</strong> {displayDoc.asesmenDetail.diagnostik.indikatorInterpretasi}
                 </div>
               </div>
 
@@ -2906,30 +3245,30 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                   2. Instrumen Asesmen Formatif Proses
                 </div>
                 <div style={{ marginBottom: 4 }}>
-                  <strong>Aktivitas Penilaian:</strong> {editableDoc.asesmenDetail.formatif.instruksiAktivitas}
+                  <strong>Aktivitas Penilaian:</strong> {displayDoc.asesmenDetail.formatif.instruksiAktivitas}
                 </div>
                 <div style={{ marginBottom: 4 }}>
                   <strong>Pertanyaan / Cek Proses:</strong>
                   <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
-                    {editableDoc.asesmenDetail.formatif.pertanyaanAtauTugas.map((q, idx) => (
+                    {displayDoc.asesmenDetail.formatif.pertanyaanAtauTugas.map((q, idx) => (
                       <li key={idx}>{q}</li>
                     ))}
                   </ul>
                 </div>
                 <div style={{ marginBottom: 4 }}>
-                  <strong>Bukti Diamati:</strong> {editableDoc.asesmenDetail.formatif.buktiYangDiamati.join('; ')}
+                  <strong>Bukti Diamati:</strong> {displayDoc.asesmenDetail.formatif.buktiYangDiamati.join('; ')}
                 </div>
                 <div style={{ color: '#475569' }}>
-                  <strong>Umpan Balik Guru:</strong> {editableDoc.asesmenDetail.formatif.umpanBalikGuru}
+                  <strong>Umpan Balik Guru:</strong> {displayDoc.asesmenDetail.formatif.umpanBalikGuru}
                 </div>
               </div>
 
               <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '10px 12px' }}>
                 <div style={{ fontWeight: 800, color: '#7c2d12', marginBottom: 4 }}>
-                  3. Instrumen Asesmen Akhir ({editableDoc.asesmenDetail.akhir.bentukUtama})
+                  3. Instrumen Asesmen Akhir ({displayDoc.asesmenDetail.akhir.bentukUtama})
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
-                  {editableDoc.asesmenDetail.akhir.butirTugas.map((bt) => (
+                  {displayDoc.asesmenDetail.akhir.butirTugas.map((bt) => (
                     <div key={bt.nomor} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 9px' }}>
                       <div>
                         <strong>Butir {bt.nomor} ({bt.bentuk}):</strong> {bt.pertanyaanAtauTugas}
@@ -2941,52 +3280,54 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                   ))}
                 </div>
                 <div>
-                  <strong>Pedoman Penilaian:</strong> {editableDoc.asesmenDetail.akhir.pedomanPenilaian}
+                  <strong>Pedoman Penilaian:</strong> {displayDoc.asesmenDetail.akhir.pedomanPenilaian}
                 </div>
-                {editableDoc.asesmenDetail.akhir.kktpReferensi?.catatan && (
+                {displayDoc.asesmenDetail.akhir.kktpReferensi?.catatan && (
                   <div style={{ marginTop: 4, fontSize: 11.5, color: '#1e40af' }}>
-                    <strong>Catatan KKTP:</strong> {editableDoc.asesmenDetail.akhir.kktpReferensi.catatan}
+                    <strong>Catatan KKTP:</strong> {displayDoc.asesmenDetail.akhir.kktpReferensi.catatan}
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          {editableDoc.rubrikPenilaianSingkat && editableDoc.rubrikPenilaianSingkat.length > 0 && (
+          {displayDoc.rubrikPenilaianSingkat && displayDoc.rubrikPenilaianSingkat.length > 0 && (
             <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', minWidth: 560, borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: '#1e3a8a', color: '#ffffff', textAlign: 'left' }}>
                   <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '25%' }}>Kriteria Penilaian</th>
                   <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '18%', background: '#b91c1c' }}>
-                    {editableDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.baruBerkembang ||
+                    {displayDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.baruBerkembang ||
                       kktpDisplay.rentangLabel?.baruBerkembang ||
                       'Baru Berkembang'}
                   </th>
                   <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '18%', background: '#b45309' }}>
-                    {editableDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.layak ||
+                    {displayDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.layak ||
                       kktpDisplay.rentangLabel?.layak ||
                       'Layak'}
                   </th>
                   <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '18%', background: '#1d4ed8' }}>
-                    {editableDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.cakap ||
+                    {displayDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.cakap ||
                       kktpDisplay.rentangLabel?.cakap ||
                       'Cakap'}
                   </th>
                   <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '21%', background: '#047857' }}>
-                    {editableDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.mahir ||
+                    {displayDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.mahir ||
                       kktpDisplay.rentangLabel?.mahir ||
                       'Mahir'}
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {editableDoc.rubrikPenilaianSingkat.map((r, i) => (
+                {displayDoc.rubrikPenilaianSingkat.map((r, i) => (
                   <tr key={i}>
                     <td style={{ padding: '4px', border: '1px solid #cbd5e1' }}>
                       <AutoExpandingTextarea
                         value={r.kriteria}
+                        readOnly={isExamplePreview}
                         onChange={(e) => {
+                          if (isExamplePreview) return;
                           const list = [...(editableDoc.rubrikPenilaianSingkat || [])];
                           list[i] = { ...list[i], kriteria: e.target.value };
                           const updated = { ...editableDoc, rubrikPenilaianSingkat: list };
@@ -3000,7 +3341,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                     <td style={{ padding: '4px', border: '1px solid #cbd5e1' }}>
                       <AutoExpandingTextarea
                         value={r.baruBerkembang}
+                        readOnly={isExamplePreview}
                         onChange={(e) => {
+                          if (isExamplePreview) return;
                           const list = [...(editableDoc.rubrikPenilaianSingkat || [])];
                           list[i] = { ...list[i], baruBerkembang: e.target.value };
                           const updated = { ...editableDoc, rubrikPenilaianSingkat: list };
@@ -3014,7 +3357,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                     <td style={{ padding: '4px', border: '1px solid #cbd5e1' }}>
                       <AutoExpandingTextarea
                         value={r.layak}
+                        readOnly={isExamplePreview}
                         onChange={(e) => {
+                          if (isExamplePreview) return;
                           const list = [...(editableDoc.rubrikPenilaianSingkat || [])];
                           list[i] = { ...list[i], layak: e.target.value };
                           const updated = { ...editableDoc, rubrikPenilaianSingkat: list };
@@ -3028,7 +3373,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                     <td style={{ padding: '4px', border: '1px solid #cbd5e1' }}>
                       <AutoExpandingTextarea
                         value={r.cakap}
+                        readOnly={isExamplePreview}
                         onChange={(e) => {
+                          if (isExamplePreview) return;
                           const list = [...(editableDoc.rubrikPenilaianSingkat || [])];
                           list[i] = { ...list[i], cakap: e.target.value };
                           const updated = { ...editableDoc, rubrikPenilaianSingkat: list };
@@ -3042,7 +3389,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                     <td style={{ padding: '4px', border: '1px solid #cbd5e1' }}>
                       <AutoExpandingTextarea
                         value={r.mahir}
+                        readOnly={isExamplePreview}
                         onChange={(e) => {
+                          if (isExamplePreview) return;
                           const list = [...(editableDoc.rubrikPenilaianSingkat || [])];
                           list[i] = { ...list[i], mahir: e.target.value };
                           const updated = { ...editableDoc, rubrikPenilaianSingkat: list };
@@ -3067,11 +3416,11 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             IV. LAMPIRAN, DIFERENSIASI &amp; REFERENSI
           </h3>
           <div style={{ fontSize: 12.5, color: '#334155' }}>
-            {editableDoc.diferensiasiOperasional && (
+            {displayDoc.diferensiasiOperasional && (
               <div data-testid="modul-diferensiasi-operasional" style={{ marginBottom: 14 }}>
                 <strong style={{ color: '#0f172a' }}>A1. Diferensiasi Operasional Lintas Kesiapan (Menuju TP Sama):</strong>
                 <div style={{ fontSize: 12, color: '#475569', marginTop: 2, marginBottom: 8 }}>
-                  {editableDoc.diferensiasiOperasional.prinsipKesetaraanTP}
+                  {displayDoc.diferensiasiOperasional.prinsipKesetaraanTP}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 10 }}>
                   {[
@@ -3080,21 +3429,21 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                       bg: '#fff7ed',
                       border: '#fed7aa',
                       accent: '#9a3412',
-                      data: editableDoc.diferensiasiOperasional.kesiapanDasar,
+                      data: displayDoc.diferensiasiOperasional.kesiapanDasar,
                     },
                     {
                       title: 'Jalur B — Kesiapan Berkembang',
                       bg: '#eff6ff',
                       border: '#bfdbfe',
                       accent: '#1e40af',
-                      data: editableDoc.diferensiasiOperasional.kesiapanBerkembang,
+                      data: displayDoc.diferensiasiOperasional.kesiapanBerkembang,
                     },
                     {
                       title: 'Jalur C — Kesiapan Mahir',
                       bg: '#ecfdf5',
                       border: '#a7f3d0',
                       accent: '#065f46',
-                      data: editableDoc.diferensiasiOperasional.kesiapanMahir,
+                      data: displayDoc.diferensiasiOperasional.kesiapanMahir,
                     },
                   ].map((tier) => (
                     <div
@@ -3134,7 +3483,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               </div>
             )}
 
-            {editableDoc.contohLKPD && (
+            {displayDoc.contohLKPD && (
               <div
                 data-testid="modul-contoh-lkpd"
                 style={{
@@ -3148,16 +3497,16 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
                   <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 13 }}>
-                    Contoh LKPD Terintegrasi ({editableDoc.contohLKPD.presetType.toUpperCase()}): {editableDoc.contohLKPD.judul}
+                    Contoh LKPD Terintegrasi ({displayDoc.contohLKPD.presetType.toUpperCase()}): {displayDoc.contohLKPD.judul}
                   </div>
                   {onOpenLKPDStudio && (
                     <button
                       type="button"
                       className="no-print btn btn-sm btn-primary"
                       onClick={() =>
-                        onOpenLKPDStudio(effectiveTP, {
-                          preset: editableDoc.contohLKPD?.presetType,
-                          konteks: konteksInput.trim() || undefined,
+                        onOpenLKPDStudio(previewingExample ? previewingExample.tp : effectiveTP, {
+                          preset: displayDoc.contohLKPD?.presetType,
+                          konteks: isExamplePreview ? undefined : konteksInput.trim() || undefined,
                         })
                       }
                       style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}
@@ -3166,27 +3515,27 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                     </button>
                   )}
                 </div>
-                {linkedLKPDStudioDraft && (
+                {!isExamplePreview && linkedLKPDStudioDraft && (
                   <div className="no-print" style={{ fontSize: 11.5, color: '#047857', marginBottom: 6, fontWeight: 600 }}>
                     ✓ Tersinkron dengan draf aktif LKPD Studio ({linkedLKPDStudioDraft.doc.judul}) untuk TP {effectiveTP.kode}.
                   </div>
                 )}
                 <div style={{ marginBottom: 4 }}>
-                  <strong>Tujuan Pengerjaan:</strong> {editableDoc.contohLKPD.tujuanPengerjaan}
+                  <strong>Tujuan Pengerjaan:</strong> {displayDoc.contohLKPD.tujuanPengerjaan}
                 </div>
                 <div style={{ marginBottom: 4 }}>
-                  <strong>Konteks / Stimulus Tugas:</strong> {editableDoc.contohLKPD.konteksTugas}
+                  <strong>Konteks / Stimulus Tugas:</strong> {displayDoc.contohLKPD.konteksTugas}
                 </div>
                 <div style={{ marginBottom: 4 }}>
-                  <strong>Petunjuk Siswa:</strong> {editableDoc.contohLKPD.petunjukSiswa.join(' · ')}
+                  <strong>Petunjuk Siswa:</strong> {displayDoc.contohLKPD.petunjukSiswa.join(' · ')}
                 </div>
                 <div style={{ marginBottom: 4 }}>
-                  <strong>Bahan / Data yang Diperlukan:</strong> {editableDoc.contohLKPD.bahanAtauData.join('; ')}
+                  <strong>Bahan / Data yang Diperlukan:</strong> {displayDoc.contohLKPD.bahanAtauData.join('; ')}
                 </div>
                 <div style={{ marginBottom: 4 }}>
                   <strong>Langkah Pengerjaan:</strong>
                   <ol style={{ margin: '2px 0 0 18px', padding: 0 }}>
-                    {editableDoc.contohLKPD.langkahPengerjaan.map((lk, lIdx) => (
+                    {displayDoc.contohLKPD.langkahPengerjaan.map((lk, lIdx) => (
                       <li key={lIdx} style={{ marginBottom: 2 }}>{lk}</li>
                     ))}
                   </ol>
@@ -3194,28 +3543,28 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 <div style={{ marginBottom: 4 }}>
                   <strong>Pertanyaan / Ruang Kerja Inti:</strong>
                   <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
-                    {editableDoc.contohLKPD.pertanyaanAtauRuangKerja.map((pq, pIdx) => (
+                    {displayDoc.contohLKPD.pertanyaanAtauRuangKerja.map((pq, pIdx) => (
                       <li key={pIdx} style={{ marginBottom: 2 }}>{pq}</li>
                     ))}
                   </ul>
                 </div>
                 <div style={{ marginBottom: 3 }}>
-                  <strong>Hasil yang Diharapkan:</strong> {editableDoc.contohLKPD.hasilYangDiharapkan}
+                  <strong>Hasil yang Diharapkan:</strong> {displayDoc.contohLKPD.hasilYangDiharapkan}
                 </div>
                 <div>
-                  <strong>Kriteria Penilaian:</strong> {editableDoc.contohLKPD.kriteriaPenilaian.join('; ')}
+                  <strong>Kriteria Penilaian:</strong> {displayDoc.contohLKPD.kriteriaPenilaian.join('; ')}
                 </div>
               </div>
             )}
 
             <div style={{ marginBottom: 6 }}>
               <strong>A. Pengayaan & Remedial:</strong>
-              <div style={{ paddingLeft: 12, marginTop: 2 }}>• Pengayaan: {editableDoc.pengayaanDanRemedial?.pengayaan}</div>
-              <div style={{ paddingLeft: 12, marginTop: 2 }}>• Remedial: {editableDoc.pengayaanDanRemedial?.remedial}</div>
+              <div style={{ paddingLeft: 12, marginTop: 2 }}>• Pengayaan: {displayDoc.pengayaanDanRemedial?.pengayaan}</div>
+              <div style={{ paddingLeft: 12, marginTop: 2 }}>• Remedial: {displayDoc.pengayaanDanRemedial?.remedial}</div>
             </div>
             <div style={{ marginBottom: 6 }}>
               <strong>B. Glosarium:</strong>
-              {(editableDoc.glosarium || []).map((g, i) => (
+              {(displayDoc.glosarium || []).map((g, i) => (
                 <div key={i} style={{ paddingLeft: 12, marginTop: 2 }}>
                   • <strong>{g.istilah}:</strong> {g.definisi}
                 </div>
@@ -3223,9 +3572,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             </div>
             <div data-testid="modul-sumber-ajar-doc" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
               <strong>C. Referensi Sumber Ajar &amp; Daftar Pustaka:</strong>
-              {editableDoc.referensiSumber && editableDoc.referensiSumber.length > 0 ? (
+              {displayDoc.referensiSumber && displayDoc.referensiSumber.length > 0 ? (
                 <div style={{ paddingLeft: 12, marginTop: 4 }}>
-                  {editableDoc.referensiSumber.map((ref) => (
+                  {displayDoc.referensiSumber.map((ref) => (
                     <div
                       key={ref.id}
                       style={{
@@ -3258,11 +3607,11 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                       </div>
                     </div>
                   ))}
-                  {(editableDoc.daftarPustaka || [])
+                  {(displayDoc.daftarPustaka || [])
                     .filter(
                       (dp) =>
                         !/^\s*\[Lengkapi referensi satuan pendidikan\]/i.test(dp) &&
-                        !editableDoc.referensiSumber?.some((r) => dp.includes(r.judulBuku))
+                        !displayDoc.referensiSumber?.some((r) => dp.includes(r.judulBuku))
                     )
                     .map((dp, i) => (
                       <div key={i} style={{ marginTop: 2 }}>• {dp}</div>
@@ -3273,23 +3622,25 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                   <div style={{ paddingLeft: 12, marginTop: 2, fontStyle: 'italic', color: '#475569' }}>
                     {PROVENANCE_MSG_UNLINKED}
                   </div>
-                  {(editableDoc.daftarPustaka || []).map((dp, i) => (
+                  {(displayDoc.daftarPustaka || []).map((dp, i) => (
                     <div key={i} style={{ paddingLeft: 12, marginTop: 2 }}>• {dp}</div>
                   ))}
                 </div>
               )}
             </div>
-            {(editableDoc.refleksiGuru?.length || editableDoc.refleksiSiswa?.length) ? (
+            {(displayDoc.refleksiGuru?.length || displayDoc.refleksiSiswa?.length) ? (
               <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
-                {editableDoc.refleksiGuru && editableDoc.refleksiGuru.length > 0 && (
+                {displayDoc.refleksiGuru && displayDoc.refleksiGuru.length > 0 && (
                   <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
                     <strong>D. Refleksi Guru:</strong>
                     <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                      {editableDoc.refleksiGuru.map((rg, idx) => (
+                      {displayDoc.refleksiGuru.map((rg, idx) => (
                         <li key={idx} style={{ marginBottom: 4 }}>
                           <AutoExpandingTextarea
                             value={rg}
+                            readOnly={isExamplePreview}
                             onChange={(e) => {
+                              if (isExamplePreview) return;
                               const list = [...(editableDoc.refleksiGuru || [])];
                               list[idx] = e.target.value;
                               const updated = { ...editableDoc, refleksiGuru: list };
@@ -3304,15 +3655,17 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                     </ul>
                   </div>
                 )}
-                {editableDoc.refleksiSiswa && editableDoc.refleksiSiswa.length > 0 && (
+                {displayDoc.refleksiSiswa && displayDoc.refleksiSiswa.length > 0 && (
                   <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
                     <strong>E. Refleksi Peserta Didik:</strong>
                     <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                      {editableDoc.refleksiSiswa.map((rs, idx) => (
+                      {displayDoc.refleksiSiswa.map((rs, idx) => (
                         <li key={idx} style={{ marginBottom: 4 }}>
                           <AutoExpandingTextarea
                             value={rs}
+                            readOnly={isExamplePreview}
                             onChange={(e) => {
+                              if (isExamplePreview) return;
                               const list = [...(editableDoc.refleksiSiswa || [])];
                               list[idx] = e.target.value;
                               const updated = { ...editableDoc, refleksiSiswa: list };
@@ -3333,7 +3686,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         </div>
 
         {/* Blok Pengesahan Tanda Tangan */}
-        {activeProfile.tampilkanTandaTangan && (
+        {sheetProfile.tampilkanTandaTangan && (
           <div
             style={{
               marginTop: 36,
@@ -3351,22 +3704,22 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               <div>Mengetahui,</div>
               <div style={{ marginBottom: 54 }}>Kepala Sekolah / Madrasah</div>
               <div style={{ fontWeight: 700, textDecoration: 'underline' }}>
-                {activeProfile.namaKepalaSekolah || '......................................................'}
+                {sheetProfile.namaKepalaSekolah || '......................................................'}
               </div>
               <div style={{ fontSize: 11, color: '#475569' }}>
-                {activeProfile.nipKepalaSekolah ? `NIP. ${activeProfile.nipKepalaSekolah}` : 'NIP. -'}
+                {sheetProfile.nipKepalaSekolah ? `NIP. ${sheetProfile.nipKepalaSekolah}` : 'NIP. -'}
               </div>
             </div>
             <div>
               <div>
-                {activeProfile.kotaSekolah || 'Indonesia'}, {editableDoc.createdAt || modul.createdAt}
+                {sheetProfile.kotaSekolah || 'Indonesia'}, {displayDoc.createdAt || modul.createdAt}
               </div>
               <div style={{ marginBottom: 54 }}>Guru Mata Pelajaran</div>
               <div style={{ fontWeight: 700, textDecoration: 'underline' }}>
-                {editableDoc.namaGuru || activeProfile.namaGuru || '......................................................'}
+                {displayDoc.namaGuru || sheetProfile.namaGuru || '......................................................'}
               </div>
               <div style={{ fontSize: 11, color: '#475569' }}>
-                {activeProfile.nipGuru ? `NIP. ${activeProfile.nipGuru}` : 'NIP. -'}
+                {sheetProfile.nipGuru ? `NIP. ${sheetProfile.nipGuru}` : 'NIP. -'}
               </div>
             </div>
           </div>
