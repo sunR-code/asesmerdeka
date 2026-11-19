@@ -1,6 +1,6 @@
 import type { JenjangFase } from '../types/assessment';
 import type { LKPDPresetType } from '../types/perangkatAjar';
-import type { ModulAjarModelType } from './modulAjarAiService';
+import type { ModulAjarModelType } from './modulPedagogicalModels';
 
 export interface AcademicProfileLike {
   schoolId?: string;

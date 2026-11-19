@@ -1,24 +1,50 @@
 import type { CustomTPItem, SchoolProfile } from './schoolProfileStorage';
 import { jenjangToDefaultFase } from './schoolProfileStorage';
 import type {
-  ModulAjarDokumen,
+  CooperativeTechniqueVariant,
+  FaseKegiatanLangkah,
   KegiatanPembelajaranLangkah,
+  ModulAjarDokumen,
+  PengalamanBelajarPM,
+  PrinsipPembelajaranPM,
+  TahapKegiatanTerstruktur,
 } from '../types/perangkatAjar';
+import {
+  COOPERATIVE_TECHNIQUE_VARIANTS,
+  LEGACY_MODUL_MODEL_IDS,
+  MODUL_AJAR_MODELS,
+  getModulAjarModelDefinition,
+  isValidModulAjarModelType,
+  type ModulAjarModelDefinition,
+  type ModulAjarModelType,
+} from './modulPedagogicalModels';
+import {
+  computeMeetingsNeededForTP,
+  reconcileSessionStageDurations,
+  resolveModulTimePreset,
+  syncLegacyArraysFromStructuredStages,
+} from './modulTimeBudget';
 import { buildSmartModulAjar } from './perangkatAjarEngine';
 import { callGeminiStructuredJSON } from '../services/geminiClient';
 import { requireActiveLicenseForAction, deductQuota } from './licenseManager';
 
-export { requireActiveLicenseForAction, deductQuota };
+export {
+  requireActiveLicenseForAction,
+  deductQuota,
+  MODUL_AJAR_MODELS,
+  COOPERATIVE_TECHNIQUE_VARIANTS,
+  LEGACY_MODUL_MODEL_IDS,
+  getModulAjarModelDefinition,
+  isValidModulAjarModelType,
+};
+export type { ModulAjarModelType, ModulAjarModelDefinition };
 
-export type ModulAjarModelType = 'pbl' | 'pjbl' | 'inquiry' | 'diferensiasi' | 'kontekstual';
-
-export interface ModulAjarModelDefinition {
-  id: ModulAjarModelType;
-  label: string;
-  namaSingkat: string;
-  deskripsi: string;
-  sintaksUtama: string[];
-  karakteristikKonteks: string;
+export interface ModulAjarGenerationTimeOptions {
+  jpPerPertemuan?: number;
+  menitPerJP?: number;
+  jumlahPertemuan?: number;
+  smkTrackOverride?: 'umum' | 'kejuruan';
+  variasiTeknikModel?: CooperativeTechniqueVariant;
 }
 
 export interface ContextualModulAjarResult {
@@ -27,98 +53,44 @@ export interface ContextualModulAjarResult {
   errorMsg?: string;
 }
 
-export const MODUL_AJAR_MODELS: readonly ModulAjarModelDefinition[] = [
-  {
-    id: 'pbl',
-    label: 'Problem-Based Learning (PBL)',
-    namaSingkat: 'PBL (Masalah Nyata)',
-    deskripsi: 'Pembelajaran berbasis masalah kontekstual nyata untuk memicu nalar kritis dan pemecahan masalah.',
-    sintaksUtama: [
-      'Orientasi peserta didik pada masalah autentik',
-      'Mengorganisasikan peserta didik untuk belajar dan meneliti',
-      'Membimbing penyelidikan mandiri dan kelompok',
-      'Mengembangkan dan menyajikan hasil karya pemecahan masalah',
-      'Menganalisis dan mengevaluasi proses pemecahan masalah',
-    ],
-    karakteristikKonteks: 'Menghadapkan siswa pada studi kasus lokal atau dilema nyata yang membutuhkan solusi analitis.',
-  },
-  {
-    id: 'pjbl',
-    label: 'Project-Based Learning (PjBL)',
-    namaSingkat: 'PjBL (Karya Proyek)',
-    deskripsi: 'Pembelajaran berbasis proyek autentik terencana untuk menghasilkan artefak/produk nyata yang bermanfaat.',
-    sintaksUtama: [
-      'Penentuan pertanyaan mendasar (essential question)',
-      'Mendesain perencanaan produk/proyek',
-      'Menyusun jadwal pembuatan dan target penyelesaian',
-      'Memonitor keaktifan dan perkembangan progres proyek',
-      'Menguji hasil dan mempresentasikan produk',
-      'Mengevaluasi pengalaman dan refleksi pembelajaran',
-    ],
-    karakteristikKonteks: 'Menghasilkan prototipe, karya terapan, atau produk kontekstual yang menjawab kebutuhan lingkungan sekitar.',
-  },
-  {
-    id: 'inquiry',
-    label: 'Inquiry / Discovery Learning',
-    namaSingkat: 'Inquiry (Penyelidikan Mandiri)',
-    deskripsi: 'Eksplorasi mandiri berbasis rasa ingin tahu melalui perumusan hipotesis dan pembuktian data empiris.',
-    sintaksUtama: [
-      'Stimulasi / Pemberian rangsangan fenomena',
-      'Identifikasi masalah dan perumusan hipotesis',
-      'Pengumpulan data melalui observasi atau eksperimen',
-      'Pengolahan dan interpretasi data temuan',
-      'Pembuktian / Verifikasi kebenaran hipotesis',
-      'Menarik kesimpulan dan generalisasi prinsip',
-    ],
-    karakteristikKonteks: 'Mendorong rasa ingin tahu siswa mengamati pola dan data di alam atau keseharian mereka.',
-  },
-  {
-    id: 'diferensiasi',
-    label: 'Pembelajaran Berdiferensiasi (Konten, Proses, Produk)',
-    namaSingkat: 'Berdiferensiasi (Kesiapan Belajar)',
-    deskripsi: 'Akomodasi keragaman kesiapan, profil, dan minat peserta didik dengan scaffolding bertingkat.',
-    sintaksUtama: [
-      'Pemetaan diagnostik kesiapan, minat, dan profil belajar',
-      'Diferensiasi Konten: penyediaan ragam tingkat kesulitan dan media bahan ajar',
-      'Diferensiasi Proses: scaffolding terarah, stasiun rotasi, dan pendampingan bertingkat',
-      'Diferensiasi Produk: kebebasan memilih unjuk pemahaman sesuai kekuatan peserta didik',
-      'Refleksi komprehensif dan umpan balik personal',
-    ],
-    karakteristikKonteks: 'Memastikan semua siswa dari tingkat dasar, menengah, hingga mahir dapat bertumbuh optimal.',
-  },
-  {
-    id: 'kontekstual',
-    label: 'Contextual Teaching and Learning (CTL)',
-    namaSingkat: 'CTL (Kearifan & Konteks Lokal)',
-    deskripsi: 'Menghubungkan materi pelajaran dengan situasi dunia nyata, tradisi lokal, dan ekosistem peserta didik.',
-    sintaksUtama: [
-      'Konstruktivisme: mengaitkan pengetahuan baru dengan pengalaman nyata siswa',
-      'Inkuiri (Menemukan): mengamati fenomena dan kearifan lokal sekitar',
-      'Bertanya (Questioning): memantik rasa ingin tahu dan dialog kritis',
-      'Masyarakat Belajar (Learning Community): kerja sama kolaboratif antar-siswa',
-      'Pemodelan (Modeling): demonstrasi contoh konkret atau figur teladan',
-      'Refleksi & Asesmen Autentik: evaluasi pemahaman bermakna dalam kehidupan nyata',
-    ],
-    karakteristikKonteks: 'Memanfaatkan potensi lokal, budaya daerah, dan lingkungan alam sekitar sekolah sebagai laboratorium belajar.',
-  },
-] as const;
-
 /**
  * Membangun prompt Gemini AI yang kaya pedagogis untuk menyusun Modul Ajar (RPP Plus)
- * Kurikulum Merdeka berbasis 5 model pembelajaran utama dengan konteks lokal.
+ * Kurikulum Merdeka berbasis 7 model pedagogik terstruktur dengan konteks jenjang & alokasi waktu akurat.
  */
 export function buildModulAjarGeminiPrompt(
   tp: CustomTPItem,
   profile: SchoolProfile,
   model: ModulAjarModelType = 'pbl',
-  konteksLokal?: string
+  konteksLokal?: string,
+  timeOptions?: ModulAjarGenerationTimeOptions
 ): string {
-  const modelDef = MODUL_AJAR_MODELS.find((m) => m.id === model) || MODUL_AJAR_MODELS[0];
+  const modelDef = getModulAjarModelDefinition(model);
   const jenjangFase = jenjangToDefaultFase(profile.jenjang, profile.kelasUtama);
-  const alokasiJP = Number(tp.alokasiJP) || 8;
-  const jumlahPertemuan = 2;
-  const menitPerJP = profile.jenjang.includes('SD') ? 35 : profile.jenjang.includes('SMP') ? 40 : 45;
-  const menitPerPertemuan = Math.round((alokasiJP * menitPerJP) / jumlahPertemuan);
+  const timePreset = resolveModulTimePreset(profile, {
+    jpPerPertemuan: timeOptions?.jpPerPertemuan,
+    menitPerJP: timeOptions?.menitPerJP,
+    smkTrackOverride: timeOptions?.smkTrackOverride,
+  });
+  const totalAlokasiJPTP = Math.max(1, Number(tp.alokasiJP) || timePreset.jpPerPertemuan);
+  const effectiveSessionJP =
+    typeof timeOptions?.jpPerPertemuan === 'number' &&
+    Number.isFinite(timeOptions.jpPerPertemuan)
+      ? timePreset.jpPerPertemuan
+      : Math.min(timePreset.jpPerPertemuan, totalAlokasiJPTP);
+  const meetingPlan = computeMeetingsNeededForTP(
+    totalAlokasiJPTP,
+    effectiveSessionJP,
+    timePreset.menitPerJP,
+    timeOptions?.jumlahPertemuan
+  );
+  const jumlahPertemuan = meetingPlan.jumlahPertemuanAktif;
+  const menitPerJP = meetingPlan.menitPerJP;
+  const menitPerPertemuan = meetingPlan.totalMenitPertemuan;
+  const jpPertemuanAktif = meetingPlan.jpPerPertemuan;
+  const teknikNote =
+    modelDef.id === 'cooperative' && timeOptions?.variasiTeknikModel
+      ? ` (Teknik Kooperatif: ${timeOptions.variasiTeknikModel})`
+      : '';
   const subTPText =
     tp.subTP && tp.subTP.length > 0
       ? tp.subTP.map((s) => `  - ${s.kode}: ${s.kompetensi} (${s.buktiKetercapaian})`).join('\n')
@@ -132,7 +104,36 @@ export function buildModulAjarGeminiPrompt(
   const konteks =
     konteksLokal && konteksLokal.trim().length > 0
       ? konteksLokal.trim()
-      : `Penerapan nyata materi ${tp.materiPokok} dalam lingkungan kehidupan sehari-hari peserta didik`;
+      : `Penerapan nyata materi ${tp.materiPokok} sesuai jenjang ${profile.jenjang || 'SMP/MTs'}`;
+  const gradeConstraint =
+    timePreset.jenjangKategori === 'SD/MI'
+      ? 'PENTING KHUSUS SD/MI: Gunakan bahasa ramah anak usia SD dan konteks lingkungan rumah/kelas/sekolah. DILARANG memakai istilah "dunia kerja", "industri", atau jargon perkuliahan.'
+      : timePreset.jenjangKategori === 'SMK' && timePreset.smkTrack === 'kejuruan'
+      ? 'PENTING KHUSUS SMK KEJURUAN: Sertakan prosedur praktik terukur, persiapan alat/bahan, dan aspek keselamatan kerja (K3) yang relevan.'
+      : 'Sesuaikan kedalaman abstraksi dan contoh dengan tingkat perkembangan jenjang kelas.';
+
+  const contohPertemuanJson = Array.from({ length: jumlahPertemuan }, (_, idx) => ({
+    pertemuan: idx + 1,
+    alokasiMenit: menitPerPertemuan,
+    pendahuluan: ['...'],
+    inti: ['...'],
+    penutup: ['...'],
+    tahapTerstruktur: [
+      {
+        fase: 'pendahuluan',
+        namaTahap: 'Pendahuluan & Kesiapan Belajar',
+        tujuanTahap: '...',
+        aktivitasGuru: '...',
+        aktivitasSiswa: '...',
+        instruksiPertanyaan: '...',
+        mediaBahan: '...',
+        durasiMenit: Math.min(20, Math.max(5, Math.round(menitPerPertemuan * 0.12))),
+        buktiBelajar: '...',
+        pengalamanBelajar: 'Memahami',
+        prinsipPembelajaran: ['Berkesadaran'],
+      },
+    ],
+  }));
 
   return `
 Anda adalah Guru Penggerak Teladan Nasional, Pakar Kurikulum Merdeka, dan Perancang Modul Ajar Terbaik di Indonesia.
@@ -150,25 +151,28 @@ IDENTITAS & PROFIL PEMBELAJARAN:
 - Bukti Ketercapaian (KKTP): ${buktiText}
 - Rincian Sub-TP:
 ${subTPText}
-- Alokasi Waktu: ${alokasiJP} JP (${jumlahPertemuan} Pertemuan x ${menitPerPertemuan} Menit, standar ${menitPerJP} menit/JP)
-- Model Pembelajaran Kurikulum Merdeka yang Diterapkan: ${modelDef.label}
+- Alokasi Waktu TP: ${totalAlokasiJPTP} JP (${jumlahPertemuan} Pertemuan x ${jpPertemuanAktif} JP = ${menitPerPertemuan} Menit/pertemuan, standar ${menitPerJP} menit/JP)
+- Model Pembelajaran Kurikulum Merdeka yang Diterapkan: ${modelDef.label}${teknikNote}
 - Deskripsi Pendekatan Model: ${modelDef.deskripsi}
 - SINTAKS PEDAGOGIS WAJIB:
-${modelDef.sintaksUtama.map((s, idx) => `  ${idx + 1}. ${s}`).join('\n')}
+${modelDef.tahapanSintaks.map((s) => `  ${s.urutan}. ${s.namaTahap} — ${s.tujuanTahap}`).join('\n')}
 - TEMA / TOPIK KONTEKS LOKAL NYATA: "${konteks}"
+- ${gradeConstraint}
 
 PANDUAN KOMPONEN INTI KURIKULUM MERDEKA:
-1. "pemahamanBermakna": Rumuskan 1-2 kalimat pemahaman mendalam dan aplikatif mengenai esensi materi "${tp.materiPokok}" dalam menjawab tantangan nyata "${konteks}".
-2. "pertanyaanPemantik": Susun minimal 3 butir pertanyaan pemantik berpikir kritis (HOTS) yang memancing eksplorasi peserta didik terhadap keterkaitan "${tp.materiPokok}" dan "${konteks}".
-3. "profilPelajarPancasila": Pilih 3-4 dimensi Profil Pelajar Pancasila yang paling relevan (misal Bernalar Kritis, Gotong Royong, Mandiri, Kreatif) dengan rincian sikap aplikatif.
+1. "pemahamanBermakna": Rumuskan 1-2 kalimat pemahaman mendalam dan aplikatif mengenai esensi materi "${tp.materiPokok}" dalam konteks "${konteks}".
+2. "pertanyaanPemantik": Susun minimal 3 butir pertanyaan pemantik berpikir kritis yang memancing eksplorasi terhadap "${tp.materiPokok}".
+3. "profilPelajarPancasila": Pilih 3-4 dimensi profil lulusan yang paling relevan dengan rincian sikap aplikatif.
 4. "saranaPrasarana": Tuliskan alat, media peraga, bahan ajar, dan sumber belajar kontekstual yang digunakan.
-5. "bahanBacaan": Susun ringkasan materi ajar guru & siswa (2-3 kalimat padat akurat) serta minimal 3 poin konsep kunci spesifik topik "${tp.materiPokok}" untuk mendukung pemahaman di kelas.
-6. "kegiatanPembelajaran": Susun ${jumlahPertemuan} pertemuan terstruktur yang memuat langkah pembuka, inti, dan penutup, masing-masing berdurasi ${menitPerPertemuan} menit.
-   Pada bagian "inti", WAJIB MENERAPKAN SINTAKS ${modelDef.label} secara eksplisit dan runut per tahap sesuai topik "${tp.materiPokok}".
-7. "asesmen": Deskripsikan instrumen diagnostik awal, asesmen formatif proses, dan asesmen sumatif akhir secara komprehensif.
+5. "bahanBacaan": Susun ringkasan materi ajar guru & siswa serta minimal 3 poin konsep kunci spesifik topik "${tp.materiPokok}".
+6. "kegiatanPembelajaran": Susun tepat ${jumlahPertemuan} pertemuan. Setiap pertemuan wajib berdurasi tepat ${menitPerPertemuan} menit (${jpPertemuanAktif} JP x ${menitPerJP} menit).
+   - Isi "tahapTerstruktur" untuk setiap pertemuan mencakup fase "pendahuluan", seluruh tahapan sintaks "${modelDef.label}" pada fase "inti", dan fase "penutup".
+   - Total "durasiMenit" seluruh tahap pada satu pertemuan HARUS tepat ${menitPerPertemuan} menit.
+   - Setiap tahap wajib berisi instruksi guru konkret, aktivitas siswa konkret, pertanyaan kunci, media, durasiMenit, dan buktiBelajar (tanpa deskripsi umum seperti "guru menjelaskan" atau "siswa berdiskusi").
+7. "asesmen": Deskripsikan instrumen diagnostik awal, asesmen formatif proses, dan asesmen sumatif akhir secara operasional.
 8. "rubrikPenilaianSingkat": Sediakan rubrik penilaian singkat dengan kriteria dan 4 level capaian (baruBerkembang, layak, cakap, mahir).
 9. "pengayaanDanRemedial": Rancang strategi pengayaan analitis dan bimbingan remedial terarah.
-10. "glosarium": Minimal 3 istilah kunci beserta definisinya.
+10. "glosarium": Minimal 3 istilah kunci konsep materi (bukan istilah administrasi CP/TP) beserta definisinya.
 11. "daftarPustaka": Cantumkan kerangka referensi jujur TANPA MENGARANG nama penulis, tahun terbit, nomor ISBN, atau halaman buku fiktif. Gunakan format panduan agar guru melengkapi edisi buku teks resmi sekolah.
 
 PETUNJUK OUTPUT JSON MURNI:
@@ -177,36 +181,21 @@ Kembalikan HANYA format JSON valid tanpa tanda markdown pembuka/penutup (\`\`\`j
   "judul": "Modul Ajar: ${tp.materiPokok} - ${modelDef.label}",
   "pemahamanBermakna": "...",
   "pertanyaanPemantik": [
-    "Pertanyaan pemantik 1 (HOTS)",
-    "Pertanyaan pemantik 2 (HOTS)",
-    "Pertanyaan pemantik 3 (HOTS)"
+    "Pertanyaan pemantik 1",
+    "Pertanyaan pemantik 2",
+    "Pertanyaan pemantik 3"
   ],
   "kompetensiAwal": ["..."],
   "profilPelajarPancasila": ["..."],
   "saranaPrasarana": ["..."],
-  "targetPesertaDidik": "Peserta didik reguler dengan diferensiasi proses dan produk",
-  "modelPembelajaran": "${modelDef.label}",
+  "targetPesertaDidik": "...",
+  "modelPembelajaran": "${modelDef.label}${teknikNote}",
   "bahanBacaan": {
     "ringkasanInti": "...",
     "konsepKunci": ["...", "...", "..."],
     "referensiCatatan": "Lengkapi/sesuaikan sumber bacaan dengan buku teks utama satuan pendidikan."
   },
-  "kegiatanPembelajaran": [
-    {
-      "pertemuan": 1,
-      "alokasiMenit": ${menitPerPertemuan},
-      "pendahuluan": ["..."],
-      "inti": ["..."],
-      "penutup": ["..."]
-    },
-    {
-      "pertemuan": 2,
-      "alokasiMenit": ${menitPerPertemuan},
-      "pendahuluan": ["..."],
-      "inti": ["..."],
-      "penutup": ["..."]
-    }
-  ],
+  "kegiatanPembelajaran": ${JSON.stringify(contohPertemuanJson, null, 2)},
   "asesmen": {
     "diagnostik": "...",
     "formatif": "...",
@@ -247,7 +236,7 @@ function normalizeAIResponseToModulAjar(
   _konteksLokal: string | undefined,
   fallback: ModulAjarDokumen
 ): ModulAjarDokumen {
-  const modelDef = MODUL_AJAR_MODELS.find((m) => m.id === model) || MODUL_AJAR_MODELS[0];
+  const modelDef = getModulAjarModelDefinition(model);
 
   const judul =
     typeof parsed?.judul === 'string' && parsed.judul.trim().length > 0
@@ -290,27 +279,118 @@ function normalizeAIResponseToModulAjar(
       : `${modelDef.label} - ${modelDef.deskripsi}`;
 
   // Normalisasi Langkah Kegiatan Pembelajaran
+  const validPengalaman: Set<PengalamanBelajarPM> = new Set([
+    'Memahami',
+    'Mengaplikasi',
+    'Merefleksi',
+  ]);
+  const validPrinsip: Set<PrinsipPembelajaranPM> = new Set([
+    'Berkesadaran',
+    'Bermakna',
+    'Menggembirakan',
+  ]);
+  const validFase: Set<FaseKegiatanLangkah> = new Set([
+    'pendahuluan',
+    'inti',
+    'penutup',
+  ]);
+
   let kegiatanPembelajaran: KegiatanPembelajaranLangkah[] = fallback.kegiatanPembelajaran;
   if (Array.isArray(parsed?.kegiatanPembelajaran) && parsed.kegiatanPembelajaran.length > 0) {
     kegiatanPembelajaran = parsed.kegiatanPembelajaran.map(
       (item: any, idx: number): KegiatanPembelajaranLangkah => {
         const fb = fallback.kegiatanPembelajaran[idx] || fallback.kegiatanPembelajaran[0];
+        const targetAlokasi = fb.alokasiMenit;
+        let tahapTerstruktur: TahapKegiatanTerstruktur[] | undefined = fb.tahapTerstruktur;
+
+        if (Array.isArray(item?.tahapTerstruktur) && item.tahapTerstruktur.length >= 3) {
+          const normalizedStages: TahapKegiatanTerstruktur[] = item.tahapTerstruktur.map(
+            (st: any, sIdx: number): TahapKegiatanTerstruktur => {
+              const fbSt = fb.tahapTerstruktur?.[sIdx] || fb.tahapTerstruktur?.[0];
+              const fase: FaseKegiatanLangkah = validFase.has(st?.fase)
+                ? st.fase
+                : sIdx === 0
+                ? 'pendahuluan'
+                : sIdx === item.tahapTerstruktur.length - 1
+                ? 'penutup'
+                : 'inti';
+              const peng = validPengalaman.has(st?.pengalamanBelajar)
+                ? (st.pengalamanBelajar as PengalamanBelajarPM)
+                : fbSt?.pengalamanBelajar;
+              const prinsRaw = Array.isArray(st?.prinsipPembelajaran)
+                ? (st.prinsipPembelajaran.filter((p: any) =>
+                    validPrinsip.has(p)
+                  ) as PrinsipPembelajaranPM[])
+                : undefined;
+              const prinsip =
+                prinsRaw && prinsRaw.length > 0 ? prinsRaw : fbSt?.prinsipPembelajaran;
+
+              return {
+                id: `p${idx + 1}_ai_s${sIdx + 1}`,
+                urutan: sIdx + 1,
+                fase,
+                namaTahap:
+                  typeof st?.namaTahap === 'string' && st.namaTahap.trim()
+                    ? st.namaTahap.trim()
+                    : fbSt?.namaTahap || `Tahap ${sIdx + 1}`,
+                tujuanTahap:
+                  typeof st?.tujuanTahap === 'string' && st.tujuanTahap.trim()
+                    ? st.tujuanTahap.trim()
+                    : fbSt?.tujuanTahap || '-',
+                aktivitasGuru:
+                  typeof st?.aktivitasGuru === 'string' && st.aktivitasGuru.trim()
+                    ? st.aktivitasGuru.trim()
+                    : fbSt?.aktivitasGuru || '-',
+                aktivitasSiswa:
+                  typeof st?.aktivitasSiswa === 'string' && st.aktivitasSiswa.trim()
+                    ? st.aktivitasSiswa.trim()
+                    : fbSt?.aktivitasSiswa || '-',
+                instruksiPertanyaan:
+                  typeof st?.instruksiPertanyaan === 'string' && st.instruksiPertanyaan.trim()
+                    ? st.instruksiPertanyaan.trim()
+                    : fbSt?.instruksiPertanyaan || '-',
+                mediaBahan:
+                  typeof st?.mediaBahan === 'string' && st.mediaBahan.trim()
+                    ? st.mediaBahan.trim()
+                    : fbSt?.mediaBahan || '-',
+                durasiMenit:
+                  typeof st?.durasiMenit === 'number' && st.durasiMenit > 0
+                    ? Math.round(st.durasiMenit)
+                    : fbSt?.durasiMenit || 10,
+                buktiBelajar:
+                  typeof st?.buktiBelajar === 'string' && st.buktiBelajar.trim()
+                    ? st.buktiBelajar.trim()
+                    : fbSt?.buktiBelajar || '-',
+                ...(peng ? { pengalamanBelajar: peng } : {}),
+                ...(prinsip && prinsip.length > 0 ? { prinsipPembelajaran: prinsip } : {}),
+              };
+            }
+          );
+          tahapTerstruktur = reconcileSessionStageDurations(normalizedStages, targetAlokasi);
+        }
+
+        const legacyFromStructured = tahapTerstruktur
+          ? syncLegacyArraysFromStructuredStages(tahapTerstruktur)
+          : null;
+
         return {
           pertemuan: typeof item?.pertemuan === 'number' ? item.pertemuan : idx + 1,
-          alokasiMenit:
-            typeof item?.alokasiMenit === 'number' ? item.alokasiMenit : fb.alokasiMenit,
+          alokasiMenit: targetAlokasi,
+          jpPertemuan: fb.jpPertemuan,
+          fokusPertemuan: fb.fokusPertemuan,
           pendahuluan:
             Array.isArray(item?.pendahuluan) && item.pendahuluan.length > 0
               ? item.pendahuluan.map(String)
-              : fb.pendahuluan,
+              : legacyFromStructured?.pendahuluan || fb.pendahuluan,
           inti:
             Array.isArray(item?.inti) && item.inti.length > 0
               ? item.inti.map(String)
-              : fb.inti,
+              : legacyFromStructured?.inti || fb.inti,
           penutup:
             Array.isArray(item?.penutup) && item.penutup.length > 0
               ? item.penutup.map(String)
-              : fb.penutup,
+              : legacyFromStructured?.penutup || fb.penutup,
+          tahapTerstruktur,
         };
       }
     );
@@ -427,9 +507,17 @@ function normalizeAIResponseToModulAjar(
     prasyaratMateri: fallback.prasyaratMateri,
     buktiKetercapaian: fallback.buktiKetercapaian,
     modelType: model,
+    sintaksModelId: modelDef.id,
     draftSource: 'ai_generated',
     judul,
     modelPembelajaran,
+    jumlahPertemuan: kegiatanPembelajaran.length || fallback.jumlahPertemuan,
+    alokasiWaktuDetail: fallback.alokasiWaktuDetail
+      ? {
+          ...fallback.alokasiWaktuDetail,
+          jumlahPertemuan: kegiatanPembelajaran.length || fallback.jumlahPertemuan,
+        }
+      : undefined,
     pemahamanBermakna,
     pertanyaanPemantik,
     kompetensiAwal,
@@ -456,17 +544,28 @@ export async function generateContextualModulAjarWithAI(
   tp: CustomTPItem,
   profile: SchoolProfile,
   model: ModulAjarModelType = 'pbl',
-  konteksLokal?: string
+  konteksLokal?: string,
+  timeOptions?: ModulAjarGenerationTimeOptions
 ): Promise<ContextualModulAjarResult> {
-  const fallback = buildSmartModulAjar(tp, profile);
-  fallback.modelType = model;
-  const modelDef = MODUL_AJAR_MODELS.find((m) => m.id === model) || MODUL_AJAR_MODELS[0];
-  if (modelDef) {
-    fallback.modelPembelajaran = `${modelDef.label} - ${modelDef.deskripsi}`;
-  }
+  const modelDef = getModulAjarModelDefinition(model);
+  const fallback = buildSmartModulAjar(tp, profile, {
+    model: modelDef.id,
+    jpPerPertemuan: timeOptions?.jpPerPertemuan,
+    menitPerJP: timeOptions?.menitPerJP,
+    jumlahPertemuan: timeOptions?.jumlahPertemuan,
+    smkTrackOverride: timeOptions?.smkTrackOverride,
+    variasiTeknikModel: timeOptions?.variasiTeknikModel,
+    konteksLokal,
+  });
 
   try {
-    const prompt = buildModulAjarGeminiPrompt(tp, profile, model, konteksLokal);
+    const prompt = buildModulAjarGeminiPrompt(
+      tp,
+      profile,
+      modelDef.id,
+      konteksLokal,
+      timeOptions
+    );
     const parsed = await callGeminiStructuredJSON({
       prompt,
       temperature: 0.45,
@@ -479,7 +578,14 @@ export async function generateContextualModulAjarWithAI(
     // Deduksi kuota jika pengguna berlisensi aktif
     deductQuota();
 
-    const modul = normalizeAIResponseToModulAjar(parsed, tp, profile, model, konteksLokal, fallback);
+    const modul = normalizeAIResponseToModulAjar(
+      parsed,
+      tp,
+      profile,
+      modelDef.id,
+      konteksLokal,
+      fallback
+    );
     return {
       modul,
       usedFallback: false,

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import {
   FileDown,
   Printer,
@@ -9,16 +9,39 @@ import {
   RefreshCw,
   Share2,
   Save,
+  Clock,
+  AlertTriangle,
+  CheckCircle2,
+  Layers,
 } from 'lucide-react';
-import type { ModulAjarDokumen } from '../types/perangkatAjar';
+import type {
+  CooperativeTechniqueVariant,
+  KegiatanPembelajaranLangkah,
+  ModulAjarDokumen,
+  TahapKegiatanTerstruktur,
+} from '../types/perangkatAjar';
 import type { SchoolProfile, CustomTPItem } from '../utils/schoolProfileStorage';
 import { getSchoolProfile } from '../utils/schoolProfileStorage';
 import { exportModulAjarToDocx } from '../utils/docxExporter';
 import {
   generateContextualModulAjarWithAI,
   MODUL_AJAR_MODELS,
+  COOPERATIVE_TECHNIQUE_VARIANTS,
+  getModulAjarModelDefinition,
+  isValidModulAjarModelType,
   type ModulAjarModelType,
 } from '../utils/modulAjarAiService';
+import { isLegacyModulAjarModelId } from '../utils/modulPedagogicalModels';
+import {
+  computeMeetingsNeededForTP,
+  formatAlokasiWaktuLabel,
+  reconcileSessionStageDurations,
+  resolveModulTimePreset,
+  syncLegacyArraysFromStructuredStages,
+  validateModulTimeBudget,
+  validateSessionTimeBudget,
+} from '../utils/modulTimeBudget';
+import { buildSmartModulAjar } from '../utils/perangkatAjarEngine';
 import {
   fetchSharedCurriculum,
   publishSharedCurriculum,
@@ -65,6 +88,9 @@ const AutoExpandingTextarea: React.FC<AutoExpandingTextareaProps> = ({
 
   useEffect(() => {
     adjustHeight();
+    if (typeof window === 'undefined') return;
+    window.addEventListener('resize', adjustHeight);
+    return () => window.removeEventListener('resize', adjustHeight);
   }, [value]);
 
   return (
@@ -78,6 +104,7 @@ const AutoExpandingTextarea: React.FC<AutoExpandingTextareaProps> = ({
       }}
       className={className}
       style={{
+        width: '100%',
         overflow: 'hidden',
         resize: 'none',
         display: 'block',
@@ -101,19 +128,14 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
-  const initialModel: ModulAjarModelType =
-    (modul.modelType as ModulAjarModelType) &&
-    MODUL_AJAR_MODELS.some((m) => m.id === modul.modelType)
-      ? (modul.modelType as ModulAjarModelType)
-      : 'pbl';
+  const initialPreset = resolveModulTimePreset(activeProfile);
+  const initialModel: ModulAjarModelType = isValidModulAjarModelType(modul.modelType)
+    ? modul.modelType
+    : 'pbl';
 
-  const [selectedModel, setSelectedModel] = useState<ModulAjarModelType>(initialModel);
-  const [konteksInput, setKonteksInput] = useState<string>('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [isFromCommunity, setIsFromCommunity] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'Tersimpan' | 'Menyimpan...' | 'Gagal menyimpan'>('Tersimpan');
   const [editableDoc, setEditableDoc] = useState<ModulAjarDokumen>(() => {
+    const fallbackJP =
+      modul.alokasiWaktuDetail?.totalAlokasiJPTP || initialPreset.jpPerPertemuan;
     const initialTP: CustomTPItem = customTP || {
       id: modul.tpId || `tp-${modul.tpKode}`,
       kode: modul.tpKode,
@@ -121,13 +143,64 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
       materiPokok: modul.materiPokok || '',
       tujuanPembelajaran: modul.tujuanPembelajaran || '',
       arahanRangkuman: '',
-      alokasiJP: 2,
+      alokasiJP: fallbackJP,
       mingguMulai: 1,
       mingguSelesai: 1,
     };
-    const restored = loadModulAjarDraft(activeProfile, initialTP, initialModel);
+    const lookupVariant = isLegacyModulAjarModelId(modul.modelType)
+      ? modul.modelType
+      : isValidModulAjarModelType(modul.modelType)
+      ? modul.modelType
+      : initialModel;
+    const restored = loadModulAjarDraft(activeProfile, initialTP, lookupVariant);
     return restored || modul;
   });
+
+  const [selectedModel, setSelectedModel] = useState<ModulAjarModelType>(() =>
+    isValidModulAjarModelType(editableDoc.modelType) ? editableDoc.modelType : initialModel
+  );
+  const [cooperativeVariant, setCooperativeVariant] = useState<CooperativeTechniqueVariant>(() =>
+    COOPERATIVE_TECHNIQUE_VARIANTS.includes(editableDoc.variasiTeknikModel as CooperativeTechniqueVariant)
+      ? (editableDoc.variasiTeknikModel as CooperativeTechniqueVariant)
+      : 'Think-Pair-Share'
+  );
+  const [smkTrackOverride, setSmkTrackOverride] = useState<'umum' | 'kejuruan' | undefined>(() =>
+    editableDoc.alokasiWaktuDetail?.smkTrack === 'umum' ||
+    editableDoc.alokasiWaktuDetail?.smkTrack === 'kejuruan'
+      ? editableDoc.alokasiWaktuDetail.smkTrack
+      : undefined
+  );
+  const [jpPerPertemuan, setJpPerPertemuan] = useState<number>(
+    () => editableDoc.alokasiWaktuDetail?.jpPerPertemuan || initialPreset.jpPerPertemuan
+  );
+  const [menitPerJP, setMenitPerJP] = useState<number>(
+    () => editableDoc.alokasiWaktuDetail?.menitPerJP || initialPreset.menitPerJP
+  );
+  const [jumlahPertemuan, setJumlahPertemuan] = useState<number>(
+    () =>
+      editableDoc.alokasiWaktuDetail?.jumlahPertemuan ||
+      editableDoc.jumlahPertemuan ||
+      editableDoc.kegiatanPembelajaran?.length ||
+      1
+  );
+  const [pendingModelSwitch, setPendingModelSwitch] = useState<{
+    targetModel: ModulAjarModelType;
+  } | null>(null);
+  const [konteksInput, setKonteksInput] = useState<string>('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isFromCommunity, setIsFromCommunity] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'Tersimpan' | 'Menyimpan...' | 'Gagal menyimpan'>('Tersimpan');
+
+  const resolvedTimePreset = useMemo(
+    () =>
+      resolveModulTimePreset(activeProfile, {
+        jpPerPertemuan,
+        menitPerJP,
+        smkTrackOverride,
+      }),
+    [activeProfile, jpPerPertemuan, menitPerJP, smkTrackOverride]
+  );
 
   const effectiveTP: CustomTPItem = customTP || {
     id: editableDoc.tpId || modul.tpId || `tp-${modul.tpKode}`,
@@ -136,10 +209,37 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
     materiPokok: modul.materiPokok || '',
     tujuanPembelajaran: modul.tujuanPembelajaran || '',
     arahanRangkuman: '',
-    alokasiJP: 2,
+    alokasiJP:
+      editableDoc.alokasiWaktuDetail?.totalAlokasiJPTP ||
+      modul.alokasiWaktuDetail?.totalAlokasiJPTP ||
+      resolvedTimePreset.jpPerPertemuan,
     mingguMulai: 1,
     mingguSelesai: 1,
   };
+
+  const totalAlokasiJPTP = Math.max(
+    1,
+    Number(effectiveTP.alokasiJP) || resolvedTimePreset.jpPerPertemuan
+  );
+  const activeMeetingPlan = useMemo(
+    () =>
+      computeMeetingsNeededForTP(
+        totalAlokasiJPTP,
+        jpPerPertemuan,
+        menitPerJP,
+        jumlahPertemuan
+      ),
+    [totalAlokasiJPTP, jpPerPertemuan, menitPerJP, jumlahPertemuan]
+  );
+  const selectedModelDef = useMemo(
+    () => getModulAjarModelDefinition(selectedModel),
+    [selectedModel]
+  );
+  const timeValidation = useMemo(
+    () => validateModulTimeBudget(editableDoc, activeProfile),
+    [editableDoc, activeProfile]
+  );
+  const isLegacyDifferentiatedDraft = isLegacyModulAjarModelId(editableDoc.modelType);
 
   const tpId = effectiveTP.id;
   const tpKode = effectiveTP.kode || modul.tpKode;
@@ -154,18 +254,60 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
     setTimeout(() => setToastMsg(null), 2600);
   };
 
+  const syncTimeStatesFromDoc = (doc: ModulAjarDokumen) => {
+    const preset = resolveModulTimePreset(activeProfile);
+    if (doc.alokasiWaktuDetail) {
+      setJpPerPertemuan(doc.alokasiWaktuDetail.jpPerPertemuan || preset.jpPerPertemuan);
+      setMenitPerJP(doc.alokasiWaktuDetail.menitPerJP || preset.menitPerJP);
+      setJumlahPertemuan(
+        doc.alokasiWaktuDetail.jumlahPertemuan ||
+          doc.jumlahPertemuan ||
+          doc.kegiatanPembelajaran?.length ||
+          1
+      );
+      if (
+        doc.alokasiWaktuDetail.smkTrack === 'umum' ||
+        doc.alokasiWaktuDetail.smkTrack === 'kejuruan'
+      ) {
+        setSmkTrackOverride(doc.alokasiWaktuDetail.smkTrack);
+      }
+    } else {
+      setJpPerPertemuan(preset.jpPerPertemuan);
+      setMenitPerJP(preset.menitPerJP);
+      setJumlahPertemuan(
+        doc.jumlahPertemuan || doc.kegiatanPembelajaran?.length || 1
+      );
+    }
+    if (
+      doc.variasiTeknikModel &&
+      COOPERATIVE_TECHNIQUE_VARIANTS.includes(
+        doc.variasiTeknikModel as CooperativeTechniqueVariant
+      )
+    ) {
+      setCooperativeVariant(doc.variasiTeknikModel as CooperativeTechniqueVariant);
+    }
+  };
+
   const pendingFlushRef = useRef<{
     dirty: boolean;
     doc: ModulAjarDokumen;
     profile: SchoolProfile;
     tp: CustomTPItem;
-    model: ModulAjarModelType;
+    model: string;
   }>({
     dirty: false,
     doc: editableDoc,
     profile: activeProfile,
     tp: effectiveTP,
-    model: selectedModel,
+    model: isLegacyModulAjarModelId(editableDoc.modelType)
+      ? editableDoc.modelType!
+      : selectedModel,
+  });
+
+  const lastSyncedDocRef = useRef<{ tpKey: string; savedAt?: string; id?: string }>({
+    tpKey: `${tpId}|${tpKode}|${academicContextKey}`,
+    savedAt: editableDoc.savedAt,
+    id: editableDoc.id,
   });
 
   const flushModulSaveNow = (
@@ -175,15 +317,23 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
     const payload = pendingFlushRef.current;
     const docToSave = overrideDoc || payload.doc;
     if (!overrideDoc && !payload.dirty) return;
+    const targetVariant = isLegacyModulAjarModelId(docToSave.modelType)
+      ? docToSave.modelType!
+      : docToSave.modelType || payload.model;
     const res = saveModulAjarDraft(
       payload.profile,
       payload.tp,
-      payload.model,
+      targetVariant,
       docToSave,
       overrideSource || docToSave.draftSource || 'user_edited'
     );
     pendingFlushRef.current.dirty = false;
     pendingFlushRef.current.doc = res.doc;
+    lastSyncedDocRef.current = {
+      tpKey: `${tpId}|${tpKode}|${academicContextKey}`,
+      savedAt: res.doc.savedAt,
+      id: res.doc.id,
+    };
     if (res.ok) {
       setSaveStatus('Tersimpan');
       onDraftSaved?.(res.doc);
@@ -194,17 +344,28 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
 
   const saveToLocalStorage = (
     doc: ModulAjarDokumen,
-    source: 'user_edited' | 'ai_generated' | 'template' = 'user_edited'
+    source: 'user_edited' | 'ai_generated' | 'template' = 'user_edited',
+    explicitModel?: string
   ) => {
     setSaveStatus('Menyimpan...');
+    const normalizedDoc =
+      doc.draftSource === source ? doc : { ...doc, draftSource: source };
+    if (source === 'user_edited' && doc.draftSource !== 'user_edited') {
+      setEditableDoc(normalizedDoc);
+    }
+    const variantKey =
+      explicitModel ||
+      (isLegacyModulAjarModelId(normalizedDoc.modelType)
+        ? normalizedDoc.modelType!
+        : normalizedDoc.modelType || selectedModel);
     pendingFlushRef.current = {
       dirty: true,
-      doc,
+      doc: normalizedDoc,
       profile: activeProfile,
       tp: effectiveTP,
-      model: selectedModel,
+      model: variantKey,
     };
-    flushModulSaveNow(doc, source);
+    flushModulSaveNow(normalizedDoc, source);
   };
 
   useEffect(() => {
@@ -235,100 +396,334 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
     };
   }, []);
 
-  // Auto-Loading Shared Bank / Local Draft saat TP, konteks kelas, atau selectedModel berubah
-  const prevModelRef = useRef<ModulAjarModelType | null>(null);
-
+  // Muat draf tersimpan / referensi bank saat TP atau konteks akademik berubah
   useEffect(() => {
+    const nextTpKey = `${tpId}|${tpKode}|${academicContextKey}`;
+    if (
+      lastSyncedDocRef.current.tpKey === nextTpKey &&
+      modul.savedAt &&
+      lastSyncedDocRef.current.savedAt === modul.savedAt &&
+      lastSyncedDocRef.current.id === modul.id
+    ) {
+      return;
+    }
+
     let isMounted = true;
-    const isModelChange =
-      prevModelRef.current !== null && prevModelRef.current !== selectedModel;
-    prevModelRef.current = selectedModel;
+    setPendingModelSwitch(null);
 
-    pendingFlushRef.current = {
-      dirty: false,
-      doc: editableDoc,
-      profile: activeProfile,
-      tp: effectiveTP,
-      model: selectedModel,
-    };
+    const lookupModel = isLegacyModulAjarModelId(modul.modelType)
+      ? modul.modelType
+      : isValidModulAjarModelType(modul.modelType)
+      ? modul.modelType
+      : 'pbl';
 
-    const selectedModelDef =
-      MODUL_AJAR_MODELS.find((m) => m.id === selectedModel) || MODUL_AJAR_MODELS[0];
-
-    const getFallbackDoc = (): ModulAjarDokumen => ({
-      ...modul,
-      tpId,
-      modelType: selectedModel,
-      modelPembelajaran: selectedModelDef.deskripsi
-        ? `${selectedModelDef.label} - ${selectedModelDef.deskripsi}`
-        : selectedModelDef.label,
-    });
-
-    const loadDraft = async () => {
+    const hydrateInitial = async () => {
       try {
-        const localDraft = loadModulAjarDraft(activeProfile, effectiveTP, selectedModel);
+        const localDraft = loadModulAjarDraft(activeProfile, effectiveTP, lookupModel);
         if (localDraft) {
-          if (isMounted) {
-            setEditableDoc(localDraft);
-            pendingFlushRef.current.doc = localDraft;
-            pendingFlushRef.current.dirty = false;
-            setSaveStatus('Tersimpan');
-            setIsFromCommunity(false);
+          if (!isMounted) return;
+          setEditableDoc(localDraft);
+          if (isValidModulAjarModelType(localDraft.modelType)) {
+            setSelectedModel(localDraft.modelType);
           }
+          syncTimeStatesFromDoc(localDraft);
+          pendingFlushRef.current = {
+            dirty: false,
+            doc: localDraft,
+            profile: activeProfile,
+            tp: effectiveTP,
+            model: localDraft.modelType || lookupModel,
+          };
+          setSaveStatus('Tersimpan');
+          setIsFromCommunity(false);
           return;
         }
 
-        // Jika tidak di penyimpanan lokal terisolasi, cari di Bank Referensi Bersama
-        const res = await fetchSharedCurriculum<ModulAjarDokumen>({
-          type: 'modul_ajar',
-          jenjang,
-          kelas,
-          mapel,
-          tpKode,
-          materiPokok,
-          model: selectedModel,
-        });
+        // Gunakan modul awal (atau bangun ulang sadar-jenjang bila konteks profil berubah)
+        setEditableDoc(modul);
+        if (isValidModulAjarModelType(modul.modelType)) {
+          setSelectedModel(modul.modelType);
+        }
+        syncTimeStatesFromDoc(modul);
+        pendingFlushRef.current = {
+          dirty: false,
+          doc: modul,
+          profile: activeProfile,
+          tp: effectiveTP,
+          model: modul.modelType || lookupModel,
+        };
+        setIsFromCommunity(false);
 
-        if (!isMounted) return;
-
-        if (res.found && res.data) {
-          const hydrated = hydrateSharedDocWithLocalProfile(res.data, activeProfile);
-          setEditableDoc(hydrated);
-          pendingFlushRef.current.doc = hydrated;
-          setIsFromCommunity(true);
-          showToast('Draf referensi guru komunitas berhasil dimuat!');
-        } else {
-          const fallback = getFallbackDoc();
-          setEditableDoc(fallback);
-          pendingFlushRef.current.doc = fallback;
-          setIsFromCommunity(false);
-          if (isModelChange) {
-            showToast(
-              `Draf untuk model ${selectedModelDef.label} belum tersedia. Silakan klik "✨ Buat / Regenerasi AI" untuk merancang modul baru.`
-            );
+        if (!isLegacyModulAjarModelId(modul.modelType) && modul.draftSource === 'template') {
+          const res = await fetchSharedCurriculum<ModulAjarDokumen>({
+            type: 'modul_ajar',
+            jenjang,
+            kelas,
+            mapel,
+            tpKode,
+            materiPokok,
+            model: lookupModel,
+          });
+          if (!isMounted) return;
+          if (res.found && res.data) {
+            const hydrated = hydrateSharedDocWithLocalProfile(res.data, activeProfile);
+            setEditableDoc(hydrated);
+            syncTimeStatesFromDoc(hydrated);
+            pendingFlushRef.current.doc = hydrated;
+            setIsFromCommunity(true);
+            showToast('Draf referensi guru komunitas berhasil dimuat!');
           }
         }
       } catch {
-        if (isMounted) {
-          const fallback = getFallbackDoc();
-          setEditableDoc(fallback);
-          pendingFlushRef.current.doc = fallback;
-          setIsFromCommunity(false);
-          if (isModelChange) {
-            showToast(
-              `Draf untuk model ${selectedModelDef.label} belum tersedia. Silakan klik "✨ Buat / Regenerasi AI" untuk merancang modul baru.`
-            );
-          }
-        }
+        if (!isMounted) return;
+        setEditableDoc(modul);
+        syncTimeStatesFromDoc(modul);
+        setIsFromCommunity(false);
       }
     };
 
-    loadDraft();
+    hydrateInitial();
 
     return () => {
       isMounted = false;
     };
-  }, [tpId, tpKode, academicContextKey, selectedModel, modul]);
+  }, [tpId, tpKode, academicContextKey, modul]);
+
+  const applyModelSyntaxSwitch = (
+    targetModel: ModulAjarModelType,
+    overrideVariant?: CooperativeTechniqueVariant
+  ) => {
+    const nextVariant = overrideVariant || cooperativeVariant;
+    const regenerated = buildSmartModulAjar(effectiveTP, activeProfile, {
+      model: targetModel,
+      jpPerPertemuan,
+      menitPerJP,
+      jumlahPertemuan,
+      smkTrackOverride,
+      variasiTeknikModel: nextVariant,
+      konteksLokal: konteksInput.trim() || undefined,
+    });
+    setSelectedModel(targetModel);
+    if (overrideVariant) {
+      setCooperativeVariant(overrideVariant);
+    }
+    setPendingModelSwitch(null);
+    setIsFromCommunity(false);
+    setEditableDoc(regenerated);
+    saveToLocalStorage(regenerated, 'template', targetModel);
+    const targetDef = getModulAjarModelDefinition(targetModel);
+    showToast(`Sintaks modul diperbarui ke ${targetDef.label}.`);
+  };
+
+  const handleModelSelectChange = (targetModel: ModulAjarModelType) => {
+    flushModulSaveNow();
+    if (targetModel === selectedModel && !isLegacyDifferentiatedDraft) {
+      return;
+    }
+
+    const savedForTarget = loadModulAjarDraft(activeProfile, effectiveTP, targetModel);
+    if (savedForTarget) {
+      setPendingModelSwitch(null);
+      setSelectedModel(targetModel);
+      setEditableDoc(savedForTarget);
+      syncTimeStatesFromDoc(savedForTarget);
+      pendingFlushRef.current = {
+        dirty: false,
+        doc: savedForTarget,
+        profile: activeProfile,
+        tp: effectiveTP,
+        model: targetModel,
+      };
+      setIsFromCommunity(false);
+      showToast(`Draf tersimpan model ${getModulAjarModelDefinition(targetModel).namaSingkat} dimuat.`);
+      return;
+    }
+
+    if (editableDoc.draftSource === 'user_edited' || isLegacyDifferentiatedDraft) {
+      setPendingModelSwitch({ targetModel });
+      return;
+    }
+
+    applyModelSyntaxSwitch(targetModel);
+  };
+
+  const applyTimeConfigChange = (params: {
+    nextJP?: number;
+    nextMenit?: number;
+    nextMeetings?: number;
+    nextSmkTrack?: 'umum' | 'kejuruan';
+  }) => {
+    const targetSmkTrack =
+      params.nextSmkTrack !== undefined ? params.nextSmkTrack : smkTrackOverride;
+    const effectivePreset = resolveModulTimePreset(activeProfile, {
+      smkTrackOverride: targetSmkTrack,
+    });
+
+    const targetJP =
+      params.nextJP !== undefined
+        ? Math.max(1, Math.min(12, Math.round(params.nextJP)))
+        : params.nextSmkTrack !== undefined
+        ? effectivePreset.jpPerPertemuan
+        : jpPerPertemuan;
+    const targetMenit =
+      params.nextMenit !== undefined
+        ? Math.max(20, Math.min(90, Math.round(params.nextMenit)))
+        : menitPerJP;
+    const tempPlan = computeMeetingsNeededForTP(
+      totalAlokasiJPTP,
+      targetJP,
+      targetMenit,
+      params.nextMeetings
+    );
+    const targetMeetings =
+      params.nextMeetings !== undefined
+        ? Math.max(1, Math.min(12, Math.round(params.nextMeetings)))
+        : params.nextSmkTrack !== undefined || params.nextJP !== undefined
+        ? tempPlan.jumlahPertemuanDisarankan
+        : jumlahPertemuan;
+
+    const finalPlan = computeMeetingsNeededForTP(
+      totalAlokasiJPTP,
+      targetJP,
+      targetMenit,
+      targetMeetings
+    );
+
+    if (params.nextSmkTrack !== undefined) setSmkTrackOverride(params.nextSmkTrack);
+    setJpPerPertemuan(finalPlan.jpPerPertemuan);
+    setMenitPerJP(finalPlan.menitPerJP);
+    setJumlahPertemuan(finalPlan.jumlahPertemuanAktif);
+
+    const activeVariant = isLegacyModulAjarModelId(editableDoc.modelType)
+      ? editableDoc.modelType!
+      : selectedModel;
+
+    // Bila masih template & tidak legacy, regenerasikan modul penuh sesuai waktu baru
+    if (editableDoc.draftSource === 'template' && !isLegacyDifferentiatedDraft) {
+      const rebuilt = buildSmartModulAjar(effectiveTP, activeProfile, {
+        model: selectedModel,
+        jpPerPertemuan: finalPlan.jpPerPertemuan,
+        menitPerJP: finalPlan.menitPerJP,
+        jumlahPertemuan: finalPlan.jumlahPertemuanAktif,
+        smkTrackOverride: targetSmkTrack,
+        variasiTeknikModel: cooperativeVariant,
+        konteksLokal: konteksInput.trim() || undefined,
+      });
+      setEditableDoc(rebuilt);
+      saveToLocalStorage(rebuilt, 'template', selectedModel);
+      showToast(`Alokasi waktu disesuaikan: ${finalPlan.jpPerPertemuan} JP × ${finalPlan.menitPerJP} mnt = ${finalPlan.totalMenitPertemuan} mnt/pertemuan.`);
+      return;
+    }
+
+    // Pertahankan suntingan guru / AI / legacy sambil menyesuaikan durasi agar tepat invariant
+    const fallbackPool = buildSmartModulAjar(effectiveTP, activeProfile, {
+      model: selectedModel,
+      jpPerPertemuan: finalPlan.jpPerPertemuan,
+      menitPerJP: finalPlan.menitPerJP,
+      jumlahPertemuan: finalPlan.jumlahPertemuanAktif,
+      smkTrackOverride: targetSmkTrack,
+      variasiTeknikModel: cooperativeVariant,
+      konteksLokal: konteksInput.trim() || undefined,
+    });
+
+    const nextKegiatan: KegiatanPembelajaranLangkah[] = Array.from(
+      { length: finalPlan.jumlahPertemuanAktif },
+      (_, idx) => {
+        const existingKeg = editableDoc.kegiatanPembelajaran?.[idx];
+        const fallbackKeg =
+          fallbackPool.kegiatanPembelajaran[idx] || fallbackPool.kegiatanPembelajaran[0];
+        if (!existingKeg) {
+          return {
+            ...fallbackKeg,
+            pertemuan: idx + 1,
+          };
+        }
+        if (
+          Array.isArray(existingKeg.tahapTerstruktur) &&
+          existingKeg.tahapTerstruktur.length > 0
+        ) {
+          const reconciled = reconcileSessionStageDurations(
+            existingKeg.tahapTerstruktur,
+            finalPlan.totalMenitPertemuan
+          );
+          const syncedLegacy = syncLegacyArraysFromStructuredStages(reconciled);
+          return {
+            ...existingKeg,
+            pertemuan: idx + 1,
+            jpPertemuan: finalPlan.jpPerPertemuan,
+            alokasiMenit: finalPlan.totalMenitPertemuan,
+            ...syncedLegacy,
+            tahapTerstruktur: reconciled,
+          };
+        }
+        return {
+          ...existingKeg,
+          pertemuan: idx + 1,
+          jpPertemuan: finalPlan.jpPerPertemuan,
+          alokasiMenit: finalPlan.totalMenitPertemuan,
+        };
+      }
+    );
+
+    const updatedDoc: ModulAjarDokumen = {
+      ...editableDoc,
+      alokasiWaktu: formatAlokasiWaktuLabel(finalPlan),
+      jumlahPertemuan: finalPlan.jumlahPertemuanAktif,
+      alokasiWaktuDetail: {
+        jenjangKategori: effectivePreset.jenjangKategori,
+        ...(effectivePreset.smkTrack ? { smkTrack: effectivePreset.smkTrack } : {}),
+        jpPerPertemuan: finalPlan.jpPerPertemuan,
+        menitPerJP: finalPlan.menitPerJP,
+        totalMenitPertemuan: finalPlan.totalMenitPertemuan,
+        jumlahPertemuan: finalPlan.jumlahPertemuanAktif,
+        totalAlokasiJPTP: finalPlan.totalAlokasiJPTP,
+        sumberPreset: 'override_guru',
+      },
+      kegiatanPembelajaran: nextKegiatan,
+    };
+
+    setEditableDoc(updatedDoc);
+    saveToLocalStorage(
+      updatedDoc,
+      updatedDoc.draftSource === 'ai_generated'
+        ? 'ai_generated'
+        : updatedDoc.draftSource === 'user_edited'
+        ? 'user_edited'
+        : 'template',
+      activeVariant
+    );
+    showToast(`Alokasi waktu disesuaikan: ${finalPlan.totalMenitPertemuan} mnt/pertemuan.`);
+  };
+
+  const handleAutoReconcileDurations = () => {
+    const targetMenit = activeMeetingPlan.totalMenitPertemuan;
+    const nextKegiatan = (editableDoc.kegiatanPembelajaran || []).map((keg) => {
+      if (Array.isArray(keg.tahapTerstruktur) && keg.tahapTerstruktur.length > 0) {
+        const reconciled = reconcileSessionStageDurations(keg.tahapTerstruktur, targetMenit);
+        const syncedLegacy = syncLegacyArraysFromStructuredStages(reconciled);
+        return {
+          ...keg,
+          jpPertemuan: activeMeetingPlan.jpPerPertemuan,
+          alokasiMenit: targetMenit,
+          ...syncedLegacy,
+          tahapTerstruktur: reconciled,
+        };
+      }
+      return {
+        ...keg,
+        jpPertemuan: activeMeetingPlan.jpPerPertemuan,
+        alokasiMenit: targetMenit,
+      };
+    });
+    const updatedDoc: ModulAjarDokumen = {
+      ...editableDoc,
+      alokasiWaktu: formatAlokasiWaktuLabel(activeMeetingPlan),
+      kegiatanPembelajaran: nextKegiatan,
+    };
+    setEditableDoc(updatedDoc);
+    saveToLocalStorage(updatedDoc, updatedDoc.draftSource === 'ai_generated' ? 'ai_generated' : 'user_edited');
+    showToast(`Durasi tiap tahap disesuaikan tepat menjadi ${targetMenit} menit per pertemuan.`);
+  };
 
   const handleGenerateAI = async () => {
     if (!requireActiveLicenseForAction('membuat draf Modul Ajar AI')) {
@@ -340,7 +735,14 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         effectiveTP,
         activeProfile,
         selectedModel,
-        konteksInput.trim() || undefined
+        konteksInput.trim() || undefined,
+        {
+          jpPerPertemuan,
+          menitPerJP,
+          jumlahPertemuan,
+          smkTrackOverride,
+          variasiTeknikModel: selectedModel === 'cooperative' ? cooperativeVariant : undefined,
+        }
       );
       const sourceKind = result.usedFallback ? 'template' : 'ai_generated';
       const nextDoc: ModulAjarDokumen = {
@@ -350,10 +752,11 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         draftSource: sourceKind,
       };
       setEditableDoc(nextDoc);
-      saveToLocalStorage(nextDoc, sourceKind);
+      syncTimeStatesFromDoc(nextDoc);
+      saveToLocalStorage(nextDoc, sourceKind, selectedModel);
       setIsFromCommunity(false);
       if (result.usedFallback) {
-        showToast('Draf dibuat dengan template otomatis (offline/fallback).');
+        showToast('Draf dibuat dengan template otomatis sesuai model & waktu (offline/fallback).');
       } else {
         showToast('✨ Modul Ajar AI berhasil dibuat!');
       }
@@ -415,7 +818,8 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           style={{
             position: 'fixed',
             bottom: 24,
-            right: 24,
+            right: 16,
+            maxWidth: 'calc(100vw - 32px)',
             background: '#059669',
             color: '#ffffff',
             padding: '12px 20px',
@@ -555,16 +959,18 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             borderTop: '1px solid #e2e8f0',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 280px', minWidth: 240 }}>
-            <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 260px', minWidth: 220 }}>
+            <label
+              htmlFor="modul-model-select"
+              style={{ fontSize: 12, fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}
+            >
               Model:
             </label>
             <select
+              id="modul-model-select"
+              aria-label="Pilih Model Pembelajaran"
               value={selectedModel}
-              onChange={(e) => {
-                flushModulSaveNow();
-                setSelectedModel(e.target.value as ModulAjarModelType);
-              }}
+              onChange={(e) => handleModelSelectChange(e.target.value as ModulAjarModelType)}
               className="form-select form-select-sm"
               style={{
                 fontSize: 13,
@@ -585,7 +991,50 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             </select>
           </div>
 
-          <div style={{ flex: '2 1 260px', minWidth: 220 }}>
+          {selectedModel === 'cooperative' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 1 210px' }}>
+              <label
+                htmlFor="modul-coop-variant"
+                style={{ fontSize: 12, fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}
+              >
+                Teknik:
+              </label>
+              <select
+                id="modul-coop-variant"
+                aria-label="Variasi Teknik Cooperative Learning"
+                value={cooperativeVariant}
+                onChange={(e) => {
+                  const nextVar = e.target.value as CooperativeTechniqueVariant;
+                  if (editableDoc.draftSource === 'template') {
+                    applyModelSyntaxSwitch('cooperative', nextVar);
+                  } else {
+                    setCooperativeVariant(nextVar);
+                    const updated = { ...editableDoc, variasiTeknikModel: nextVar };
+                    setEditableDoc(updated);
+                    saveToLocalStorage(updated, updated.draftSource === 'ai_generated' ? 'ai_generated' : 'user_edited');
+                  }
+                }}
+                className="form-select form-select-sm"
+                style={{
+                  fontSize: 12.5,
+                  padding: '6px 8px',
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  fontWeight: 600,
+                  background: '#ffffff',
+                  color: '#0f172a',
+                }}
+              >
+                {COOPERATIVE_TECHNIQUE_VARIANTS.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div style={{ flex: '2 1 240px', minWidth: 200 }}>
             <input
               type="text"
               placeholder="Konteks / Isu Nyata (Opsional, misal: Limbah pasar lokal)"
@@ -651,6 +1100,275 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Baris 3: Pengaturan Alokasi Waktu (JP & Menit) + Validasi + Pratinjau Sintaks Model */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: 12,
+            paddingTop: 12,
+            borderTop: '1px solid #e2e8f0',
+          }}
+        >
+          {/* Panel Waktu */}
+          <div
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              borderRadius: 10,
+              padding: '10px 12px',
+              fontSize: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+              <span style={{ fontWeight: 800, color: '#0f172a', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Clock size={14} color="#1d4ed8" /> Pengaturan Waktu ({resolvedTimePreset.jenjangKategori})
+              </span>
+              <span
+                data-testid="modul-time-validation-badge"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  background: timeValidation.isValid ? '#dcfce7' : '#fef3c7',
+                  color: timeValidation.isValid ? '#166534' : '#92400e',
+                  border: `1px solid ${timeValidation.isValid ? '#86efac' : '#fcd34d'}`,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                {timeValidation.isValid ? (
+                  <>
+                    <CheckCircle2 size={12} /> Total {activeMeetingPlan.totalMenitPertemuan} mnt/pertemuan ✓
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={12} /> Selisih waktu tahap
+                  </>
+                )}
+              </span>
+            </div>
+
+            {resolvedTimePreset.jenjangKategori === 'SMK' && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 700, color: '#334155', fontSize: 11.5 }}>Kelompok Mapel SMK:</span>
+                  {(['umum', 'kejuruan'] as const).map((track) => {
+                    const active = resolvedTimePreset.smkTrack === track;
+                    return (
+                      <button
+                        key={track}
+                        type="button"
+                        onClick={() => applyTimeConfigChange({ nextSmkTrack: track })}
+                        className={`btn btn-sm ${active ? 'btn-primary' : 'btn-outline'}`}
+                        style={{ padding: '2px 8px', fontSize: 11, fontWeight: 700 }}
+                      >
+                        {track === 'umum' ? 'SMK Umum (3 JP)' : 'SMK Kejuruan (4 JP)'}
+                      </button>
+                    );
+                  })}
+                </div>
+                {resolvedTimePreset.needsManualTrackSelection && (
+                  <div style={{ marginTop: 4, fontSize: 11, color: '#b45309', fontWeight: 600 }}>
+                    Mapel SMK ini belum teridentifikasi otomatis — pilih Umum atau Kejuruan sesuai struktur KOSP.
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 600, color: '#334155' }}>
+                JP/Pertemuan:
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  aria-label="JP per pertemuan"
+                  value={jpPerPertemuan}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (Number.isFinite(val) && val >= 1) {
+                      applyTimeConfigChange({ nextJP: val });
+                    }
+                  }}
+                  style={{ width: 54, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontWeight: 700, textAlign: 'center' }}
+                />
+              </label>
+
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 600, color: '#334155' }}>
+                Menit/JP:
+                <input
+                  type="number"
+                  min={20}
+                  max={90}
+                  aria-label="Menit per JP"
+                  value={menitPerJP}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (Number.isFinite(val) && val >= 20) {
+                      applyTimeConfigChange({ nextMenit: val });
+                    }
+                  }}
+                  style={{ width: 56, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontWeight: 700, textAlign: 'center' }}
+                />
+              </label>
+
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 600, color: '#334155' }}>
+                Pertemuan:
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  aria-label="Jumlah pertemuan"
+                  value={jumlahPertemuan}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (Number.isFinite(val) && val >= 1) {
+                      applyTimeConfigChange({ nextMeetings: val });
+                    }
+                  }}
+                  style={{ width: 52, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontWeight: 700, textAlign: 'center' }}
+                />
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: '#64748b' }}>Preset JP:</span>
+              {resolvedTimePreset.presetOptionsJP.map((jpOpt) => (
+                <button
+                  key={jpOpt}
+                  type="button"
+                  onClick={() => applyTimeConfigChange({ nextJP: jpOpt })}
+                  style={{
+                    fontSize: 11,
+                    fontWeight: jpPerPertemuan === jpOpt ? 800 : 600,
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    border: jpPerPertemuan === jpOpt ? '1px solid #2563eb' : '1px solid #cbd5e1',
+                    background: jpPerPertemuan === jpOpt ? '#dbeafe' : '#ffffff',
+                    color: jpPerPertemuan === jpOpt ? '#1d4ed8' : '#475569',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {jpOpt} JP ({jpOpt * menitPerJP} mnt)
+                </button>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.45 }}>
+              Alokasi TP: <strong>{totalAlokasiJPTP} JP</strong> · Saran: <strong>{activeMeetingPlan.jumlahPertemuanDisarankan} pertemuan</strong> × {jpPerPertemuan} JP ·{' '}
+              <span style={{ color: timeValidation.isValid ? '#047857' : '#b45309', fontWeight: 600 }}>
+                {timeValidation.summaryMessage}
+              </span>
+              {!timeValidation.isValid && (
+                <button
+                  type="button"
+                  onClick={handleAutoReconcileDurations}
+                  style={{
+                    marginLeft: 6,
+                    padding: '1px 7px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 5,
+                    border: '1px solid #d97706',
+                    background: '#fef3c7',
+                    color: '#92400e',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Sesuaikan Otomatis
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Panel Pratinjau Sintaks Model */}
+          <div
+            data-testid="modul-syntax-preview"
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              borderRadius: 10,
+              padding: '10px 12px',
+              fontSize: 12,
+            }}
+          >
+            <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Layers size={14} color="#0d9488" /> Pratinjau Sintaks: {selectedModelDef.label}
+            </div>
+            <ol style={{ margin: '0 0 6px 16px', padding: 0, color: '#334155', lineHeight: 1.45, fontSize: 11.5 }}>
+              {selectedModelDef.tahapanSintaks.map((st) => (
+                <li key={st.id} style={{ marginBottom: 2 }}>
+                  <strong>{st.namaTahap}</strong> — <span style={{ color: '#64748b' }}>{st.tujuanTahap}</span>
+                </li>
+              ))}
+            </ol>
+            <div style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
+              Catatan: Diferensiasi konten, proses, &amp; produk diterapkan sebagai strategi pendampingan lintas model.
+            </div>
+          </div>
+        </div>
+
+        {/* Peringatan Konfirmasi Pergantian Model (saat draf telah disunting guru) */}
+        {pendingModelSwitch && (
+          <div
+            role="alert"
+            style={{
+              background: '#fffbeb',
+              border: '1px solid #f59e0b',
+              borderRadius: 10,
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 10,
+              fontSize: 12.5,
+              color: '#92400e',
+            }}
+          >
+            <div>
+              <strong>Konfirmasi Pergantian Model:</strong> Draf saat ini berisi suntingan guru atau format lama. Mengganti ke{' '}
+              <strong>{getModulAjarModelDefinition(pendingModelSwitch.targetModel).label}</strong> akan menyusun ulang struktur sintaks kegiatan.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => applyModelSyntaxSwitch(pendingModelSwitch.targetModel)}
+                className="btn btn-sm btn-primary"
+                style={{ background: '#b45309', borderColor: '#b45309', color: '#fff', fontWeight: 700 }}
+              >
+                Ya, Terapkan Sintaks Baru
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingModelSwitch(null)}
+                className="btn btn-sm btn-outline"
+              >
+                Batal
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Info Banner Draf Legacy Model Diferensiasi */}
+        {isLegacyDifferentiatedDraft && (
+          <div
+            style={{
+              background: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              borderRadius: 8,
+              padding: '7px 12px',
+              fontSize: 12,
+              color: '#1e40af',
+            }}
+          >
+            ℹ️ Draf ini memakai label model lama <strong>Berdiferensiasi</strong>. Anda tetap dapat membaca, mengedit, menyimpan, dan mengekspornya, atau memilih salah satu dari 7 sintaks model di atas bila ingin beralih.
+          </div>
+        )}
       </div>
 
       {/* Community Reference Banner */}
@@ -918,105 +1636,260 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               D. Langkah-Langkah Kegiatan Pembelajaran:
             </div>
 
-            {(editableDoc.kegiatanPembelajaran || []).map((keg, kIdx) => (
-              <div
-                key={keg.pertemuan || kIdx}
-                style={{
-                  background: '#ffffff',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: 10,
-                  padding: '14px 18px',
-                  marginBottom: 12,
-                }}
-              >
-                <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0d9488', marginBottom: 8 }}>
-                  Pertemuan Ke-{keg.pertemuan} ({keg.alokasiMenit} Menit)
-                </div>
+            {(editableDoc.kegiatanPembelajaran || []).map((keg, kIdx) => {
+              const sessionVal = validateSessionTimeBudget(
+                keg,
+                keg.jpPertemuan || jpPerPertemuan,
+                menitPerJP
+              );
+              const hasStructured =
+                Array.isArray(keg.tahapTerstruktur) && keg.tahapTerstruktur.length > 0;
 
-                <div style={{ marginBottom: 8 }}>
-                  <strong style={{ fontSize: 12.5, color: '#1e40af' }}>1. Kegiatan Pendahuluan:</strong>
-                  <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12.5, color: '#334155' }}>
-                    {(keg.pendahuluan || []).map((p, pIdx) => (
-                      <li key={pIdx} style={{ marginBottom: 4 }}>
-                        <AutoExpandingTextarea
-                          value={p}
-                          onChange={(e) => {
-                            const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
-                            const targetKeg = { ...updatedKegiatan[kIdx] };
-                            const newPendahuluan = [...(targetKeg.pendahuluan || [])];
-                            newPendahuluan[pIdx] = e.target.value;
-                            targetKeg.pendahuluan = newPendahuluan;
-                            updatedKegiatan[kIdx] = targetKeg;
+              const updateStructuredStage = (
+                stageId: string,
+                patch: Partial<TahapKegiatanTerstruktur>
+              ) => {
+                const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
+                const targetKeg = { ...updatedKegiatan[kIdx] };
+                const nextStages = (targetKeg.tahapTerstruktur || []).map((st) =>
+                  st.id === stageId ? { ...st, ...patch } : st
+                );
+                const synced = syncLegacyArraysFromStructuredStages(nextStages);
+                targetKeg.tahapTerstruktur = nextStages;
+                targetKeg.pendahuluan = synced.pendahuluan;
+                targetKeg.inti = synced.inti;
+                targetKeg.penutup = synced.penutup;
+                updatedKegiatan[kIdx] = targetKeg;
+                const updated: ModulAjarDokumen = {
+                  ...editableDoc,
+                  draftSource: 'user_edited',
+                  kegiatanPembelajaran: updatedKegiatan,
+                };
+                setEditableDoc(updated);
+                saveToLocalStorage(updated, 'user_edited');
+              };
 
-                            const updated = { ...editableDoc, kegiatanPembelajaran: updatedKegiatan };
-                            setEditableDoc(updated);
-                            saveToLocalStorage(updated);
+              const renderPhaseSection = (
+                fase: 'pendahuluan' | 'inti' | 'penutup',
+                headingLabel: string,
+                headingColor: string
+              ) => {
+                const stages = (keg.tahapTerstruktur || []).filter((s) => s.fase === fase);
+                if (stages.length === 0) return null;
+                return (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: headingColor, marginBottom: 6 }}>
+                      {headingLabel}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {stages.map((st) => (
+                        <div
+                          key={st.id}
+                          style={{
+                            background: '#f8fafc',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: 8,
+                            padding: '8px 11px',
+                            fontSize: 12,
                           }}
-                          rows={1}
-                          style={{ fontSize: 12.5, color: '#334155' }}
-                        />
-                      </li>
-                    ))}
-                  </ul>
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+                            <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                              {st.namaTahap}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                              {st.pengalamanBelajar && (
+                                <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: '#e0e7ff', color: '#3730a3' }}>
+                                  {st.pengalamanBelajar}
+                                </span>
+                              )}
+                              {st.prinsipPembelajaran?.map((pr) => (
+                                <span key={pr} style={{ fontSize: 10.5, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: '#ecfdf5', color: '#047857' }}>
+                                  {pr}
+                                </span>
+                              ))}
+                              <span style={{ fontSize: 11, fontWeight: 700, color: '#0d9488', background: '#ccfbf1', padding: '1px 7px', borderRadius: 99 }}>
+                                {st.durasiMenit} Menit
+                              </span>
+                              <input
+                                type="number"
+                                min={1}
+                                max={180}
+                                aria-label={`Durasi menit tahap ${st.namaTahap}`}
+                                className="no-print"
+                                value={st.durasiMenit}
+                                onChange={(e) => {
+                                  const nextM = Math.max(1, Math.min(180, Math.round(Number(e.target.value) || 1)));
+                                  updateStructuredStage(st.id, { durasiMenit: nextM });
+                                }}
+                                style={{ width: 46, padding: '1px 4px', fontSize: 11, borderRadius: 5, border: '1px solid #cbd5e1', textAlign: 'center' }}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ color: '#475569', marginBottom: 4 }}>
+                            <strong>Tujuan Tahap:</strong> {st.tujuanTahap}
+                          </div>
+                          <div style={{ marginBottom: 4 }}>
+                            <strong style={{ color: '#1e3a8a' }}>Aktivitas Guru:</strong>
+                            <AutoExpandingTextarea
+                              value={st.aktivitasGuru}
+                              onChange={(e) => updateStructuredStage(st.id, { aktivitasGuru: e.target.value })}
+                              rows={1}
+                              style={{ fontSize: 12, color: '#1e293b', marginTop: 2 }}
+                            />
+                          </div>
+                          <div style={{ marginBottom: 4 }}>
+                            <strong style={{ color: '#047857' }}>Aktivitas Siswa:</strong>
+                            <AutoExpandingTextarea
+                              value={st.aktivitasSiswa}
+                              onChange={(e) => updateStructuredStage(st.id, { aktivitasSiswa: e.target.value })}
+                              rows={1}
+                              style={{ fontSize: 12, color: '#1e293b', marginTop: 2 }}
+                            />
+                          </div>
+                          <div style={{ color: '#334155', marginBottom: 2 }}>
+                            <strong>Instruksi / Pertanyaan Kunci:</strong> <em>{st.instruksiPertanyaan}</em>
+                          </div>
+                          <div style={{ color: '#475569', fontSize: 11.5 }}>
+                            <strong>Media &amp; Bahan:</strong> {st.mediaBahan} · <strong>Bukti Belajar:</strong> {st.buktiBelajar}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              };
+
+              return (
+                <div
+                  key={keg.pertemuan || kIdx}
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 10,
+                    padding: '14px 18px',
+                    marginBottom: 12,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0d9488' }}>
+                      Pertemuan Ke-{keg.pertemuan} ({keg.jpPertemuan ? `${keg.jpPertemuan} JP · ` : ''}{keg.alokasiMenit} Menit)
+                    </div>
+                    <span
+                      className="no-print"
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 99,
+                        background: sessionVal.isValid ? '#dcfce7' : '#fef3c7',
+                        color: sessionVal.isValid ? '#166534' : '#92400e',
+                      }}
+                    >
+                      {sessionVal.actualTotalMenit} / {sessionVal.expectedTotalMenit} mnt {sessionVal.isValid ? '✓' : '⚠'}
+                    </span>
+                  </div>
+                  {keg.fokusPertemuan && (
+                    <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic', marginBottom: 8 }}>
+                      Fokus Pertemuan: {keg.fokusPertemuan}
+                    </div>
+                  )}
+
+                  {hasStructured ? (
+                    <>
+                      {renderPhaseSection('pendahuluan', '1. Kegiatan Pendahuluan:', '#1e40af')}
+                      {renderPhaseSection('inti', `2. Kegiatan Inti (${editableDoc.modelPembelajaran || selectedModelDef.label}):`, '#047857')}
+                      {renderPhaseSection('penutup', '3. Kegiatan Penutup & Refleksi:', '#b45309')}
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ marginBottom: 8 }}>
+                        <strong style={{ fontSize: 12.5, color: '#1e40af' }}>1. Kegiatan Pendahuluan:</strong>
+                        <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12.5, color: '#334155' }}>
+                          {(keg.pendahuluan || []).map((p, pIdx) => (
+                            <li key={pIdx} style={{ marginBottom: 4 }}>
+                              <AutoExpandingTextarea
+                                value={p}
+                                onChange={(e) => {
+                                  const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
+                                  const targetKeg = { ...updatedKegiatan[kIdx] };
+                                  const newPendahuluan = [...(targetKeg.pendahuluan || [])];
+                                  newPendahuluan[pIdx] = e.target.value;
+                                  targetKeg.pendahuluan = newPendahuluan;
+                                  updatedKegiatan[kIdx] = targetKeg;
+
+                                  const updated = { ...editableDoc, kegiatanPembelajaran: updatedKegiatan };
+                                  setEditableDoc(updated);
+                                  saveToLocalStorage(updated);
+                                }}
+                                rows={1}
+                                style={{ fontSize: 12.5, color: '#334155' }}
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div style={{ marginBottom: 8 }}>
+                        <strong style={{ fontSize: 12.5, color: '#047857' }}>
+                          2. Kegiatan Inti ({editableDoc.modelPembelajaran || 'Model Terpilih'}):
+                        </strong>
+                        <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12.5, color: '#334155' }}>
+                          {(keg.inti || []).map((it, iIdx) => (
+                            <li key={iIdx} style={{ marginBottom: 4 }}>
+                              <AutoExpandingTextarea
+                                value={it}
+                                onChange={(e) => {
+                                  const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
+                                  const targetKeg = { ...updatedKegiatan[kIdx] };
+                                  const newInti = [...(targetKeg.inti || [])];
+                                  newInti[iIdx] = e.target.value;
+                                  targetKeg.inti = newInti;
+                                  updatedKegiatan[kIdx] = targetKeg;
+
+                                  const updated = { ...editableDoc, kegiatanPembelajaran: updatedKegiatan };
+                                  setEditableDoc(updated);
+                                  saveToLocalStorage(updated);
+                                }}
+                                rows={1}
+                                style={{ fontSize: 12.5, color: '#334155' }}
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div>
+                        <strong style={{ fontSize: 12.5, color: '#b45309' }}>3. Kegiatan Penutup & Refleksi:</strong>
+                        <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12.5, color: '#334155' }}>
+                          {(keg.penutup || []).map((pn, pnIdx) => (
+                            <li key={pnIdx} style={{ marginBottom: 4 }}>
+                              <AutoExpandingTextarea
+                                value={pn}
+                                onChange={(e) => {
+                                  const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
+                                  const targetKeg = { ...updatedKegiatan[kIdx] };
+                                  const newPenutup = [...(targetKeg.penutup || [])];
+                                  newPenutup[pnIdx] = e.target.value;
+                                  targetKeg.penutup = newPenutup;
+                                  updatedKegiatan[kIdx] = targetKeg;
+
+                                  const updated = { ...editableDoc, kegiatanPembelajaran: updatedKegiatan };
+                                  setEditableDoc(updated);
+                                  saveToLocalStorage(updated);
+                                }}
+                                rows={1}
+                                style={{ fontSize: 12.5, color: '#334155' }}
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </>
+                  )}
                 </div>
-
-                <div style={{ marginBottom: 8 }}>
-                  <strong style={{ fontSize: 12.5, color: '#047857' }}>
-                    2. Kegiatan Inti ({editableDoc.modelPembelajaran || 'Model Terpilih'}):
-                  </strong>
-                  <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12.5, color: '#334155' }}>
-                    {(keg.inti || []).map((it, iIdx) => (
-                      <li key={iIdx} style={{ marginBottom: 4 }}>
-                        <AutoExpandingTextarea
-                          value={it}
-                          onChange={(e) => {
-                            const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
-                            const targetKeg = { ...updatedKegiatan[kIdx] };
-                            const newInti = [...(targetKeg.inti || [])];
-                            newInti[iIdx] = e.target.value;
-                            targetKeg.inti = newInti;
-                            updatedKegiatan[kIdx] = targetKeg;
-
-                            const updated = { ...editableDoc, kegiatanPembelajaran: updatedKegiatan };
-                            setEditableDoc(updated);
-                            saveToLocalStorage(updated);
-                          }}
-                          rows={1}
-                          style={{ fontSize: 12.5, color: '#334155' }}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div>
-                  <strong style={{ fontSize: 12.5, color: '#b45309' }}>3. Kegiatan Penutup & Refleksi:</strong>
-                  <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12.5, color: '#334155' }}>
-                    {(keg.penutup || []).map((pn, pnIdx) => (
-                      <li key={pnIdx} style={{ marginBottom: 4 }}>
-                        <AutoExpandingTextarea
-                          value={pn}
-                          onChange={(e) => {
-                            const updatedKegiatan = [...(editableDoc.kegiatanPembelajaran || [])];
-                            const targetKeg = { ...updatedKegiatan[kIdx] };
-                            const newPenutup = [...(targetKeg.penutup || [])];
-                            newPenutup[pnIdx] = e.target.value;
-                            targetKeg.penutup = newPenutup;
-                            updatedKegiatan[kIdx] = targetKeg;
-
-                            const updated = { ...editableDoc, kegiatanPembelajaran: updatedKegiatan };
-                            setEditableDoc(updated);
-                            saveToLocalStorage(updated);
-                          }}
-                          rows={1}
-                          style={{ fontSize: 12.5, color: '#334155' }}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

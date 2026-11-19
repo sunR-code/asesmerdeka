@@ -30,7 +30,26 @@ import type {
   PromesDokumen,
   PromesMingguColumn,
   PromesRowItem,
+  CooperativeTechniqueVariant,
+  KegiatanPembelajaranLangkah,
+  TahapKegiatanTerstruktur,
 } from '../types/perangkatAjar';
+import {
+  COOPERATIVE_TECHNIQUE_VARIANTS,
+  getModulAjarModelDefinition,
+  isValidModulAjarModelType,
+  type ModulAjarModelType,
+  type PedagogicalSyntaxStageDefinition,
+} from './modulPedagogicalModels';
+import {
+  computeMeetingsNeededForTP,
+  distributeActivitiesIntoMeetings,
+  distributeStageDurations,
+  formatAlokasiWaktuLabel,
+  resolveModulTimePreset,
+  syncLegacyArraysFromStructuredStages,
+  type JenjangKategoriModul,
+} from './modulTimeBudget';
 import type {
   PromesValidationIssue,
   SemesterAcademicCalendar,
@@ -51,111 +70,859 @@ import {
 } from './lkpdCurriculumFixtures';
 import { validateLKPDDokumen } from './lkpdValidator';
 
+export interface BuildSmartModulAjarOptions {
+  model?: ModulAjarModelType;
+  jumlahPertemuan?: number;
+  jpPerPertemuan?: number;
+  menitPerJP?: number;
+  smkTrackOverride?: 'umum' | 'kejuruan';
+  variasiTeknikModel?: CooperativeTechniqueVariant;
+  konteksLokal?: string;
+}
+
+interface GradeScaffoldingTone {
+  konteksLingkungan: string;
+  karakteristikAktivitas: string;
+  mediaKhas: string;
+  targetPeserta: string;
+  asesmenAwalContoh: string;
+  asesmenFormatifContoh: string;
+  asesmenSumatifContoh: string;
+  pengayaanStrategi: string;
+  remedialStrategi: string;
+}
+
+function resolveGradeScaffoldingTone(
+  jenjang: JenjangKategoriModul,
+  smkTrack: 'umum' | 'kejuruan' | 'tidak_teridentifikasi' | undefined,
+  materi: string,
+  mapel: string
+): GradeScaffoldingTone {
+  if (jenjang === 'SD/MI') {
+    return {
+      konteksLingkungan: 'kehidupan sehari-hari di rumah, kelas, dan halaman sekolah',
+      karakteristikAktivitas: 'pengamatan benda nyata, kartu gambar/peraga, serta tanya jawab sederhana yang menyenangkan',
+      mediaKhas: `kartu peraga, benda nyata di sekitar kelas, papan tulis, dan lembar aktivitas bergambar "${materi}"`,
+      targetPeserta:
+        'Peserta didik SD/MI reguler dengan pendampingan visual-konkret dan dukungan bertahap sesuai kesiapan belajar.',
+      asesmenAwalContoh: `Kuis kartu Benar/Salah atau tanya jawab lisan singkat dengan 2 contoh benda nyata terkait "${materi}".`,
+      asesmenFormatifContoh: `Cek langsung pengisian bagan/lembar aktivitas siswa serta kejelasan penjelasan lisan saat praktik kelompok kecil.`,
+      asesmenSumatifContoh: `Uji pemahaman tertulis sederhana (isian singkat, menjodohkan, dan cerita bergambar) sesuai indikator TP ${mapel}.`,
+      pengayaanStrategi: `Memberikan tantangan permainan teka-teki lanjutan atau membuat 1 contoh soal cerita bergambar tentang "${materi}" bersama teman.`,
+      remedialStrategi: `Pendampingan kelompok kecil menggunakan alat peraga konkret dan latihan bertahap 1-langkah-demi-1-langkah pada bagian dasar "${materi}".`,
+    };
+  }
+
+  if (jenjang === 'SMP/MTs') {
+    return {
+      konteksLingkungan: 'permasalahan sehari-hari di sekolah, rumah tangga, dan lingkungan masyarakat sekitar',
+      karakteristikAktivitas: 'eksplorasi kasus terpandu, pencatatan tabel data, diskusi peran kelompok, dan penyajian temuan',
+      mediaKhas: `LKPD terstruktur, papan tulis/proyektor, kartu data kasus nyata, serta buku rujukan ${mapel}`,
+      targetPeserta:
+        'Peserta didik SMP/MTs reguler dengan diferensiasi dukungan terpandu (dasar, menengah, mahir).',
+      asesmenAwalContoh: `1–2 soal pengecekan konsep prasyarat sebelum memasuki penyelidikan "${materi}".`,
+      asesmenFormatifContoh: `Observasi ketepatan langkah analisis pada LKPD, pemeriksaan silang alasan jawaban, dan presentasi singkat.`,
+      asesmenSumatifContoh: `Soal aplikasi kontekstual (Pilihan Ganda, AKM Kompleks, dan Uraian penyelesaian masalah "${materi}").`,
+      pengayaanStrategi: `Menyelesaikan variasi kasus multi-langkah "${materi}" dengan data terbuka atau bertindak sebagai tutor sebaya.`,
+      remedialStrategi: `Bimbingan terarah mengulas konsep prasyarat menggunakan contoh terbimbing bertahap dan latihan terfokus per indikator yang belum tuntas.`,
+    };
+  }
+
+  if (jenjang === 'SMK' && smkTrack === 'kejuruan') {
+    return {
+      konteksLingkungan: 'simulasi praktik bengkel/lab, standar mutu pelayanan, serta prosedur operasional dunia kerja kejuruan',
+      karakteristikAktivitas: 'pemodelan SOP kerja, pengecekan alat dan Keselamatan Kerja (K3), praktik terukur, serta uji mutu hasil',
+      mediaKhas: `peralatan praktik/simulasi ${mapel}, lembar job sheet & ceklis K3, alat ukur/bahan praktik, dan panduan SOP`,
+      targetPeserta:
+        'Peserta didik SMK kejuruan dengan pendampingan penguasaan prosedur standar, keselamatan kerja (K3), dan ketelitian praktik.',
+      asesmenAwalContoh: `Verifikasi kesiapan prasyarat teori dasar serta pengecekan kelengkapan alat dan pemahaman aturan K3 sebelum praktik.`,
+      asesmenFormatifContoh: `Observasi unjuk kerja praktik menggunakan lembar ceklis langkah SOP, penerapan K3, kerapian area kerja (5R), dan akurasi hasil.`,
+      asesmenSumatifContoh: `Uji kompetensi/unjuk kerja produk sesuai spesifikasi mutu kejuruan dan tes analisis troubleshooting "${materi}".`,
+      pengayaanStrategi: `Penugasan optimasi waktu/efisiensi kerja atau analisis kasus troubleshooting lanjutan pada praktik "${materi}".`,
+      remedialStrategi: `Pendampingan ulang demonstrasi langkah kritis SOP bersama instruktur/guru serta praktik terbimbing satu-per-satu hingga memenuhi standar aman dan akurat.`,
+    };
+  }
+
+  if (jenjang === 'SMK') {
+    return {
+      konteksLingkungan: 'konteks keseharian siswa, literasi sosial-profesi, dan situasi praktis kehidupan bermasyarakat',
+      karakteristikAktivitas: 'analisis kasus nyata, diskusi argumen terstruktur, pemodelan konsep, dan aplikasi fungsional',
+      mediaKhas: `LKPD kasus kontekstual, teks/data referensi ${mapel}, papan tulis, dan perangkat presentasi`,
+      targetPeserta:
+        'Peserta didik SMK mapel umum dengan pendekatan aplikatif kontekstual dan diferensiasi dukungan sesuai kesiapan.',
+      asesmenAwalContoh: `Tanya jawab pemetaan pengetahuan awal dan 2 butir cek prasyarat ringkas terkait "${materi}".`,
+      asesmenFormatifContoh: `Penilaian ketepatan argumen, kelengkapan analisis data pada LKPD, dan keaktifan presentasi kelompok.`,
+      asesmenSumatifContoh: `Asesmen terpadu (Pilihan Ganda Analitis, Pilihan Ganda Kompleks, dan Uraian Kontekstual) untuk TP "${materi}".`,
+      pengayaanStrategi: `Analisis studi kasus lintas-bidang terapan terkait "${materi}" dengan sumber pembanding tambahan.`,
+      remedialStrategi: `Penguatan konsep dasar dengan kerangka langkah sederhana dan latihan terbimbing terfokus pada indikator yang belum tercapai.`,
+    };
+  }
+
+  // SMA/MA
+  return {
+    konteksLingkungan: 'isu aktual, fenomena ilmiah-sosial, serta analisis kritis berbasis data dan literatur',
+    karakteristikAktivitas: 'investigasi bukti mendalam, verifikasi argumen/model analitis, dan evaluasi kritis lintas perspektif',
+    mediaKhas: `artikel/data primer kasus nyata, LKPD investigasi analitis, perangkat presentasi, dan rujukan utama ${mapel}`,
+    targetPeserta:
+      'Peserta didik SMA/MA Fase E/F dengan variasi kedalaman analisis konseptual dan kemandirian berpikir kritis.',
+    asesmenAwalContoh: `Kuis diagnostik singkat 2 butir soal konseptual untuk mendeteksi miskonsepsi awal pada "${materi}".`,
+    asesmenFormatifContoh: `Evaluasi kualitas penalaran bukti pada LKPD, ketajaman sanggahan/umpan balik sejawat, dan akurasi simpulan.`,
+    asesmenSumatifContoh: `Instrumen analitis HOTS (PG berbasis stimulus data, PGK, dan Uraian argumentatif) sesuai KKTP "${materi}".`,
+    pengayaanStrategi: `Kajian kritis sumber pembanding lanjutan atau pemodelan skenario kompleks untuk mengeksplorasi batas berlaku konsep "${materi}".`,
+    remedialStrategi: `Pemetaan miskonsepsi spesifik siswa melalui jembatan prasyarat konseptual, contoh terbimbing terurai, dan uji pemahaman bertahap.`,
+  };
+}
+
+function buildModelIntiStageContent(params: {
+  model: ModulAjarModelType;
+  stage: PedagogicalSyntaxStageDefinition;
+  jenjang: JenjangKategoriModul;
+  smkTrack: 'umum' | 'kejuruan' | 'tidak_teridentifikasi' | undefined;
+  materi: string;
+  konteks: string;
+  fokus: string;
+  tone: GradeScaffoldingTone;
+  cooperativeVariant: CooperativeTechniqueVariant;
+}): {
+  aktivitasGuru: string;
+  aktivitasSiswa: string;
+  instruksiPertanyaan: string;
+  mediaBahan: string;
+  buktiBelajar: string;
+} {
+  const {
+    model,
+    stage,
+    jenjang,
+    smkTrack,
+    materi,
+    konteks,
+    fokus,
+    tone,
+    cooperativeVariant,
+  } = params;
+  const isSD = jenjang === 'SD/MI';
+  const isKejuruan = jenjang === 'SMK' && smkTrack === 'kejuruan';
+
+  switch (model) {
+    case 'pbl': {
+      switch (stage.id) {
+        case 'pbl_orientasi_masalah':
+          return {
+            aktivitasGuru: `Guru menyajikan skenario masalah nyata "${konteks}" terkait ${fokus} tanpa langsung memberi rumus/jawaban, lalu memandu siswa mengidentifikasi inti persoalan.`,
+            aktivitasSiswa: isSD
+              ? `Siswa mengamati cerita/gambar masalah tentang "${materi}" lalu menyebutkan fakta penting dan hal yang perlu dicari.`
+              : `Siswa membaca dan membedah skenario masalah autentik, menandai informasi diketahui, serta merumuskan pokok masalah ${fokus}.`,
+            instruksiPertanyaan: `"Informasi apa saja yang sudah tersedia pada masalah '${konteks}' ini, dan keputusan apa yang harus kalian pecahkan?"`,
+            mediaBahan: `Kartu skenario masalah "${materi}", ${tone.mediaKhas}`,
+            buktiBelajar: 'Catatan identifikasi masalah dan daftar data diketahui/ditanya.',
+          };
+        case 'pbl_organisasi_belajar':
+          return {
+            aktivitasGuru:
+              'Guru membagi siswa ke dalam kelompok 3–4 orang heterogen, menetapkan peran anggota, dan menjelaskan target penyelesaian pada LKPD.',
+            aktivitasSiswa:
+              'Siswa membagi tugas penyelidikan di kelompok dan menyusun rencana langkah untuk memecahkan masalah.',
+            instruksiPertanyaan: `"Langkah apa yang perlu kita uji lebih dahulu untuk menjawab tantangan '${fokus}'?"`,
+            mediaBahan: 'LKPD PBL, pembagian peran kelompok',
+            buktiBelajar: 'Rencana kerja kelompok & pembagian peran tertulis.',
+          };
+        case 'pbl_penyelidikan':
+          return {
+            aktivitasGuru: isKejuruan
+              ? 'Guru mendampingi kelompok menguji data teknis, memastikan ketepatan prosedur dan aspek K3, serta memberi scaffolding pertanyaan bila ada kelompok yang buntu.'
+              : `Guru berkeliling memeriksa proses penalaran kelompok saat mengolah bukti "${materi}" dan meluruskan kekeliruan langkah secara bertahap.`,
+            aktivitasSiswa: isKejuruan
+              ? `Siswa melakukan pengujian solusi secara prosedural dengan mematuhi standar K3 dan mencatat hasil pengukuran/analisis.`
+              : `Siswa mengumpulkan data pendukung, menguji strategi pemecahan masalah "${fokus}", dan mengecek ulang kebenaran hasil sementara.`,
+            instruksiPertanyaan: `"Mengapa kelompok kalian memilih strategi ini? Coba uji apakah jawaban sementara sudah memenuhi syarat pada kasus awal."`,
+            mediaBahan: tone.mediaKhas,
+            buktiBelajar: 'Draf solusi terstruktur & catatan pengujian data di LKPD.',
+          };
+        case 'pbl_penyajian_karya':
+          return {
+            aktivitasGuru:
+              'Guru memfasilitasi 2–3 kelompok menyajikan solusi dengan strategi berbeda dan memandu kelompok lain membandingkan argumennya.',
+            aktivitasSiswa:
+              'Perwakilan kelompok mempresentasikan alur pemecahan masalah dan menanggapi pertanyaan atau masukan teman sekelas.',
+            instruksiPertanyaan: `"Bandingkan solusi yang dipaparkan dengan langkah kelompokmu: mana bagian yang paling efisien atau berbeda?"`,
+            mediaBahan: 'Papan tulis / kertas plano hasil kerja kelompok',
+            buktiBelajar: 'Paparan solusi kelompok dan catatan umpan balik antar-kelompok.',
+          };
+        default:
+          return {
+            aktivitasGuru:
+              'Guru bersama kelas mengevaluasi ketepatan solusi, menegaskan konsep kunci yang ditemukan, dan mengklarifikasi miskonsepsi umum.',
+            aktivitasSiswa:
+              'Siswa memperbaiki catatan penyelesaian masing-masing dan menuliskan poin prinsip utama agar kesalahan serupa tidak terulang.',
+            instruksiPertanyaan: `"Bagian langkah mana pada pemecahan '${materi}' yang paling rawan keliru, dan bagaimana cara mengeceknya?"`,
+            mediaBahan: 'Papan ringkasan konsep & lembar kerja terverifikasi',
+            buktiBelajar: 'Simpulan perbaikan solusi pribadi siswa.',
+          };
+      }
+    }
+
+    case 'pjbl': {
+      switch (stage.id) {
+        case 'pjbl_pertanyaan_mendasar':
+          return {
+            aktivitasGuru: `Guru memantik tantangan proyek kontekstual "${konteks}" lalu bersama kelas menetapkan pertanyaan mendasar sebagai target produk "${materi}".`,
+            aktivitasSiswa:
+              'Siswa mendiskusikan tantangan proyek dan menyepakati wujud produk/karya nyata yang akan diciptakan.',
+            instruksiPertanyaan: `"Produk atau karya seperti apa pada topik '${materi}' yang benar-benar bermanfaat menjawab tantangan '${konteks}'?"`,
+            mediaBahan: `Contoh produk pembanding & deskripsi proyek "${materi}"`,
+            buktiBelajar: 'Rumusan Pertanyaan Mendasar & target spesifikasi karya.',
+          };
+        case 'pjbl_desain_perencanaan':
+          return {
+            aktivitasGuru:
+              'Guru memandu kelompok merancang desain/rancangan produk, daftar alat-bahan, serta mengenalkan kriteria rubrik penilaian karya.',
+            aktivitasSiswa: isKejuruan
+              ? 'Siswa menyusun gambar kerja/blueprint proyek, daftar kebutuhan bahan, dan daftar cek keselamatan kerja (K3).'
+              : 'Siswa merancang sketsa/kerangka produk beserta komponen konsep materi yang wajib termuat di dalamnya.',
+            instruksiPertanyaan: `"Komponen konsep '${fokus}' mana yang wajib tampak jelas pada desain karya kalian agar memenuhi kriteria layak?"`,
+            mediaBahan: 'Templat rancangan proyek & rubrik kualitas karya',
+            buktiBelajar: 'Rancangan/sketsa desain proyek beserta daftar alat-bahan.',
+          };
+        case 'pjbl_jadwal_peran':
+          return {
+            aktivitasGuru:
+              'Guru membantu tim memecah proyek menjadi tonggak (milestone) berdurasi jelas dan memastikan setiap anggota memegang tugas terukur.',
+            aktivitasSiswa:
+              'Siswa mengisi tabel jadwal kerja per tahap dan menandatangani pembagian peran masing-masing anggota tim.',
+            instruksiPertanyaan: `"Target apa yang harus selesai pada setengah waktu pengerjaan agar produk dapat diuji sebelum penutupan?"`,
+            mediaBahan: 'Kartu linimasa proyek & tabel pembagian peran',
+            buktiBelajar: 'Jadwal kerja & matriks tanggung jawab tiap anggota.',
+          };
+        case 'pjbl_monitor_progres':
+          return {
+            aktivitasGuru: isKejuruan
+              ? 'Guru memonitor progres pengerjaan di area kerja menggunakan ceklis mutu & K3 serta memberi umpan balik korektif langsung.'
+              : `Guru melakukan pengecekan progres tiap tim pada titik kontrol waktu, memastikan konten "${materi}" akurat, dan membantu tim yang tertinggal.`,
+            aktivitasSiswa:
+              'Siswa merakit/menyusun produk proyek sesuai desain, mencatat kendala yang ditemui di log progres, dan melakukan uji coba awal.',
+            instruksiPertanyaan: `"Apakah bagian yang sedang kalian kerjakan sudah sesuai ukuran/konsep pada rancangan? Kendala teknis apa yang muncul?"`,
+            mediaBahan: tone.mediaKhas,
+            buktiBelajar: 'Prototipe/produk setengah jadi & log progres kelompok.',
+          };
+        case 'pjbl_uji_presentasi':
+          return {
+            aktivitasGuru:
+              'Guru mengoordinasikan uji fungsi/kualitas produk sesuai rubrik serta memfasilitasi demo karya tiap tim.',
+            aktivitasSiswa:
+              'Siswa menguji hasil karyanya, mendemonstrasikan cara kerja/kandungan konsepnya, serta menjawab pertanyaan penguji sejawat.',
+            instruksiPertanyaan: `"Tunjukkan bukti bahwa produk kalian bekerja sesuai konsep '${fokus}' dan memenuhi syarat masalah awal!"`,
+            mediaBahan: 'Produk/karya jadi & rubrik uji kelayakan',
+            buktiBelajar: 'Artefak produk final & skor ceklis uji kelayakan.',
+          };
+        default:
+          return {
+            aktivitasGuru:
+              'Guru memandu evaluasi keseluruhan pengalaman proyek (mutu karya, kolaborasi tim, dan rencana perbaikan) serta memberi penguatan.',
+            aktivitasSiswa:
+              'Siswa menuliskan evaluasi proses pembuatan proyek, kontribusi pribadi, dan perbaikan jika proyek dikembangkan ulang.',
+            instruksiPertanyaan: `"Apa pelajaran konseptual terpenting dari proyek '${materi}', dan bagian desain mana yang akan kalian perbaiki nanti?"`,
+            mediaBahan: 'Lembar refleksi evaluasi proyek',
+            buktiBelajar: 'Catatan evaluasi pengalaman proyek individu.',
+          };
+      }
+    }
+
+    case 'inquiry': {
+      switch (stage.id) {
+        case 'inq_orientasi_fenomena':
+          return {
+            aktivitasGuru: `Guru memperlihatkan fenomena atau dua sumber bukti pembanding terkait "${materi}" di "${konteks}" tanpa langsung menyimpulkan jawabannya.`,
+            aktivitasSiswa: isSD
+              ? 'Siswa mengamati fenomena nyata dengan cermat dan menceritakan hal aneh atau menarik yang mereka lihat.'
+              : 'Siswa mengamati fenomena/data pembanding secara kritis lalu mencatat pola, perbedaan, atau anomali yang muncul.',
+            instruksiPertanyaan: `"Gejala atau perbedaan apa yang langsung terlihat pada fenomena '${materi}' ini, dan hal apa yang masih belum terjawab?"`,
+            mediaBahan: `Objek/fenomena pembanding atau dua teks/data primer "${materi}"`,
+            buktiBelajar: 'Daftar catatan pengamatan fenomena/anomali awal.',
+          };
+        case 'inq_rumusan_pertanyaan':
+          return {
+            aktivitasGuru:
+              'Guru membimbing siswa memilih dan memoles pertanyaan terbuka yang dapat diselidiki beserta dugaan sementara (hipotesis awal).',
+            aktivitasSiswa:
+              'Siswa merumuskan 1–2 pertanyaan penyelidikan ilmiah/analitis terkait fokus materi dan menuliskan dugaan jawabannya disertai alasan awal.',
+            instruksiPertanyaan: `"Pertanyaan apa yang paling tepat untuk menguji dugaan kita tentang '${fokus}', dan bukti apa yang perlu dicari?"`,
+            mediaBahan: 'LKPD Inkuiri (kolom Pertanyaan & Dugaan Awal)',
+            buktiBelajar: 'Rumusan pertanyaan penyelidikan & dugaan awal tertulis.',
+          };
+        case 'inq_investigasi_bukti':
+          return {
+            aktivitasGuru:
+              'Guru memfasilitasi siswa menjalankan prosedur penyelidikan (pengamatan, pencatatan bukti teks/data, atau uji terarah) dan menjaga objektivitas pencatatan.',
+            aktivitasSiswa:
+              'Siswa melakukan investigasi sesuai rencana, mengumpulkan bukti faktual tanpa mengubah data agar cocok dengan dugaan awal.',
+            instruksiPertanyaan: `"Bukti apa yang benar-benar kalian amati atau temukan? Catat data apa adanya meskipun berbeda dari dugaan semula!"`,
+            mediaBahan: tone.mediaKhas,
+            buktiBelajar: 'Tabel/catatan bukti hasil investigasi terisi.',
+          };
+        case 'inq_analisis_argumen':
+          return {
+            aktivitasGuru:
+              'Guru menantang siswa membandingkan bukti temuan dengan dugaan awal serta menguji kekuatan argumen kelompok lain.',
+            aktivitasSiswa:
+              'Siswa menganalisis pola bukti, menandai klaim yang didukung data vs klaim lemah, dan menyusun argumen berbasis bukti.',
+            instruksiPertanyaan: `"Bukti mana yang mendukung dugaan kalian, dan bukti mana yang justru menggugurkan dugaan awal tersebut?"`,
+            mediaBahan: 'Matriks Bukti vs Dugaan di LKPD Inkuiri',
+            buktiBelajar: 'Analisis kecocokan bukti-dugaan & draf argumen tertulis.',
+          };
+        default:
+          return {
+            aktivitasGuru:
+              'Guru memimpin forum presentasi simpulan penyelidikan dan memandu siswa merefleksikan perubahan pemahaman mereka.',
+            aktivitasSiswa:
+              'Siswa memaparkan simpulan berbasis bukti dan menuliskan perbedaan antara pemahaman sebelum dan sesudah menyelidiki.',
+            instruksiPertanyaan: `"Berdasarkan seluruh bukti yang terkumpul, bagaimana simpulan akhir kalian tentang '${materi}' dan apa yang mengubah pikiran kalian?"`,
+            mediaBahan: 'Papan sintesis simpulan kelas & kartu refleksi',
+            buktiBelajar: 'Simpulan berbasis bukti & catatan pergeseran pemahaman.',
+          };
+      }
+    }
+
+    case 'discovery': {
+      switch (stage.id) {
+        case 'disc_stimulation':
+          return {
+            aktivitasGuru: `Guru menyajikan rangsangan konkret berupa pasangan contoh-bukan contoh atau fenomena "${materi}" (tanpa menyebutkan aturan/definisinya lebih dulu).`,
+            aktivitasSiswa:
+              'Siswa mengamati stimulus dengan teliti dan mencatat ciri-ciri yang tampak pada contoh yang diberikan guru.',
+            instruksiPertanyaan: `"Amati perbedaan ciri antara contoh kelompok A dan kelompok B tentang '${fokus}' — pola apa yang mulai terlihat?"`,
+            mediaBahan: `Kartu/display contoh vs bukan contoh "${materi}"`,
+            buktiBelajar: 'Catatan pengamatan ciri dari bahan rangsangan.',
+          };
+        case 'disc_problem_statement':
+          return {
+            aktivitasGuru:
+              'Guru memancing siswa mengidentifikasi masalah inti dari rangsangan lalu menuliskan jawaban dugaan (konjektur) atas aturan konsep.',
+            aktivitasSiswa:
+              'Siswa merumuskan persoalan utama dan menuliskan tebakan terarah tentang aturan atau pola konsep yang sedang dicari.',
+            instruksiPertanyaan: `"Kira-kira syarat atau aturan apa yang membuat suatu kasus masuk ke konsep '${materi}'? Tuliskan dugaan awal kelompokmu!"`,
+            mediaBahan: 'Kolom Dugaan Awal pada LKPD Discovery',
+            buktiBelajar: 'Rumusan masalah & pernyataan dugaan sementara.',
+          };
+        case 'disc_data_collection':
+          return {
+            aktivitasGuru:
+              'Guru membagikan himpunan kasus, data, atau objek eksplorasi terstruktur kepada kelompok dan mengamati ketelitian pencatatan data siswa.',
+            aktivitasSiswa: isSD
+              ? 'Siswa mengelompokkan benda/kartu contoh dan mencatat sifat-sifat yang muncul pada tabel pengamatan.'
+              : 'Siswa mengumpulkan data pendukung dari bahan kajian, pengukuran, atau serangkaian soal kasus eksplorasi.',
+            instruksiPertanyaan: `"Periksa seluruh contoh kasus pada lembar kerja dan catat hasil pengamatanmu dengan rapi ke dalam tabel data."`,
+            mediaBahan: tone.mediaKhas,
+            buktiBelajar: 'Tabel pengumpulan data terisi lengkap.',
+          };
+        case 'disc_data_processing':
+          return {
+            aktivitasGuru:
+              'Guru memandu siswa mengklasifikasikan, menghitung, atau membandingkan baris-baris data hasil pengumpulan hingga pola keteraturan menonjol.',
+            aktivitasSiswa:
+              'Siswa mengolah data pada tabel (membandingkan hasil, mengelompokkan pola, dan mencari keteraturan antar-kasus).',
+            instruksiPertanyaan: `"Lihat kolom hasil pada baris 1 sampai 4 — hubungan tetap apa yang selalu berulang di setiap kasus?"`,
+            mediaBahan: 'Tabel pengolahan pola pada LKPD Discovery',
+            buktiBelajar: 'Hasil klasifikasi/perhitungan pola di LKPD.',
+          };
+        case 'disc_verification':
+          return {
+            aktivitasGuru:
+              'Guru memberikan 1–2 kasus uji baru dan meminta siswa menguji apakah dugaan pola mereka masih berlaku atau perlu direvisi.',
+            aktivitasSiswa:
+              'Siswa menguji rumusan aturan yang mereka temukan pada kasus baru serta memverifikasinya terhadap rujukan materi.',
+            instruksiPertanyaan: `"Jika kita terapkan pola temuan kalian pada contoh uji yang baru ini, apakah hasilnya tetap tepat?"`,
+            mediaBahan: 'Kartu kasus verifikasi / rujukan ringkas konsep',
+            buktiBelajar: 'Catatan hasil uji kecocokan dugaan vs kasus verifikasi.',
+          };
+        default:
+          return {
+            aktivitasGuru:
+              'Guru memfasilitasi perumusan generalisasi kelas agar siswa menyatakan kaidah/konsep inti dengan tepat lalu menegaskan istilah resminya.',
+            aktivitasSiswa:
+              'Siswa menyusun kesimpulan umum (generalisasi) kaidah konsep yang berhasil ditemukan sendiri dengan bahasa yang runtut.',
+            instruksiPertanyaan: `"Lengkapilah kaidah umum untuk '${materi}' dengan kata-kata kalian sendiri setelah terbukti pada langkah verifikasi!"`,
+            mediaBahan: 'Papan kesimpulan kelas & kotak generalisasi LKPD',
+            buktiBelajar: 'Kalimat generalisasi konsep tertulis milik siswa.',
+          };
+      }
+    }
+
+    case 'cooperative': {
+      const techniqueGuide =
+        cooperativeVariant === 'Jigsaw'
+          ? 'teknik Jigsaw (pembagian sub-bagian materi di Kelompok Ahli lalu mengajar kembali ke Kelompok Asal)'
+          : cooperativeVariant === 'STAD'
+          ? 'teknik STAD (belajar dalam tim heterogen untuk latihan bersama dilanjutkan kuis individu mandiri)'
+          : 'teknik Think-Pair-Share (berpikir mandiri, berdiskusi berpasangan, lalu berbagi ke kelompok besar/kelas)';
+
+      switch (stage.id) {
+        case 'coop_orientasi_tim':
+          return {
+            aktivitasGuru: `Guru menyampaikan target bersama serta mengatur pasangan/tim belajar heterogen menggunakan ${techniqueGuide}.`,
+            aktivitasSiswa:
+              'Siswa bergabung ke pasangan/tim heterogennya dan memahami tujuan ketuntasan tiap individu di dalam tim.',
+            instruksiPertanyaan: `"Dalam teknik ${cooperativeVariant}, keberhasilan tim bergantung pada pemahaman setiap anggota — siapa memegang bagian tugas mana?"`,
+            mediaBahan: `Kartu tim ${cooperativeVariant} & peta tugas "${materi}"`,
+            buktiBelajar: 'Daftar pembagian tim & peran anggota.',
+          };
+        case 'coop_penyajian_peran':
+          return {
+            aktivitasGuru: `Guru memaparkan kerangka konsep inti "${fokus}" secara ringkas-jelas dan memperagakan aturan main ${cooperativeVariant}.`,
+            aktivitasSiswa:
+              'Siswa menyimak penjelasan kerangka konsep, mencatat istilah kunci, serta menanyakan alur peran bila ada bagian yang belum jelas.',
+            instruksiPertanyaan: `"Perhatikan contoh inti berikut: bagian mana yang harus dipastikan dikuasai oleh seluruh anggota tim kalian?"`,
+            mediaBahan: 'Papan/slide ringkasan konsep inti & petunjuk teknik',
+            buktiBelajar: 'Catatan kerangka konsep awal siswa.',
+          };
+        case 'coop_kerja_tim':
+          return {
+            aktivitasGuru: `Guru berkeliling memantau interaksi saling-mengajar antar-anggota pada tahap ${cooperativeVariant}, menjaga agar tidak ada siswa pasif.`,
+            aktivitasSiswa:
+              cooperativeVariant === 'Jigsaw'
+                ? `Siswa berkumpul di Kelompok Ahli mempelajari sub-bagian materi "${materi}", lalu kembali ke Kelompok Asal untuk mengajar teman satu tim.`
+                : cooperativeVariant === 'Think-Pair-Share'
+                ? `Siswa berpikir dan mencatat ide sendiri dulu (Think), mencocokkan alasan dengan teman sebangku (Pair), lalu memoles jawaban pasangan.`
+                : `Siswa berlatih menyelesaikan soal/tugas "${fokus}" dalam tim, saling menjelaskan alasan, dan tidak lanjut sebelum semua rekan paham.`,
+            instruksiPertanyaan: `"Jangan hanya menyalin jawaban teman! Minta rekan timmu menjelaskan 'mengapa' langkah tersebut benar."`,
+            mediaBahan: tone.mediaKhas,
+            buktiBelajar: 'Lembar catatan ahli/pasangan & hasil diskusi tim.',
+          };
+        case 'coop_uji_individu_tim':
+          return {
+            aktivitasGuru:
+              'Guru memberikan cek/kuis pemahaman individu singkat (tanpa bantuan tim) diikuti paparan ringkas hasil kolaborasi tim.',
+            aktivitasSiswa:
+              'Setiap siswa mengerjakan cek pemahaman secara mandiri untuk membuktikan penguasaan konsep masing-masing.',
+            instruksiPertanyaan: `"Sekarang buktikan penguasaan pribadimu: kerjakan 2 pertanyaan cek '${fokus}' ini secara mandiri!"`,
+            mediaBahan: 'Kartu kuis individu & lembar hasil tim',
+            buktiBelajar: 'Skor cek pemahaman individu & produk gabungan tim.',
+          };
+        default:
+          return {
+            aktivitasGuru:
+              'Guru mengumumkan peningkatan capaian tim/pasangan, memberi pengakuan konstruktif, dan memandu refleksi kerja sama.',
+            aktivitasSiswa:
+              'Siswa merayakan progres belajar bersama tim dan mencatat 1 hal yang terbantu berkat belajar bersama teman.',
+            instruksiPertanyaan: `"Penjelasan teman tim mana yang paling membantumu memahami '${materi}' hari ini?"`,
+            mediaBahan: 'Papan skor progres / apresiasi kolaborasi',
+            buktiBelajar: 'Catatan refleksi kontribusi tim.',
+          };
+      }
+    }
+
+    case 'explicit': {
+      switch (stage.id) {
+        case 'exp_orientasi_prasyarat':
+          return {
+            aktivitasGuru: `Guru menyampaikan keterampilan spesifik "${fokus}" yang harus dikuasai hari ini dan mengecek kesiapan langkah prasyarat di kelas.`,
+            aktivitasSiswa:
+              'Siswa mengulas keterampilan prasyarat melalui latihan cepat 2 menit dan mengenali tujuan langkah kerja hari ini.',
+            instruksiPertanyaan: `"Sebelum mempelajari langkah '${materi}', mari uji ingatan langkah prasyarat ini bersama di papan."`,
+            mediaBahan: 'Papan tulis & ceklis keterampilan prasyarat',
+            buktiBelajar: 'Kesiapan jawaban review prasyarat siswa.',
+          };
+        case 'exp_demonstrasi_guru':
+          return {
+            aktivitasGuru: isKejuruan
+              ? `Guru mendemonstrasikan prosedur teknis "${materi}" langkah demi langkah secara eksplisit lengkap dengan penegasan aturan keselamatan K3 (I Do).`
+              : `Guru memodelkan cara menyelesaikan contoh "${materi}" step-by-step sambil menyuarakan alasan berpikir di tiap langkah dan memperingatkan jebakan umum (I Do).`,
+            aktivitasSiswa:
+              'Siswa mengamati demonstrasi guru secara saksama, menandai urutan langkah penting, dan mengajukan tanya jika ada transisi yang belum paham.',
+            instruksiPertanyaan: `"Perhatikan langkah ke-2: mengapa saya melakukan cara ini dan bukan sebaliknya? Kesalahan apa yang sering terjadi di sini?"`,
+            mediaBahan: isKejuruan
+              ? `Alat praktik/peraga standar & lembar SOP "${materi}"`
+              : `Contoh terpecahkan bertahap pada papan/slide "${materi}"`,
+            buktiBelajar: 'Catatan langkah prosedural terstruktur milik siswa.',
+          };
+        case 'exp_latihan_terbimbing':
+          return {
+            aktivitasGuru:
+              'Guru memandu siswa mengerjakan contoh serupa bersama langkah-demi-langkah (We Do) dan mengecek kesiapan serentak (papan mini/angkat kartu) sebelum melepas mandiri.',
+            aktivitasSiswa:
+              'Siswa meniru dan mempraktikkan prosedur langkah bersama arahan isyarat guru sambil memverifikasi ketepatan tiap langkah.',
+            instruksiPertanyaan: `"Sekarang kerjakan langkah pertama saja di papan/buku masing-masing — angkat atau tunjukkan bila sudah siap kita lanjut ke langkah ke-2!"`,
+            mediaBahan: 'Lembar latihan terbimbing & papan mini / buku latihan',
+            buktiBelajar: 'Hasil pengerjaan terbimbing terverifikasi ≥80% benar sebelum latihan mandiri.',
+          };
+        case 'exp_latihan_mandiri':
+          return {
+            aktivitasGuru:
+              'Guru memberikan rangkaian latihan mandiri bertingkat (dari mudah ke variasi standar) sambil berkeliling memberi umpan balik korektif cepat (You Do).',
+            aktivitasSiswa: isKejuruan
+              ? 'Siswa mempraktikkan prosedur kerja secara mandiri dengan mematuhi checklist K3 dan melakukan koreksi segera bila diberi catatan guru.'
+              : 'Siswa mengerjakan latihan mandiri bertahap untuk melatih kelancaran dan ketepatan prosedur.',
+            instruksiPertanyaan: `"Lanjutkan nomor 1–3 secara mandiri menggunakan 3 langkah kunci tadi; angkat tangan jika menemui kendala di bagian tertentu."`,
+            mediaBahan: tone.mediaKhas,
+            buktiBelajar: 'Hasil kerja latihan mandiri individu.',
+          };
+        default:
+          return {
+            aktivitasGuru:
+              'Guru melakukan rekap ketepatan langkah yang paling dikuasai vs masih keliru serta merangkum daftar cek (checklist) pengingat prosedur.',
+            aktivitasSiswa:
+              'Siswa menyusun 3 aturan cek mandiri singkat dan mencatat bagian prosedur yang masih perlu latihan.',
+            instruksiPertanyaan: `"Sebutkan kembali 3 langkah berurutan yang tidak boleh tertukar saat mempraktikkan '${materi}'!"`,
+            mediaBahan: 'Kartu checklist langkah kunci',
+            buktiBelajar: 'Checklist pengingat prosedur pribadi siswa.',
+          };
+      }
+    }
+
+    case 'kontekstual':
+    default: {
+      switch (stage.id) {
+        case 'ctl_konstruktivisme':
+          return {
+            aktivitasGuru: `Guru membuka dialog pengalaman sehari-hari siswa yang bersinggungan dengan "${konteks}" untuk mengaktifkan pengetahuan bermakna tentang "${materi}".`,
+            aktivitasSiswa:
+              'Siswa menceritakan pengalaman nyata di rumah atau lingkungan sekitar yang berkaitan dengan konsep materi.',
+            instruksiPertanyaan: `"Di mana kalian pernah melihat atau mengalami kejadian seperti '${konteks}'? Bagaimana kalian biasa menyikapinya?"`,
+            mediaBahan: 'Foto/cerita fenomena lokal sekitar sekolah',
+            buktiBelajar: 'Catatan kaitan pengalaman pribadi dengan konsep baru.',
+          };
+        case 'ctl_pemodelan_bertanya':
+          return {
+            aktivitasGuru: `Guru menghadirkan contoh/model konkret nyata terkait "${fokus}" dan memandu siswa mengajukan pertanyaan kritis mengenai cara kerjanya.`,
+            aktivitasSiswa:
+              'Siswa mengamati demonstrasi/model kontekstual yang ditunjukkan guru lalu merumuskan pertanyaan kritis "mengapa" dan "bagaimana".',
+            instruksiPertanyaan: `"Setelah mengamati model nyata ini, pertanyaan apa yang muncul di benak kalian tentang pengaruh '${materi}'?"`,
+            mediaBahan: `Benda/model konkret kontekstual & contoh kasus "${materi}"`,
+            buktiBelajar: 'Daftar pertanyaan kritis siswa terkait konteks lokal.',
+          };
+        case 'ctl_menemukan_konteks':
+          return {
+            aktivitasGuru:
+              'Guru membimbing kelompok mengumpulkan atau menganalisis informasi nyata di lingkungan sekitar/kasus lokal untuk menemukan makna konsep.',
+            aktivitasSiswa:
+              'Siswa menganalisis kasus nyata lokal pada LKPD, mengidentifikasi hubungan sebab-akibat, dan menghubungkannya dengan prinsip materi.',
+            instruksiPertanyaan: `"Data lokal apa yang mendukung jawaban kelompok kalian, dan bagaimana prinsip '${materi}' menjelaskannya?"`,
+            mediaBahan: tone.mediaKhas,
+            buktiBelajar: 'Analisis kasus kontekstual lokal terisi di LKPD.',
+          };
+        case 'ctl_masyarakat_belajar':
+          return {
+            aktivitasGuru:
+              'Guru membentuk komunitas belajar saling tukar temuan antar-kelompok agar siswa melihat penerapan materi dalam beragam situasi nyata.',
+            aktivitasSiswa:
+              'Siswa berkolaborasi mendiskusikan penerapan konsep pada konteks berbeda lalu mempresentasikan hasil aplikasinya.',
+            instruksiPertanyaan: `"Jika kondisi di lingkungan sekitar berubah, bagaimana penerapan konsep '${fokus}' perlu disesuaikan?"`,
+            mediaBahan: 'LKPD CTL & papan pajang temuan kelompok',
+            buktiBelajar: 'Paparan aplikasi kontekstual & catatan komentar kelompok lain.',
+          };
+        default:
+          return {
+            aktivitasGuru:
+              'Guru memfasilitasi refleksi kebermaknaan materi dan menilai penguasaan siswa melalui tugas autentik singkat.',
+            aktivitasSiswa:
+              'Siswa menuliskan manfaat konkret konsep hari ini untuk keseharian mereka dan menyelesaikan tugas evaluasi autentik.',
+            instruksiPertanyaan: `"Bagaimana pemahamanmu tentang '${materi}' hari ini membantumu mengambil keputusan yang lebih tepat dalam kehidupan nyata?"`,
+            mediaBahan: 'Kartu refleksi bermakna & tugas autentik akhir',
+            buktiBelajar: 'Hasil tugas autentik & jurnal refleksi bermakna.',
+          };
+      }
+    }
+  }
+}
+
+function buildStructuredMeetingStages(params: {
+  pertemuanKe: number;
+  jpPertemuan: number;
+  menitPerJP: number;
+  fokusPertemuan: string;
+  model: ModulAjarModelType;
+  jenjang: JenjangKategoriModul;
+  smkTrack: 'umum' | 'kejuruan' | 'tidak_teridentifikasi' | undefined;
+  materi: string;
+  konteks: string;
+  mapel: string;
+  tone: GradeScaffoldingTone;
+  cooperativeVariant: CooperativeTechniqueVariant;
+}): TahapKegiatanTerstruktur[] {
+  const {
+    pertemuanKe,
+    jpPertemuan,
+    menitPerJP,
+    fokusPertemuan,
+    model,
+    jenjang,
+    smkTrack,
+    materi,
+    konteks,
+    mapel,
+    tone,
+    cooperativeVariant,
+  } = params;
+  const modelDef = getModulAjarModelDefinition(model);
+  const totalMenit = jpPertemuan * menitPerJP;
+  const { pendahuluanMenit, intiMenitMap, penutupMenit } = distributeStageDurations(
+    totalMenit,
+    modelDef.tahapanSintaks
+  );
+
+  const isSD = jenjang === 'SD/MI';
+  const isKejuruan = jenjang === 'SMK' && smkTrack === 'kejuruan';
+
+  const pembukaStage: TahapKegiatanTerstruktur = {
+    id: `p${pertemuanKe}_pendahuluan`,
+    urutan: 1,
+    fase: 'pendahuluan',
+    namaTahap: 'Pendahuluan & Kesiapan Belajar',
+    tujuanTahap: `Menyiapkan kesadaran belajar, mengaitkan prasyarat dengan ${fokusPertemuan}, dan memetakan kesiapan awal siswa.`,
+    aktivitasGuru:
+      pertemuanKe === 1
+        ? isKejuruan
+          ? `Guru membuka pelajaran dengan doa, mengecek kesiapan alat serta komitmen K3, melakukan apersepsi dengan situasi praktik nyata "${konteks}", dan menyampaikan tujuan serta alur ${modelDef.namaSingkat}.`
+          : `Guru membuka dengan salam dan doa, mengecek kesiapan belajar siswa, melakukan apersepsi singkat mengenai ${tone.konteksLingkungan}, dan menjelaskan tujuan pertemuan "${fokusPertemuan}".`
+        : `Guru mengulas temuan penting pertemuan sebelumnya, mengecek kendala yang tersisa pada ${fokusPertemuan}, dan menyampaikan target lanjutan sesi ini.`,
+    aktivitasSiswa: isSD
+      ? `Siswa berdoa bersama, menjawab sapaan kesiapan belajar, dan menanggapi pertanyaan pembuka tentang contoh "${materi}" di sekitarnya.`
+      : `Siswa mengikuti doa dan cek kesiapan, menjawab kuis pemanasan prasyarat secara lisan/tertulis, dan mencermati target asesmen pertemuan.`,
+    instruksiPertanyaan: `"Sebelum memulai '${fokusPertemuan}', apa yang sudah kalian ketahui atau temui tentang hal ini?"`,
+    mediaBahan: tone.mediaKhas,
+    durasiMenit: pendahuluanMenit,
+    buktiBelajar: 'Respon apersepsi & catatan kesiapan prasyarat awal.',
+    pengalamanBelajar: 'Memahami',
+    prinsipPembelajaran: ['Berkesadaran'],
+  };
+
+  const intiStages: TahapKegiatanTerstruktur[] = modelDef.tahapanSintaks.map((stage, sIdx) => {
+    const built = buildModelIntiStageContent({
+      model,
+      stage,
+      jenjang,
+      smkTrack,
+      materi,
+      konteks,
+      fokus: fokusPertemuan,
+      tone,
+      cooperativeVariant,
+    });
+    return {
+      id: `p${pertemuanKe}_${stage.id}`,
+      urutan: sIdx + 2,
+      fase: 'inti',
+      namaTahap: `${stage.urutan}. ${stage.namaTahap}`,
+      tujuanTahap: stage.tujuanTahap,
+      aktivitasGuru: built.aktivitasGuru,
+      aktivitasSiswa: built.aktivitasSiswa,
+      instruksiPertanyaan: built.instruksiPertanyaan,
+      mediaBahan: built.mediaBahan,
+      durasiMenit: intiMenitMap[stage.id] ?? 10,
+      buktiBelajar: built.buktiBelajar,
+      ...(stage.pengalamanBelajar ? { pengalamanBelajar: stage.pengalamanBelajar } : {}),
+      ...(stage.prinsipPembelajaran ? { prinsipPembelajaran: [...stage.prinsipPembelajaran] } : {}),
+    };
+  });
+
+  const penutupStage: TahapKegiatanTerstruktur = {
+    id: `p${pertemuanKe}_penutup`,
+    urutan: intiStages.length + 2,
+    fase: 'penutup',
+    namaTahap: 'Penutup, Cek Pemahaman & Refleksi',
+    tujuanTahap: `Memastikan ketercapaian inti ${fokusPertemuan}, merefleksikan proses belajar, dan menutup sesi dengan tindak lanjut jelas.`,
+    aktivitasGuru: isKejuruan
+      ? `Guru memandu pemeriksaan kerapian alat/area kerja (5R), memberikan cek pemahaman cepat ${mapel}, memfasilitasi refleksi, dan memberi arahan sesi berikutnya.`
+      : `Guru bersama siswa merangkum konsep inti "${fokusPertemuan}", memberikan cek pemahaman cepat (exit ticket), memandu refleksi singkat, dan menyampaikan agenda berikutnya.`,
+    aktivitasSiswa:
+      'Siswa menjawab pertanyaan cek akhir secara mandiri, menuliskan satu hal yang dipahami dan bagian yang masih perlu latihan, lalu berdoa penutup.',
+    instruksiPertanyaan: `"Satu konsep kunci apa yang paling kamu kuasai dari '${fokusPertemuan}', dan bagian mana yang masih ingin ditanyakan?"`,
+    mediaBahan: 'Kartu cek akhir (exit ticket) / lembar refleksi singkat',
+    durasiMenit: penutupMenit,
+    buktiBelajar: 'Hasil cek pemahaman akhir & catatan refleksi individu.',
+    pengalamanBelajar: 'Merefleksi',
+    prinsipPembelajaran: ['Berkesadaran', 'Bermakna'],
+  };
+
+  return [pembukaStage, ...intiStages, penutupStage];
+}
+
+function buildTopicRelevantGlossary(
+  tp: CustomTPItem,
+  modelLabel: string
+): { istilah: string; definisi: string }[] {
+  const terms: { istilah: string; definisi: string }[] = [
+    {
+      istilah: tp.materiPokok,
+      definisi: `Konsep utama yang dipelajari pada elemen ${tp.elemen || 'terkait'}: ${tp.tujuanPembelajaran}`,
+    },
+  ];
+  if (tp.subTP && tp.subTP.length > 0) {
+    tp.subTP.slice(0, 3).forEach((sub) => {
+      terms.push({
+        istilah: sub.fokusMateri || sub.kode,
+        definisi: sub.kompetensi || sub.buktiKetercapaian || `Fokus materi pada ${sub.kode}.`,
+      });
+    });
+  } else {
+    terms.push(
+      {
+        istilah: `Elemen ${tp.elemen || tp.materiPokok}`,
+        definisi: `Lingkup kompetensi pada tujuan pembelajaran ${tp.kode}: ${tp.kompetensiInti || tp.tujuanPembelajaran}`,
+      },
+      {
+        istilah: 'Bukti Ketercapaian (KKTP)',
+        definisi:
+          tp.buktiKetercapaian?.[0] ||
+          `Indikator teramati yang menunjukkan peserta didik telah menguasai ${tp.materiPokok} (${modelLabel}).`,
+      }
+    );
+  }
+  return terms;
+}
+
 /**
- * Pembuat Modul Ajar (RPP Kurikulum Merdeka) Lengkap & Kontekstual
+ * Pembuat Modul Ajar (RPP Kurikulum Merdeka) Lengkap, Sadar-Model & Sadar-Jenjang
  */
 export function buildSmartModulAjar(
   tp: CustomTPItem,
   profile: SchoolProfile,
-  jumlahPertemuan: number = 2
+  jumlahPertemuanOrOptions?: number | BuildSmartModulAjarOptions
 ): ModulAjarDokumen {
+  const opts: BuildSmartModulAjarOptions =
+    typeof jumlahPertemuanOrOptions === 'number'
+      ? { jumlahPertemuan: jumlahPertemuanOrOptions }
+      : jumlahPertemuanOrOptions || {};
+
+  const model: ModulAjarModelType = isValidModulAjarModelType(opts.model) ? opts.model : 'pbl';
+  const modelDef = getModulAjarModelDefinition(model);
+  const cooperativeVariant: CooperativeTechniqueVariant =
+    model === 'cooperative'
+      ? COOPERATIVE_TECHNIQUE_VARIANTS.includes(opts.variasiTeknikModel as CooperativeTechniqueVariant)
+        ? (opts.variasiTeknikModel as CooperativeTechniqueVariant)
+        : 'Think-Pair-Share'
+      : 'Think-Pair-Share';
+
   const jenjangFase = jenjangToDefaultFase(profile.jenjang, profile.kelasUtama);
-  const alokasiJP = Number(tp.alokasiJP) || 8;
-  const menitPerJP = profile.jenjang.includes('SD') ? 35 : profile.jenjang.includes('SMP') ? 40 : 45;
-  const totalMenitPertemuan = Math.round((alokasiJP * menitPerJP) / jumlahPertemuan);
+  const timePreset = resolveModulTimePreset(profile, {
+    jpPerPertemuan: opts.jpPerPertemuan,
+    menitPerJP: opts.menitPerJP,
+    smkTrackOverride: opts.smkTrackOverride,
+  });
+  const totalAlokasiJPTP = Math.max(1, Number(tp.alokasiJP) || timePreset.jpPerPertemuan);
+  const effectiveSessionJP =
+    typeof opts.jpPerPertemuan === 'number' && Number.isFinite(opts.jpPerPertemuan)
+      ? timePreset.jpPerPertemuan
+      : Math.min(timePreset.jpPerPertemuan, totalAlokasiJPTP);
+  const meetingPlan = computeMeetingsNeededForTP(
+    totalAlokasiJPTP,
+    effectiveSessionJP,
+    timePreset.menitPerJP,
+    opts.jumlahPertemuan
+  );
+  const meetingSlices = distributeActivitiesIntoMeetings({
+    tp,
+    jumlahPertemuan: meetingPlan.jumlahPertemuanAktif,
+    jpPerPertemuan: meetingPlan.jpPerPertemuan,
+    menitPerJP: meetingPlan.menitPerJP,
+  });
 
-  // Profil Pelajar Pancasila yang relevan
-  const profilList = [
-    'Bernalar Kritis (menganalisis informasi, mengevaluasi argumen, dan menyelesaikan masalah secara logis)',
-    'Gotong Royong (bekerja sama, berkolaborasi aktif, dan menghargai gagasan anggota kelompok dalam diskusi)',
-    'Mandiri (memiliki inisiatif belajar, bertanggung jawab atas proses dan hasil kerjanya secara disiplin)',
-    'Kreatif (mampu memodifikasi dan menghasilkan gagasan orisinal dalam pemecahan masalah kontekstual)',
-  ];
+  const tone = resolveGradeScaffoldingTone(
+    timePreset.jenjangKategori,
+    timePreset.smkTrack,
+    tp.materiPokok,
+    profile.mataPelajaranUtama
+  );
+  const konteks =
+    opts.konteksLokal && opts.konteksLokal.trim().length > 0
+      ? opts.konteksLokal.trim()
+      : `${tone.konteksLingkungan} terkait ${tp.materiPokok}`;
 
-  // Sarana & Prasarana
+  const profilList =
+    timePreset.jenjangKategori === 'SD/MI'
+      ? [
+          'Penalaran Kritis (mengamati fakta sederhana dan menjelaskan alasan jawaban dengan kata sendiri)',
+          'Kolaborasi (bekerja rukun, bergiliran peran, dan mendengarkan pendapat teman)',
+          'Kemandirian (menyelesaikan langkah tugas di lembar kerja dengan tekun dan jujur)',
+        ]
+      : [
+          'Penalaran Kritis (menganalisis informasi/bukti, mengevaluasi argumen, dan menarik simpulan logis)',
+          'Kolaborasi (bekerja sama aktif dengan pembagian peran terukur untuk mencapai target bersama)',
+          'Kemandirian (mengelola strategi belajar, melakukan cek pemahaman diri, dan bertanggung jawab atas hasil)',
+          'Kreativitas (mengembangkan alternatif penyelesaian atau rancangan karya kontekstual yang relevan)',
+        ];
+
   const saranaList = [
-    'Papan tulis / Spidol / Smart Board interaktif',
-    'Buku teks utama & panduan guru Kurikulum Merdeka Kemendikbudristek',
-    'Lembar Kerja Peserta Didik (LKPD) Kontekstual',
-    'Perangkat presentasi (Laptop / Proyektor LCD) atau media kartu peraga',
-    'Gawai / Akses internet untuk penelusuran referensi dan studi kasus nyata',
+    tone.mediaKhas,
+    'Buku teks utama & buku panduan guru yang relevan (lengkapi edisi & bab/halaman pada daftar pustaka)',
+    'Papan tulis / spidol / media presentasi atau alat peraga kelas',
   ];
 
-  // Pertanyaan Pemantik
-  const pemantik = [
-    `Pernahkah kalian menjumpai peristiwa atau penerapan "${tp.materiPokok}" dalam kehidupan kita sehari-hari?`,
-    `Mengapa pemahaman mengenai konsep ini sangat penting dan bagaimana cara terbaik menyelesaikan permasalahannya?`,
-    `Jika kita tidak memahami kaidah dasarnya, dampak atau kekeliruan apa yang mungkin terjadi di sekitar kita?`,
-  ];
+  const pemantik =
+    timePreset.jenjangKategori === 'SD/MI'
+      ? [
+          `Pernahkah kalian melihat kejadian atau contoh "${tp.materiPokok}" di rumah atau di sekitar sekolah kita?`,
+          `Kira-kira apa yang terjadi jika kita keliru menerapkan "${tp.materiPokok}" saat membantu kegiatan sehari-hari?`,
+          `Bagaimana cara paling mudah untuk menceritakan kembali aturan penting dari "${tp.materiPokok}" kepada temanmu?`,
+        ]
+      : [
+          `Mengapa penguasaan konsep "${tp.materiPokok}" penting untuk menjawab persoalan nyata pada "${konteks}"?`,
+          `Faktor atau data kunci apa yang membedakan pendekatan yang tepat dan keliru saat menerapkan "${tp.materiPokok}"?`,
+          `Jika kondisi pada kasus "${konteks}" berubah, bagaimana kesimpulan atau strategi penyelesaianmu ikut menyesuaikan?`,
+        ];
 
-  // Pemahaman Bermakna
-  const pemahamanBermakna = `Peserta didik memahami bahwa konsep "${tp.materiPokok}" bukan sekadar teori hafalan, melainkan prinsip aplikatif yang dapat dimanfaatkan untuk menganalisis situasi nyata, mengambil keputusan rasional, serta memecahkan masalah kontekstual di lingkungan sekitar dan dunia kerja.`;
+  const pemahamanBermakna =
+    timePreset.jenjangKategori === 'SD/MI'
+      ? `Peserta didik memahami bahwa "${tp.materiPokok}" membantu mereka mengenali kejadian nyata dan menyelesaikan masalah sederhana di ${tone.konteksLingkungan}.`
+      : `Peserta didik memahami bahwa konsep "${tp.materiPokok}" merupakan prinsip aplikatif untuk menganalisis persoalan secara logis dan mengambil keputusan tepat pada ${tone.konteksLingkungan}.`;
 
-  // Kompetensi Awal (spesifik dari prasyarat TP bila tersedia)
   const kompetensiAwal =
     tp.prasyarat && tp.prasyarat.length > 0
       ? [
-          ...tp.prasyarat.map((p) => `Peserta didik telah memahami: ${p}.`),
-          `Peserta didik siap melakukan eksplorasi terstruktur terkait "${tp.materiPokok}".`,
+          ...tp.prasyarat.map((p) => `Peserta didik telah memahami prasyarat: ${p}.`),
+          `Peserta didik siap mengikuti ${tone.karakteristikAktivitas}.`,
         ]
       : [
-          `Peserta didik telah memiliki pengetahuan dasar pada elemen ${tp.elemen} sebagai pengantar "${tp.materiPokok}".`,
-          `Peserta didik mampu membaca informasi terstruktur dan menyampaikan pendapat dalam diskusi.`,
+          `Peserta didik mengenal konsep dasar pada elemen ${tp.elemen} sebagai pengantar "${tp.materiPokok}".`,
+          `Peserta didik siap mengikuti alur belajar ${modelDef.namaSingkat} secara bertahap.`,
         ];
 
   const bahanBacaan = {
     ringkasanInti:
       tp.arahanRangkuman?.trim() ||
-      `Materi "${tp.materiPokok}" memfokuskan peserta didik pada pencapaian: ${tp.tujuanPembelajaran}`,
+      `Materi "${tp.materiPokok}" berfokus pada pencapaian TP ${tp.kode}: ${tp.tujuanPembelajaran}`,
     konsepKunci: [
       `Pokok bahasan utama: ${tp.materiPokok} (Elemen ${tp.elemen})`,
-      ...(tp.buktiKetercapaian?.slice(0, 2) || [`Kompetensi inti: ${tp.kompetensiInti || tp.tujuanPembelajaran}`]),
+      ...(tp.buktiKetercapaian?.slice(0, 2) || [
+        `Kompetensi target: ${tp.kompetensiInti || tp.tujuanPembelajaran}`,
+      ]),
       ...(tp.subTP?.slice(0, 2).map((s) => `${s.kode}: ${s.fokusMateri}`) || []),
     ],
     referensiCatatan:
-      'Ringkasan bahan bacaan disusun dari metadata TP aktif. Guru disarankan melengkapi dengan contoh kasus atau kutipan halaman buku teks sekolah.',
+      'Ringkasan bahan ajar diturunkan dari metadata TP aktif. Pastikan guru melengkapi rujukan buku teks resmi (mis. SIBI) sebelum digunakan sebagai bahan ajar utama.',
   };
 
-  // Langkah Kegiatan Pembelajaran
-  const kegiatanPembelajaran = Array.from({ length: jumlahPertemuan }, (_, i) => {
-    const pertemuanKe = i + 1;
-    const durasi = totalMenitPertemuan;
-    const durasiPendahuluan = Math.round(durasi * 0.15);
-    const durasiPenutup = Math.round(durasi * 0.15);
+  const kegiatanPembelajaran: KegiatanPembelajaranLangkah[] = meetingSlices.map((slice) => {
+    const tahapTerstruktur = buildStructuredMeetingStages({
+      pertemuanKe: slice.pertemuan,
+      jpPertemuan: slice.jpPertemuan,
+      menitPerJP: meetingPlan.menitPerJP,
+      fokusPertemuan: slice.fokusPertemuan,
+      model,
+      jenjang: timePreset.jenjangKategori,
+      smkTrack: timePreset.smkTrack,
+      materi: tp.materiPokok,
+      konteks,
+      mapel: profile.mataPelajaranUtama,
+      tone,
+      cooperativeVariant,
+    });
+    const legacySteps = syncLegacyArraysFromStructuredStages(tahapTerstruktur);
 
     return {
-      pertemuan: pertemuanKe,
-      alokasiMenit: durasi,
-      pendahuluan: [
-        `Kegiatan Pendahuluan (${durasiPendahuluan} Menit): Guru membuka pembelajaran dengan salam hangat, sapaan santun, dan mengajak peserta didik berdoa bersama dipimpin ketua kelas.`,
-        `Guru memeriksa kehadiran, kesiapan fisik dan psikis peserta didik, serta kerapian ruang belajar.`,
-        `Apersepsi: Guru mengaitkan materi pertemuan sebelumnya dengan topik "${tp.materiPokok}" melalui tanya jawab singkat.`,
-        `Motivasi: Guru menyampaikan tujuan pembelajaran, pemahaman bermakna, serta relevansi materi dalam kehidupan nyata.`,
-        `Guru memaparkan gambaran garis besar kegiatan pembelajaran dan skenario penilaian yang akan dilakukan.`,
-      ],
-      inti: [
-        `Tahap 1 (Orientasi Masalah): Guru menyajikan stimulus kontekstual (video / studi kasus / teks infografis) mengenai "${tp.materiPokok}" dan mengajukan pertanyaan pemantik kepada kelas.`,
-        `Tahap 2 (Organisasi Belajar): Peserta didik dibagi ke dalam kelompok heterogen beranggotakan 4–5 orang. Guru membagikan Lembar Kerja Peserta Didik (LKPD).`,
-        `Tahap 3 (Penyelidikan Terbimbing): Setiap kelompok melakukan eksplorasi informasi, mendiskusikan langkah penyelesaian, dan mencatat data temuan. Guru berkeliling memberikan scaffolding/bimbingan bertingkat.`,
-        `Tahap 4 (Pengembangan & Penyajian Karya): Masing-masing kelompok menyusun kesimpulan hasil diskusi pada LKPD. Perwakilan kelompok mempresentasikan hasil kerjanya di depan kelas.`,
-        `Tahap 5 (Analisis & Evaluasi): Kelompok lain memberikan tanggapan apresiatif dan pertanyaan kritis. Guru bersama peserta didik menyimpulkan konsep kunci dan meluruskan miskonsepsi yang muncul.`,
-      ],
-      penutup: [
-        `Kegiatan Penutup (${durasiPenutup} Menit): Peserta didik bersama guru melakukan refleksi bersama atas proses pembelajaran yang telah berlangsung hari ini (apa yang dipahami, apa yang menyenangkan, dan kendala yang dihadapi).`,
-        `Guru memberikan apresiasi dan penguatan atas keaktifan, kerja sama, dan pencapaian seluruh peserta didik.`,
-        `Guru menyampaikan arahan tindak lanjut serta topik yang akan dipelajari pada pertemuan berikutnya.`,
-        `Pembelajaran ditutup dengan rasa syukur, doa bersama, dan salam penutup.`,
-      ],
+      pertemuan: slice.pertemuan,
+      alokasiMenit: slice.alokasiMenit,
+      jpPertemuan: slice.jpPertemuan,
+      fokusPertemuan: slice.fokusPertemuan,
+      ...legacySteps,
+      tahapTerstruktur,
     };
   });
 
-  // Glosarium
-  const glosarium = [
-    { istilah: tp.materiPokok, definisi: `Pokok bahasan inti yang menjadi fokus penguasaan kompetensi peserta didik.` },
-    { istilah: 'Capaian Pembelajaran (CP)', definisi: 'Kompetensi pembelajaran yang harus dicapai peserta didik pada setiap fase perkembangan.' },
-    { istilah: 'Tujuan Pembelajaran (TP)', definisi: 'Deskripsi pencapaian tiga aspek kompetensi (pengetahuan, keterampilan, sikap) yang diperoleh peserta didik dalam kegiatan belajar.' },
-    { istilah: 'Problem-Based Learning (PBL)', definisi: 'Model pembelajaran yang memfokuskan peserta didik pada pemecahan masalah nyata untuk membangun pengetahuannya sendiri.' },
-  ];
+  const modelLabelDisplay =
+    model === 'cooperative'
+      ? `${modelDef.label} (${cooperativeVariant}) - ${modelDef.deskripsi}`
+      : `${modelDef.label} - ${modelDef.deskripsi}`;
 
   return {
     id: `modul-${tp.id}-${Date.now().toString(36)}`,
@@ -163,24 +930,40 @@ export function buildSmartModulAjar(
     schoolId: profile.schoolId,
     tpSourceHash: computeTPContentHash(tp),
     needsReview: false,
-    modelType: 'pbl',
+    modelType: modelDef.id,
+    sintaksModelId: modelDef.id,
+    ...(model === 'cooperative' ? { variasiTeknikModel: cooperativeVariant } : {}),
     draftSource: 'template',
-    judul: `Modul Ajar: ${tp.materiPokok}`,
+    judul: `Modul Ajar: ${tp.materiPokok} (${modelDef.namaSingkat})`,
     mataPelajaran: profile.mataPelajaranUtama,
     jenjangFase,
     kelas: profile.kelasUtama,
     rombel: profile.rombelAktif,
     semester: profile.semester,
     tahunAjaran: profile.tahunAjaran,
-    alokasiWaktu: `${alokasiJP} Jam Pelajaran (${jumlahPertemuan} Pertemuan x ${totalMenitPertemuan} Menit)`,
-    jumlahPertemuan,
+    alokasiWaktu: formatAlokasiWaktuLabel(meetingPlan),
+    alokasiWaktuDetail: {
+      jenjangKategori: timePreset.jenjangKategori,
+      ...(timePreset.smkTrack ? { smkTrack: timePreset.smkTrack } : {}),
+      jpPerPertemuan: meetingPlan.jpPerPertemuan,
+      menitPerJP: meetingPlan.menitPerJP,
+      totalMenitPertemuan: meetingPlan.totalMenitPertemuan,
+      jumlahPertemuan: meetingPlan.jumlahPertemuanAktif,
+      totalAlokasiJPTP: meetingPlan.totalAlokasiJPTP,
+      sumberPreset: timePreset.sumberPreset,
+    },
+    jumlahPertemuan: meetingPlan.jumlahPertemuanAktif,
     namaSekolah: profile.namaSekolah,
     namaGuru: profile.namaGuru,
     nipGuru: profile.nipGuru,
     namaKepalaSekolah: profile.namaKepalaSekolah,
     nipKepalaSekolah: profile.nipKepalaSekolah,
     kotaSekolah: profile.kotaSekolah,
-    createdAt: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+    createdAt: new Date().toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }),
 
     tpKode: tp.kode,
     materiPokok: tp.materiPokok,
@@ -196,8 +979,8 @@ export function buildSmartModulAjar(
     kompetensiAwal,
     profilPelajarPancasila: profilList,
     saranaPrasarana: saranaList,
-    targetPesertaDidik: 'Peserta didik reguler/tipikal umum (dapat mengikuti pembelajaran tanpa hambatan belajar khusus, dengan diferensiasi proses dan produk).',
-    modelPembelajaran: 'Problem-Based Learning (PBL) dipadukan dengan diskusi kelompok, inkuiri kontekstual, dan presentasi kolaboratif.',
+    targetPesertaDidik: tone.targetPeserta,
+    modelPembelajaran: modelLabelDisplay,
 
     pemahamanBermakna,
     pertanyaanPemantik: pemantik,
@@ -205,48 +988,48 @@ export function buildSmartModulAjar(
     kegiatanPembelajaran,
 
     asesmen: {
-      diagnostik: 'Tanya jawab apersepsi dan survei pemahaman awal sebelum memulai materi pokok.',
-      formatif: 'Observasi keaktifan diskusi kelompok, unjuk kerja presentasi, dan penilaian kinerja pada LKPD.',
-      sumatif: 'Tes tertulis (Pilihan Ganda, AKM Kompleks, dan Uraian HOTS) pada akhir bab/lingkup materi.',
+      diagnostik: tone.asesmenAwalContoh,
+      formatif: tone.asesmenFormatifContoh,
+      sumatif: tone.asesmenSumatifContoh,
     },
     rubrikPenilaianSingkat: [
       {
-        kriteria: 'Pemahaman Konsep & Istilah Kunci',
-        baruBerkembang: 'Belum mampu mendefinisikan konsep inti meski telah dibimbing guru.',
-        layak: 'Mampu menjelaskan definisi konsep dasar namun belum konsisten dalam contoh.',
-        cakap: 'Mampu menjelaskan konsep dan memberikan contoh kontekstual secara runtut.',
-        mahir: 'Mampu menguraikan konsep, menganalisis keterkaitan, dan memecahkan variasi masalah baru.',
+        kriteria: `Penguasaan Konsep ${tp.materiPokok}`,
+        baruBerkembang: 'Belum mampu mengenali unsur inti konsep meski telah mendapat bimbingan guru.',
+        layak: 'Mampu menjelaskan bagian dasar konsep namun belum konsisten menerapkannya.',
+        cakap: `Mampu menjelaskan konsep "${tp.materiPokok}" dan menerapkannya pada contoh kontekstual dengan tepat.`,
+        mahir: `Mampu menganalisis konsep "${tp.materiPokok}", menguji kebenaran argumen, dan memecahkan variasi situasi baru secara mandiri.`,
       },
       {
-        kriteria: 'Kemampuan Kolaborasi & Komunikasi',
-        baruBerkembang: 'Pasif dalam diskusi dan memerlukan dorongan berkelanjutan.',
-        layak: 'Terlibat dalam pembagian tugas kelompok namun kontribusi masih terbatas.',
-        cakap: 'Aktif berdiskusi, mendengarkan rekan, dan menyampaikan pendapat secara terbuka.',
-        mahir: 'Menginisiasi kerja sama, memfasilitasi solusi kelompok, dan mempresentasikan hasil dengan percaya diri.',
+        kriteria: `Proses Belajar (${modelDef.namaSingkat})`,
+        baruBerkembang: 'Memerlukan arahan intensif di setiap tahapan untuk menyelesaikan tugas.',
+        layak: 'Mengikuti sebagian tahapan pembelajaran dengan bimbingan berkala.',
+        cakap: 'Melaksanakan tahapan pembelajaran secara runtut, aktif bekerja sama, dan menyajikan bukti belajar yang jelas.',
+        mahir: 'Memimpin penyelidikan/kolaborasi secara efektif, memverifikasi ketepatan bukti, dan memberi umpan balik konstruktif.',
       },
     ],
 
     pengayaanDanRemedial: {
-      pengayaan: `Diberikan kepada peserta didik yang telah mencapai ketuntasan tujuan pembelajaran (KKTP) berupa penugasan proyek eksplorasi mandiri atau pemecahan masalah tingkat lanjut yang membutuhkan penalaran analitis mendalam.`,
-      remedial: `Diberikan bimbingan khusus individual atau tutor sebaya terhadap indikator TP yang belum dicapai, difokuskan pada penguatan konsep dasar dengan analogi sederhana dan latihan terarah.`,
+      pengayaan: tone.pengayaanStrategi,
+      remedial: tone.remedialStrategi,
     },
 
     refleksiGuru: [
-      'Apakah seluruh peserta didik terlibat aktif dan antusias selama kegiatan pembelajaran berlangsung?',
-      'Langkah atau instruksi manakah yang paling efektif dan bagian mana yang masih perlu perbaikan?',
-      'Apakah alokasi waktu yang direncanakan sudah memadai untuk menyelesaikan seluruh tahapan kegiatan?',
+      `Apakah alokasi waktu ${meetingPlan.totalMenitPertemuan} menit per pertemuan cukup bagi siswa menyelesaikan seluruh tahap ${modelDef.namaSingkat}?`,
+      `Tahap manakah yang paling membantu siswa memahami "${tp.materiPokok}", dan miskonsepsi apa yang perlu diperkuat?`,
+      'Apakah penyesuaian pendampingan telah menjangkau siswa yang masih kesulitan serta memberi tantangan bagi siswa yang cepat tuntas?',
     ],
     refleksiSiswa: [
-      'Hal baru dan paling menarik apa yang saya pelajari pada materi hari ini?',
-      'Bagian materi mana yang menurut saya masih paling menantang atau membutuhkan latihan tambahan?',
-      'Bagaimana kontribusi saya dalam membantu kelompok saya menyelesaikan tugas LKPD?',
+      `Hal baru apa tentang "${tp.materiPokok}" yang paling jelas saya pahami hari ini?`,
+      'Bagian langkah atau konsep mana yang masih membingungkan dan perlu saya latih lagi?',
+      'Bagaimana peran aktif saya membantu teman atau kelompok saat pembelajaran berlangsung?',
     ],
 
-    glosarium,
+    glosarium: buildTopicRelevantGlossary(tp, modelDef.namaSingkat),
     daftarPustaka: [
-      `[Lengkapi referensi satuan pendidikan] Buku teks/panduan resmi ${profile.mataPelajaranUtama} Kelas ${profile.kelasUtama} yang digunakan sekolah (cantumkan penulis, tahun terbit, dan penerbit sesuai edisi).`,
+      `[Lengkapi referensi satuan pendidikan] Buku teks/panduan resmi ${profile.mataPelajaranUtama} Kelas ${profile.kelasUtama} yang digunakan sekolah (cantumkan penulis, tahun terbit, penerbit, bab, dan halaman sesuai edisi aktual).`,
       `Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP). Panduan Pembelajaran dan Asesmen (PPA) Kurikulum Merdeka.`,
-      `Catatan ajar guru & sumber belajar kontekstual terkait materi "${tp.materiPokok}".`,
+      `Catatan ajar guru & perangkat kontekstual terkait materi "${tp.materiPokok}".`,
     ],
   };
 }

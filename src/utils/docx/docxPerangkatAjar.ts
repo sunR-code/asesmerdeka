@@ -121,15 +121,26 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
     })
   );
 
+  const safeProfil = Array.isArray(modul.profilPelajarPancasila) ? modul.profilPelajarPancasila : [];
+  const safeSarana = Array.isArray(modul.saranaPrasarana) ? modul.saranaPrasarana : [];
+  const safePemantik = Array.isArray(modul.pertanyaanPemantik) ? modul.pertanyaanPemantik : [];
+  const safeKegiatan = Array.isArray(modul.kegiatanPembelajaran) ? modul.kegiatanPembelajaran : [];
+  const safeGlosarium = Array.isArray(modul.glosarium) ? modul.glosarium : [];
+  const safeDaftarPustaka = Array.isArray(modul.daftarPustaka) ? modul.daftarPustaka : [];
+
+  const modelLabelDocx = modul.variasiTeknikModel
+    ? `${modul.modelPembelajaran || '-'} (${modul.variasiTeknikModel})`
+    : modul.modelPembelajaran || '-';
+
   const infoRows = [
-    ['Satuan Pendidikan', modul.namaSekolah || profile.namaSekolah],
-    ['Penyusun / Guru', modul.namaGuru || profile.namaGuru],
-    ['Mata Pelajaran', modul.mataPelajaran],
-    ['Fase / Kelas / Semester', `${modul.jenjangFase} / Kelas ${modul.kelas} (${modul.rombel || profile.rombelAktif || '-'}) / ${modul.semester}`],
-    ['Elemen Capaian', modul.elemen],
-    ['Alokasi Waktu', modul.alokasiWaktu],
-    ['Target Peserta Didik', modul.targetPesertaDidik],
-    ['Model Pembelajaran', modul.modelPembelajaran],
+    ['Satuan Pendidikan', modul.namaSekolah || profile.namaSekolah || '-'],
+    ['Penyusun / Guru', modul.namaGuru || profile.namaGuru || '-'],
+    ['Mata Pelajaran', modul.mataPelajaran || '-'],
+    ['Fase / Kelas / Semester', `${modul.jenjangFase || '-'} / Kelas ${modul.kelas || '-'} (${modul.rombel || profile.rombelAktif || '-'}) / ${modul.semester || '-'}`],
+    ['Elemen Capaian', modul.elemen || '-'],
+    ['Alokasi Waktu', modul.alokasiWaktu || '-'],
+    ['Target Peserta Didik', modul.targetPesertaDidik || '-'],
+    ['Model Pembelajaran', modelLabelDocx],
     ...(modul.kompetensiAwal?.length ? [['Kompetensi Awal', modul.kompetensiAwal.join('; ')]] : []),
   ];
 
@@ -149,11 +160,11 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
     new Paragraph({ spacing: { after: 100 } })
   );
 
-  // Profil Pelajar Pancasila
+  // Profil Pelajar Pancasila / Profil Lulusan
   children.push(
     new Paragraph({ children: [new TextRun({ text: 'Profil Pelajar Pancasila yang Dikembangkan:', bold: true, size: 20 })], spacing: { before: 60, after: 30 } })
   );
-  modul.profilPelajarPancasila.forEach((p) => {
+  safeProfil.forEach((p) => {
     children.push(new Paragraph({ indent: { left: 360 }, spacing: { after: 20 }, children: [new TextRun({ text: `• ${p}`, size: 19 })] }));
   });
 
@@ -161,7 +172,7 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
   children.push(
     new Paragraph({ children: [new TextRun({ text: 'Sarana dan Prasarana Pembelajaran:', bold: true, size: 20 })], spacing: { before: 60, after: 30 } })
   );
-  modul.saranaPrasarana.forEach((s) => {
+  safeSarana.forEach((s) => {
     children.push(new Paragraph({ indent: { left: 360 }, spacing: { after: 20 }, children: [new TextRun({ text: `• ${s}`, size: 19 })] }));
   });
 
@@ -172,8 +183,8 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
       spacing: { before: 140, after: 80 },
       children: [new TextRun({ text: 'II. KOMPONEN INTI PEMBELAJARAN', bold: true, size: 22, color: '1E3A8A' })],
     }),
-    new Paragraph({ children: [new TextRun({ text: `A. Tujuan Pembelajaran (TP ${modul.tpKode}):`, bold: true, size: 20 })], spacing: { after: 30 } }),
-    new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: modul.tujuanPembelajaran, size: 19 })], spacing: { after: 60 } }),
+    new Paragraph({ children: [new TextRun({ text: `A. Tujuan Pembelajaran (TP ${modul.tpKode || '-'}):`, bold: true, size: 20 })], spacing: { after: 30 } }),
+    new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: modul.tujuanPembelajaran || '-', size: 19 })], spacing: { after: 60 } }),
     ...(() => {
       const formattedSubTP = formatTargetSubTPList(modul.targetSubTP);
       return formattedSubTP
@@ -183,38 +194,131 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
         : [];
     })(),
     new Paragraph({ children: [new TextRun({ text: 'B. Pemahaman Bermakna:', bold: true, size: 20 })], spacing: { after: 30 } }),
-    new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: modul.pemahamanBermakna, size: 19, italics: true })], spacing: { after: 80 } }),
+    new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: modul.pemahamanBermakna || '-', size: 19, italics: true })], spacing: { after: 80 } }),
     new Paragraph({ children: [new TextRun({ text: 'C. Pertanyaan Pemantik:', bold: true, size: 20 })], spacing: { after: 30 } })
   );
-  modul.pertanyaanPemantik.forEach((q, idx) => {
+  safePemantik.forEach((q, idx) => {
     children.push(new Paragraph({ indent: { left: 360 }, children: [new TextRun({ text: `${idx + 1}. ${q}`, size: 19 })], spacing: { after: 30 } }));
   });
 
-  // Langkah Kegiatan Pembelajaran Rinci
+  // Langkah Kegiatan Pembelajaran Rinci (mendukung tahapTerstruktur maupun draf legacy)
   children.push(
     new Paragraph({ children: [new TextRun({ text: 'D. Langkah-Langkah Kegiatan Pembelajaran:', bold: true, size: 20 })], spacing: { before: 80, after: 60 } })
   );
-  modul.kegiatanPembelajaran.forEach((keg) => {
+  safeKegiatan.forEach((keg) => {
+    const jpText = keg.jpPertemuan ? `${keg.jpPertemuan} JP • ` : '';
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: `Pertemuan Ke-${keg.pertemuan} (${keg.alokasiMenit} Menit)`, bold: true, size: 20, color: '0D9488' })],
-        spacing: { before: 60, after: 40 },
-      }),
-      new Paragraph({ children: [new TextRun({ text: '1. Kegiatan Pendahuluan:', bold: true, size: 19 })], indent: { left: 240 }, spacing: { after: 20 } })
+        children: [new TextRun({ text: `Pertemuan Ke-${keg.pertemuan} (${jpText}${keg.alokasiMenit} Menit)`, bold: true, size: 20, color: '0D9488' })],
+        spacing: { before: 60, after: 30 },
+      })
     );
-    keg.pendahuluan.forEach((p) => {
-      children.push(new Paragraph({ indent: { left: 480 }, children: [new TextRun({ text: `• ${p}`, size: 18 })], spacing: { after: 20 } }));
-    });
+    if (keg.fokusPertemuan) {
+      children.push(
+        new Paragraph({
+          indent: { left: 240 },
+          spacing: { after: 30 },
+          children: [new TextRun({ text: `Fokus Pertemuan: ${keg.fokusPertemuan}`, italics: true, size: 18, color: '475569' })],
+        })
+      );
+    }
 
-    children.push(new Paragraph({ children: [new TextRun({ text: `2. Kegiatan Inti (${modul.modelPembelajaran || 'Pembelajaran Aktif'}):`, bold: true, size: 19 })], indent: { left: 240 }, spacing: { before: 40, after: 20 } }));
-    keg.inti.forEach((it) => {
-      children.push(new Paragraph({ indent: { left: 480 }, children: [new TextRun({ text: `• ${it}`, size: 18 })], spacing: { after: 20 } }));
-    });
+    if (Array.isArray(keg.tahapTerstruktur) && keg.tahapTerstruktur.length > 0) {
+      const renderPhaseGroup = (fase: 'pendahuluan' | 'inti' | 'penutup', title: string) => {
+        const stages = keg.tahapTerstruktur!.filter((s) => s.fase === fase);
+        if (stages.length === 0) return;
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: title, bold: true, size: 19 })],
+            indent: { left: 240 },
+            spacing: { before: 40, after: 20 },
+          })
+        );
+        stages.forEach((st) => {
+          const pmLabels: string[] = [];
+          if (st.pengalamanBelajar) pmLabels.push(st.pengalamanBelajar);
+          if (Array.isArray(st.prinsipPembelajaran) && st.prinsipPembelajaran.length > 0) {
+            pmLabels.push(...st.prinsipPembelajaran);
+          }
+          const pmSuffix = pmLabels.length > 0 ? ` [${pmLabels.join(', ')}]` : '';
+          children.push(
+            new Paragraph({
+              indent: { left: 420 },
+              spacing: { before: 20, after: 10 },
+              children: [
+                new TextRun({
+                  text: `• ${st.namaTahap || 'Tahap Kegiatan'} (${st.durasiMenit || 0} Menit)${pmSuffix}`,
+                  bold: true,
+                  size: 18,
+                  color: '0F172A',
+                }),
+              ],
+            }),
+            new Paragraph({
+              indent: { left: 600 },
+              spacing: { after: 10 },
+              children: [
+                new TextRun({ text: 'Tujuan: ', bold: true, size: 17, color: '334155' }),
+                new TextRun({ text: st.tujuanTahap || '-', size: 17, color: '334155' }),
+              ],
+            }),
+            new Paragraph({
+              indent: { left: 600 },
+              spacing: { after: 10 },
+              children: [
+                new TextRun({ text: 'Aktivitas Guru: ', bold: true, size: 17, color: '1E3A8A' }),
+                new TextRun({ text: st.aktivitasGuru || '-', size: 17 }),
+              ],
+            }),
+            new Paragraph({
+              indent: { left: 600 },
+              spacing: { after: 10 },
+              children: [
+                new TextRun({ text: 'Aktivitas Siswa: ', bold: true, size: 17, color: '047857' }),
+                new TextRun({ text: st.aktivitasSiswa || '-', size: 17 }),
+              ],
+            }),
+            new Paragraph({
+              indent: { left: 600 },
+              spacing: { after: 10 },
+              children: [
+                new TextRun({ text: 'Instruksi / Pertanyaan: ', bold: true, size: 17, color: '475569' }),
+                new TextRun({ text: st.instruksiPertanyaan || '-', size: 17, italics: true }),
+              ],
+            }),
+            new Paragraph({
+              indent: { left: 600 },
+              spacing: { after: 20 },
+              children: [
+                new TextRun({ text: 'Media & Bahan: ', bold: true, size: 17, color: '475569' }),
+                new TextRun({ text: `${st.mediaBahan || '-'} | Bukti Belajar: ${st.buktiBelajar || '-'}`, size: 17, color: '334155' }),
+              ],
+            })
+          );
+        });
+      };
 
-    children.push(new Paragraph({ children: [new TextRun({ text: '3. Kegiatan Penutup & Refleksi:', bold: true, size: 19 })], indent: { left: 240 }, spacing: { before: 40, after: 20 } }));
-    keg.penutup.forEach((pn) => {
-      children.push(new Paragraph({ indent: { left: 480 }, children: [new TextRun({ text: `• ${pn}`, size: 18 })], spacing: { after: 20 } }));
-    });
+      renderPhaseGroup('pendahuluan', '1. Kegiatan Pendahuluan:');
+      renderPhaseGroup('inti', `2. Kegiatan Inti (${modul.modelPembelajaran || 'Pembelajaran Aktif'}):`);
+      renderPhaseGroup('penutup', '3. Kegiatan Penutup & Refleksi:');
+    } else {
+      children.push(
+        new Paragraph({ children: [new TextRun({ text: '1. Kegiatan Pendahuluan:', bold: true, size: 19 })], indent: { left: 240 }, spacing: { after: 20 } })
+      );
+      (keg.pendahuluan || []).forEach((p) => {
+        children.push(new Paragraph({ indent: { left: 480 }, children: [new TextRun({ text: `• ${p}`, size: 18 })], spacing: { after: 20 } }));
+      });
+
+      children.push(new Paragraph({ children: [new TextRun({ text: `2. Kegiatan Inti (${modul.modelPembelajaran || 'Pembelajaran Aktif'}):`, bold: true, size: 19 })], indent: { left: 240 }, spacing: { before: 40, after: 20 } }));
+      (keg.inti || []).forEach((it) => {
+        children.push(new Paragraph({ indent: { left: 480 }, children: [new TextRun({ text: `• ${it}`, size: 18 })], spacing: { after: 20 } }));
+      });
+
+      children.push(new Paragraph({ children: [new TextRun({ text: '3. Kegiatan Penutup & Refleksi:', bold: true, size: 19 })], indent: { left: 240 }, spacing: { before: 40, after: 20 } }));
+      (keg.penutup || []).forEach((pn) => {
+        children.push(new Paragraph({ indent: { left: 480 }, children: [new TextRun({ text: `• ${pn}`, size: 18 })], spacing: { after: 20 } }));
+      });
+    }
   });
 
   // Asesmen & Rubrik
@@ -224,9 +328,9 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
       spacing: { before: 140, after: 80 },
       children: [new TextRun({ text: 'III. ASESMEN & KRITERIA KETERCAPAIAN (KKTP)', bold: true, size: 22, color: '1E3A8A' })],
     }),
-    new Paragraph({ children: [new TextRun({ text: `• Asesmen Diagnostik: `, bold: true, size: 19 }), new TextRun({ text: modul.asesmen.diagnostik, size: 19 })], spacing: { after: 30 } }),
-    new Paragraph({ children: [new TextRun({ text: `• Asesmen Formatif: `, bold: true, size: 19 }), new TextRun({ text: modul.asesmen.formatif, size: 19 })], spacing: { after: 30 } }),
-    new Paragraph({ children: [new TextRun({ text: `• Asesmen Sumatif: `, bold: true, size: 19 }), new TextRun({ text: modul.asesmen.sumatif, size: 19 })], spacing: { after: 80 } })
+    new Paragraph({ children: [new TextRun({ text: `• Asesmen Diagnostik: `, bold: true, size: 19 }), new TextRun({ text: modul.asesmen?.diagnostik || '-', size: 19 })], spacing: { after: 30 } }),
+    new Paragraph({ children: [new TextRun({ text: `• Asesmen Formatif: `, bold: true, size: 19 }), new TextRun({ text: modul.asesmen?.formatif || '-', size: 19 })], spacing: { after: 30 } }),
+    new Paragraph({ children: [new TextRun({ text: `• Asesmen Sumatif: `, bold: true, size: 19 }), new TextRun({ text: modul.asesmen?.sumatif || '-', size: 19 })], spacing: { after: 80 } })
   );
 
   // Rubrik Singkat
@@ -245,11 +349,11 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
         new TableRow({
           cantSplit: true,
           children: [
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.kriteria, bold: true, size: 17 })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.baruBerkembang, size: 17 })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.layak, size: 17 })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.cakap, size: 17 })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.mahir, size: 17 })] })] }),
+            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.kriteria || '-', bold: true, size: 17 })] })] }),
+            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.baruBerkembang || '-', size: 17 })] })] }),
+            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.layak || '-', size: 17 })] })] }),
+            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.cakap || '-', size: 17 })] })] }),
+            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.mahir || '-', size: 17 })] })] }),
           ],
         })
       );
@@ -265,16 +369,16 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
       children: [new TextRun({ text: 'IV. LAMPIRAN & REFERENSI', bold: true, size: 22, color: '1E3A8A' })],
     }),
     new Paragraph({ children: [new TextRun({ text: 'A. Pengayaan & Remedial:', bold: true, size: 20 })], spacing: { after: 30 } }),
-    new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• Pengayaan: ${modul.pengayaanDanRemedial.pengayaan}`, size: 18 })], spacing: { after: 20 } }),
-    new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• Remedial: ${modul.pengayaanDanRemedial.remedial}`, size: 18 })], spacing: { after: 60 } }),
+    new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• Pengayaan: ${modul.pengayaanDanRemedial?.pengayaan || '-'}`, size: 18 })], spacing: { after: 20 } }),
+    new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• Remedial: ${modul.pengayaanDanRemedial?.remedial || '-'}`, size: 18 })], spacing: { after: 60 } }),
     new Paragraph({ children: [new TextRun({ text: 'B. Glosarium:', bold: true, size: 20 })], spacing: { after: 30 } })
   );
-  modul.glosarium.forEach((g) => {
-    children.push(new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• ${g.istilah}: `, bold: true, size: 18 }), new TextRun({ text: g.definisi, size: 18 })], spacing: { after: 20 } }));
+  safeGlosarium.forEach((g) => {
+    children.push(new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• ${g.istilah || '-'}: `, bold: true, size: 18 }), new TextRun({ text: g.definisi || '-', size: 18 })], spacing: { after: 20 } }));
   });
 
   children.push(new Paragraph({ children: [new TextRun({ text: 'C. Daftar Pustaka:', bold: true, size: 20 })], spacing: { before: 60, after: 30 } }));
-  modul.daftarPustaka.forEach((dp) => {
+  safeDaftarPustaka.forEach((dp) => {
     children.push(new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• ${dp}`, size: 18 })], spacing: { after: 20 } }));
   });
 

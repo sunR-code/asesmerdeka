@@ -6,18 +6,60 @@ import type {
 } from './academicSchedule';
 import type { CPReferenceMeta } from '../utils/schoolProfileStorage';
 
+export type PengalamanBelajarPM = 'Memahami' | 'Mengaplikasi' | 'Merefleksi';
+
+export type PrinsipPembelajaranPM = 'Berkesadaran' | 'Bermakna' | 'Menggembirakan';
+
+export type FaseKegiatanLangkah = 'pendahuluan' | 'inti' | 'penutup';
+
+export type SMKSubjectTrack = 'umum' | 'kejuruan' | 'tidak_teridentifikasi';
+
+export type CooperativeTechniqueVariant = 'Think-Pair-Share' | 'Jigsaw' | 'STAD';
+
+export interface TahapKegiatanTerstruktur {
+  id: string;
+  urutan: number;
+  fase: FaseKegiatanLangkah;
+  namaTahap: string;
+  tujuanTahap: string;
+  aktivitasGuru: string;
+  aktivitasSiswa: string;
+  instruksiPertanyaan: string;
+  mediaBahan: string;
+  durasiMenit: number;
+  buktiBelajar: string;
+  pengalamanBelajar?: PengalamanBelajarPM;
+  prinsipPembelajaran?: PrinsipPembelajaranPM[];
+}
+
+export interface AlokasiWaktuModulDetail {
+  jenjangKategori: 'SD/MI' | 'SMP/MTs' | 'SMA/MA' | 'SMK';
+  smkTrack?: SMKSubjectTrack;
+  jpPerPertemuan: number;
+  menitPerJP: number;
+  totalMenitPertemuan: number;
+  jumlahPertemuan: number;
+  totalAlokasiJPTP: number;
+  sumberPreset: 'preset_jenjang' | 'konfigurasi_sekolah' | 'override_guru';
+}
+
 export interface KegiatanPembelajaranLangkah {
   pertemuan: number;
   alokasiMenit: number;
+  jpPertemuan?: number;
+  fokusPertemuan?: string;
   pendahuluan: string[];
   inti: string[];
   penutup: string[];
+  tahapTerstruktur?: TahapKegiatanTerstruktur[];
 }
 
 export interface ModulAjarDokumen {
   id: string;
   tpId?: string;
   modelType?: string;
+  sintaksModelId?: string;
+  variasiTeknikModel?: CooperativeTechniqueVariant | string;
   draftSource?: 'user_edited' | 'ai_generated' | 'template' | 'community';
   savedAt?: string;
   schoolId?: string;
@@ -31,6 +73,7 @@ export interface ModulAjarDokumen {
   semester: '1 (Ganjil)' | '2 (Genap)';
   tahunAjaran: string;
   alokasiWaktu: string;
+  alokasiWaktuDetail?: AlokasiWaktuModulDetail;
   jumlahPertemuan: number;
   namaSekolah: string;
   namaGuru: string;

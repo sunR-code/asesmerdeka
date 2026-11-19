@@ -5,9 +5,10 @@ import {
   type AcademicProfileLike,
 } from './storageIdentity';
 
-function defaultDurasiMenitByJenjang(jenjang: string): number {
-  if (jenjang === 'SD/MI') return 35;
-  if (jenjang === 'SMP/MTs') return 40;
+export function defaultDurasiMenitByJenjang(jenjang: string): number {
+  const normalized = (jenjang || '').toUpperCase();
+  if (normalized.includes('SD') || normalized.includes('MI')) return 35;
+  if (normalized.includes('SMP') || normalized.includes('MTS')) return 40;
   return 45; // SMA/MA, SMK
 }
 

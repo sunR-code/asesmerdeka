@@ -4,7 +4,10 @@ import {
   type LKPDPresetType,
   type ModulAjarDokumen,
 } from '../types/perangkatAjar';
-import { MODUL_AJAR_MODELS, type ModulAjarModelType } from './modulAjarAiService';
+import {
+  getAllSearchableModulModelIds,
+  type ModulAjarModelType,
+} from './modulPedagogicalModels';
 import { normalizeStoredLKPDDraft } from './lkpdValidator';
 import { computeTPContentHash, type CustomTPItem } from './schoolProfileStorage';
 import {
@@ -230,20 +233,20 @@ export function loadLatestModulAjarDraft(
     // fallback scan below
   }
 
-  // Pindai seluruh model standar terurut dari yang terbaru diedit
+  // Pindai seluruh model standar & legacy (termasuk 'diferensiasi') terurut dari yang terbaru diedit
   let best: ResolvedSavedDraft<ModulAjarDokumen> | null = null;
-  for (const m of MODUL_AJAR_MODELS) {
-    const candidate = loadModulAjarDraft(profile, tp, m.id);
+  for (const modelId of getAllSearchableModulModelIds()) {
+    const candidate = loadModulAjarDraft(profile, tp, modelId);
     if (!candidate) continue;
     const candidateTs = candidate.savedAt ? Date.parse(candidate.savedAt) : 0;
     const bestTs = best?.savedAt ? Date.parse(best.savedAt) : -1;
     if (!best || candidateTs >= bestTs) {
       best = {
         doc: candidate,
-        variant: m.id,
+        variant: modelId,
         origin: resolveOriginFromDraft(candidate),
         savedAt: candidate.savedAt,
-        storageKey: buildModulAjarDraftStorageKey(profile, tpId, m.id),
+        storageKey: buildModulAjarDraftStorageKey(profile, tpId, modelId),
       };
     }
   }
