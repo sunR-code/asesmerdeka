@@ -16,17 +16,33 @@ import {
   BookOpen,
   ClipboardCheck,
   ExternalLink,
+  Plus,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import type {
   CooperativeTechniqueVariant,
+  JenisAksesMateriReferensi,
+  JenisReferensiSumber,
   KegiatanPembelajaranLangkah,
   LKPDPresetType,
   ModulAjarDokumen,
+  ModulReferensiSumberItem,
   TahapKegiatanTerstruktur,
 } from '../types/perangkatAjar';
 import type { SchoolProfile, CustomTPItem } from '../utils/schoolProfileStorage';
 import { getSchoolProfile } from '../utils/schoolProfileStorage';
 import { exportModulAjarToDocx } from '../utils/docxExporter';
+import {
+  SIBI_CATALOG_URL,
+  PROVENANCE_MSG_UNLINKED,
+  JENIS_REFERENSI_LABELS,
+  JENIS_AKSES_MATERI_LABELS,
+  buildReferensiBahanBacaanNote,
+  formatReferensiSumberCitation,
+  getReferensiStatusLabel,
+  normalizeReferensiSumberInput,
+} from '../utils/modulReferensiSumber';
 import {
   generateContextualModulAjarWithAI,
   MODUL_AJAR_MODELS,
@@ -209,6 +225,38 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
   const [isPublishing, setIsPublishing] = useState(false);
   const [isFromCommunity, setIsFromCommunity] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'Tersimpan' | 'Menyimpan...' | 'Gagal menyimpan'>('Tersimpan');
+
+  const [showRefForm, setShowRefForm] = useState(false);
+  const [editingRefId, setEditingRefId] = useState<string | null>(null);
+  const [refFormError, setRefFormError] = useState<string | null>(null);
+  const [refFormWarning, setRefFormWarning] = useState<string | null>(null);
+  const [refForm, setRefForm] = useState<{
+    jenisSumber: JenisReferensiSumber;
+    judulBuku: string;
+    jenjang: string;
+    kelas: string;
+    mataPelajaran: string;
+    penulis: string;
+    edisiAtauTahun: string;
+    babAtauSubbab: string;
+    halaman: string;
+    urlSumber: string;
+    catatanMateriGuru: string;
+    jenisAksesMateri: JenisAksesMateriReferensi;
+  }>({
+    jenisSumber: 'sibi_kemendikdasmen',
+    judulBuku: '',
+    jenjang: activeProfile.jenjang || modul.jenjangFase || '',
+    kelas: modul.kelas || activeProfile.kelasUtama || '',
+    mataPelajaran: modul.mataPelajaran || activeProfile.mataPelajaranUtama || '',
+    penulis: '',
+    edisiAtauTahun: '',
+    babAtauSubbab: '',
+    halaman: '',
+    urlSumber: '',
+    catatanMateriGuru: '',
+    jenisAksesMateri: 'catatan_ringkas_guru',
+  });
 
   const resolvedTimePreset = useMemo(
     () =>
@@ -436,6 +484,10 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
 
     let isMounted = true;
     setPendingModelSwitch(null);
+    setShowRefForm(false);
+    setEditingRefId(null);
+    setRefFormError(null);
+    setRefFormWarning(null);
 
     const lookupModel = isLegacyModulAjarModelId(modul.modelType)
       ? modul.modelType
@@ -528,6 +580,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
       smkTrackOverride,
       variasiTeknikModel: nextVariant,
       konteksLokal: konteksInput.trim() || undefined,
+      referensiSumber: editableDoc.referensiSumber,
     });
     setSelectedModel(targetModel);
     if (overrideVariant) {
@@ -634,6 +687,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         smkTrackOverride: targetSmkTrack,
         variasiTeknikModel: cooperativeVariant,
         konteksLokal: konteksInput.trim() || undefined,
+        referensiSumber: editableDoc.referensiSumber,
       });
       setEditableDoc(rebuilt);
       saveToLocalStorage(rebuilt, 'template', selectedModel);
@@ -650,6 +704,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
       smkTrackOverride: targetSmkTrack,
       variasiTeknikModel: cooperativeVariant,
       konteksLokal: konteksInput.trim() || undefined,
+      referensiSumber: editableDoc.referensiSumber,
     });
 
     const nextKegiatan: KegiatanPembelajaranLangkah[] = Array.from(
@@ -768,6 +823,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           jumlahPertemuan,
           smkTrackOverride,
           variasiTeknikModel: selectedModel === 'cooperative' ? cooperativeVariant : undefined,
+          referensiSumber: editableDoc.referensiSumber,
         }
       );
 
@@ -792,6 +848,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         tpId: effectiveTP.id,
         modelType: selectedModel,
         draftSource: 'ai_generated',
+        ...(editableDoc.referensiSumber?.length
+          ? { referensiSumber: editableDoc.referensiSumber }
+          : {}),
       };
       setEditableDoc(nextDoc);
       syncTimeStatesFromDoc(nextDoc);
@@ -808,6 +867,139 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const applyReferensiListToDoc = (nextRefs: ModulReferensiSumberItem[]) => {
+    const cleanNext = nextRefs.length > 0 ? nextRefs : undefined;
+    const prevTitles = new Set(
+      (editableDoc.referensiSumber || []).map((r) => r.judulBuku.toLowerCase())
+    );
+    const nonLinkedPustaka = (editableDoc.daftarPustaka || []).filter((entry) => {
+      if (cleanNext && /^\s*\[Lengkapi referensi satuan pendidikan\]/i.test(entry)) {
+        return false;
+      }
+      const lowerEntry = entry.toLowerCase();
+      return !Array.from(prevTitles).some((title) => title && lowerEntry.includes(title));
+    });
+    const nextDaftarPustaka = cleanNext
+      ? Array.from(new Set([...cleanNext.map(formatReferensiSumberCitation), ...nonLinkedPustaka]))
+      : nonLinkedPustaka.length > 0
+      ? nonLinkedPustaka
+      : [
+          `[Lengkapi referensi satuan pendidikan] Buku teks/panduan resmi ${mapel} Kelas ${kelas} yang digunakan sekolah.`,
+          'Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP). Panduan Pembelajaran dan Asesmen (PPA) Kurikulum Merdeka.',
+        ];
+    const nextNote =
+      buildReferensiBahanBacaanNote(cleanNext) ||
+      'Lengkapi/sesuaikan rujukan bacaan dengan buku teks utama satuan pendidikan.';
+    const updatedDoc: ModulAjarDokumen = {
+      ...editableDoc,
+      ...(cleanNext ? { referensiSumber: cleanNext } : { referensiSumber: undefined }),
+      daftarPustaka: nextDaftarPustaka,
+      ...(editableDoc.bahanBacaan
+        ? {
+            bahanBacaan: {
+              ...editableDoc.bahanBacaan,
+              referensiCatatan: nextNote,
+            },
+          }
+        : {}),
+    };
+    setEditableDoc(updatedDoc);
+    saveToLocalStorage(updatedDoc, 'user_edited');
+  };
+
+  const openNewRefForm = () => {
+    setEditingRefId(null);
+    setRefFormError(null);
+    setRefFormWarning(null);
+    setRefForm({
+      jenisSumber: 'sibi_kemendikdasmen',
+      judulBuku: '',
+      jenjang,
+      kelas,
+      mataPelajaran: mapel,
+      penulis: '',
+      edisiAtauTahun: '',
+      babAtauSubbab: '',
+      halaman: '',
+      urlSumber: '',
+      catatanMateriGuru: '',
+      jenisAksesMateri: 'catatan_ringkas_guru',
+    });
+    setShowRefForm(true);
+  };
+
+  const openEditRefForm = (item: ModulReferensiSumberItem) => {
+    setEditingRefId(item.id);
+    setRefFormError(null);
+    setRefFormWarning(null);
+    setRefForm({
+      jenisSumber: item.jenisSumber || 'sibi_kemendikdasmen',
+      judulBuku: item.judulBuku || '',
+      jenjang: item.jenjang || jenjang,
+      kelas: item.kelas || kelas,
+      mataPelajaran: item.mataPelajaran || mapel,
+      penulis: item.penulis || '',
+      edisiAtauTahun: item.edisiAtauTahun || '',
+      babAtauSubbab: item.babAtauSubbab || '',
+      halaman: item.halaman || '',
+      urlSumber: item.urlSumber || '',
+      catatanMateriGuru: item.catatanMateriGuru || '',
+      jenisAksesMateri:
+        item.jenisAksesMateri === 'teks_disediakan_guru'
+          ? 'teks_disediakan_guru'
+          : 'catatan_ringkas_guru',
+    });
+    setShowRefForm(true);
+  };
+
+  const handleSaveRefForm = () => {
+    const normalized = normalizeReferensiSumberInput(
+      {
+        ...(editingRefId ? { id: editingRefId } : {}),
+        ...refForm,
+      },
+      { jenjang, kelas, mataPelajaran: mapel }
+    );
+    if (!normalized.ok || !normalized.item) {
+      setRefFormError(normalized.error || 'Data referensi belum valid.');
+      return;
+    }
+
+    const existingList = Array.isArray(editableDoc.referensiSumber)
+      ? editableDoc.referensiSumber
+      : [];
+    const nextList = editingRefId
+      ? existingList.map((item) => (item.id === editingRefId ? normalized.item! : item))
+      : [...existingList, normalized.item!];
+
+    applyReferensiListToDoc(nextList);
+    setShowRefForm(false);
+    setEditingRefId(null);
+    setRefFormError(null);
+    setRefFormWarning(normalized.warning || null);
+    showToast(
+      normalized.warning
+        ? `Referensi disimpan (${normalized.warning})`
+        : editingRefId
+        ? 'Referensi sumber ajar diperbarui.'
+        : 'Referensi sumber ajar ditambahkan.'
+    );
+  };
+
+  const handleDeleteRef = (refId: string) => {
+    const existingList = Array.isArray(editableDoc.referensiSumber)
+      ? editableDoc.referensiSumber
+      : [];
+    const nextList = existingList.filter((item) => item.id !== refId);
+    if (editingRefId === refId) {
+      setShowRefForm(false);
+      setEditingRefId(null);
+      setRefFormError(null);
+    }
+    applyReferensiListToDoc(nextList);
+    showToast('Referensi sumber ajar dihapus tanpa mengubah struktur modul.');
   };
 
   const handlePublishToSharedBank = async () => {
@@ -1352,6 +1544,485 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               Catatan: Diferensiasi konten, proses, &amp; produk diterapkan sebagai strategi pendampingan lintas model.
             </div>
           </div>
+        </div>
+
+        {/* Baris 4: Panel Referensi Sumber Ajar SIBI & Catatan Materi Guru */}
+        <div
+          data-testid="modul-referensi-sumber-panel"
+          style={{
+            background: '#f8fafc',
+            border: '1px solid #cbd5e1',
+            borderRadius: 10,
+            padding: '10px 12px',
+            fontSize: 12,
+            boxSizing: 'border-box',
+            minWidth: 0,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, minWidth: 0 }}>
+              <BookOpen size={14} color="#0f766e" />
+              <span style={{ fontWeight: 800, color: '#0f172a' }}>
+                Referensi Sumber Ajar (Buku SIBI / Panduan)
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  background: editableDoc.referensiSumber?.length ? '#dcfce7' : '#e2e8f0',
+                  color: editableDoc.referensiSumber?.length ? '#166534' : '#475569',
+                }}
+              >
+                {editableDoc.referensiSumber?.length
+                  ? `${editableDoc.referensiSumber.length} Sumber`
+                  : 'Belum ditautkan'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+              <a
+                href={SIBI_CATALOG_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="modul-open-sibi-catalog"
+                className="btn btn-sm btn-outline"
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  borderColor: '#0d9488',
+                  color: '#0f766e',
+                  background: '#ffffff',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <ExternalLink size={12} /> Buka Katalog SIBI
+              </a>
+              <button
+                type="button"
+                data-testid="modul-add-referensi-btn"
+                onClick={openNewRefForm}
+                className="btn btn-sm btn-primary"
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  background: '#0f766e',
+                  borderColor: '#0f766e',
+                  color: '#ffffff',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Plus size={12} /> Tambah Referensi
+              </button>
+            </div>
+          </div>
+
+          {!editableDoc.referensiSumber?.length ? (
+            <div
+              data-testid="modul-referensi-empty-state"
+              style={{
+                fontSize: 11.5,
+                color: '#475569',
+                fontStyle: 'italic',
+                background: '#ffffff',
+                border: '1px dashed #cbd5e1',
+                borderRadius: 8,
+                padding: '8px 10px',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {PROVENANCE_MSG_UNLINKED}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {editableDoc.referensiSumber.map((ref) => (
+                <div
+                  key={ref.id}
+                  data-testid="modul-referensi-item"
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 8,
+                    padding: '8px 10px',
+                    minWidth: 0,
+                    overflowWrap: 'anywhere',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      flexWrap: 'wrap',
+                      gap: 6,
+                      marginBottom: 4,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 12, minWidth: 0 }}>
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: 6,
+                          background:
+                            ref.jenisSumber === 'sibi_kemendikdasmen' ? '#dbeafe' : '#f1f5f9',
+                          color: ref.jenisSumber === 'sibi_kemendikdasmen' ? '#1e40af' : '#334155',
+                          marginRight: 6,
+                        }}
+                      >
+                        {JENIS_REFERENSI_LABELS[ref.jenisSumber]}
+                      </span>
+                      {ref.judulBuku}
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() => openEditRefForm(ref)}
+                        className="btn btn-sm btn-outline"
+                        style={{ padding: '2px 7px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                      >
+                        <Pencil size={11} /> Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRef(ref.id)}
+                        className="btn btn-sm btn-outline"
+                        style={{
+                          padding: '2px 7px',
+                          fontSize: 11,
+                          borderColor: '#fca5a5',
+                          color: '#b91c1c',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
+                        }}
+                      >
+                        <Trash2 size={11} /> Hapus
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.45 }}>
+                    {[
+                      ref.penulis ? `Penulis: ${ref.penulis}` : null,
+                      ref.edisiAtauTahun ? `Edisi/Tahun: ${ref.edisiAtauTahun}` : null,
+                      ref.jenjang || ref.kelas || ref.mataPelajaran
+                        ? [ref.jenjang, ref.kelas ? `Kelas ${ref.kelas}` : null, ref.mataPelajaran]
+                            .filter(Boolean)
+                            .join(' · ')
+                        : null,
+                      ref.babAtauSubbab ? `Bab/Subbab: ${ref.babAtauSubbab}` : null,
+                      ref.halaman ? `Halaman: ${ref.halaman}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || 'Metadata tambahan belum diisi.'}
+                  </div>
+                  {ref.urlSumber && (
+                    <div style={{ fontSize: 11, marginTop: 2, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                      Tautan:{' '}
+                      <a
+                        href={ref.urlSumber}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#0f766e', textDecoration: 'underline' }}
+                      >
+                        {ref.urlSumber}
+                      </a>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 2, fontStyle: 'italic' }}>
+                    {getReferensiStatusLabel(ref.statusVerifikasi)}
+                    {ref.domainResmiSibi ? ' · Domain resmi Kemendikdasmen (URL saja)' : ''}
+                  </div>
+                  {ref.catatanMateriGuru && (
+                    <div
+                      style={{
+                        marginTop: 4,
+                        fontSize: 11,
+                        color: '#334155',
+                        background: '#f8fafc',
+                        borderRadius: 6,
+                        padding: '4px 8px',
+                        borderLeft: '3px solid #0d9488',
+                      }}
+                    >
+                      <strong>
+                        {ref.jenisAksesMateri === 'teks_disediakan_guru'
+                          ? 'Teks Sumber Guru:'
+                          : 'Catatan Materi Guru:'}
+                      </strong>{' '}
+                      {ref.catatanMateriGuru}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {refFormWarning && !showRefForm && (
+            <div style={{ marginTop: 6, fontSize: 11, color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 6, padding: '5px 8px' }}>
+              ℹ️ {refFormWarning}
+            </div>
+          )}
+
+          {showRefForm && (
+            <div
+              data-testid="modul-referensi-form"
+              style={{
+                marginTop: 10,
+                background: '#ffffff',
+                border: '1px solid #99f6e4',
+                borderRadius: 8,
+                padding: '10px 12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 12, color: '#0f766e' }}>
+                {editingRefId ? 'Edit Referensi Sumber Ajar' : 'Tambah Referensi Sumber Ajar'} (Judul wajib *, kolom lain opsional)
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gap: 8,
+                }}
+              >
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                  Jenis Sumber (Opsional)
+                  <select
+                    aria-label="Jenis Sumber Referensi"
+                    value={refForm.jenisSumber}
+                    onChange={(e) =>
+                      setRefForm({ ...refForm, jenisSumber: e.target.value as JenisReferensiSumber })
+                    }
+                    className="form-select form-select-sm"
+                    style={{ fontSize: 12, padding: '5px 8px' }}
+                  >
+                    <option value="sibi_kemendikdasmen">Buku SIBI Kemendikdasmen</option>
+                    <option value="buku_teks_lain">Buku Teks / Panduan Lain</option>
+                    <option value="modul_atau_sumber_guru">Modul / Catatan Sumber Guru</option>
+                  </select>
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                  Judul Buku / Sumber * (Wajib)
+                  <input
+                    type="text"
+                    aria-label="Judul Buku Referensi"
+                    placeholder="Contoh: IPAS SD/MI Kelas IV"
+                    value={refForm.judulBuku}
+                    onChange={(e) => {
+                      setRefForm({ ...refForm, judulBuku: e.target.value });
+                      if (refFormError) setRefFormError(null);
+                    }}
+                    className="form-input form-input-sm"
+                    style={{ fontSize: 12, padding: '5px 8px' }}
+                  />
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                  Penulis (Opsional)
+                  <input
+                    type="text"
+                    aria-label="Penulis Buku"
+                    placeholder="Contoh: Amalia Fitri dkk."
+                    value={refForm.penulis}
+                    onChange={(e) => setRefForm({ ...refForm, penulis: e.target.value })}
+                    className="form-input form-input-sm"
+                    style={{ fontSize: 12, padding: '5px 8px' }}
+                  />
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                  Edisi / Tahun Terbit (Opsional)
+                  <input
+                    type="text"
+                    aria-label="Edisi atau Tahun Terbit"
+                    placeholder="Contoh: Edisi Revisi 2023"
+                    value={refForm.edisiAtauTahun}
+                    onChange={(e) => setRefForm({ ...refForm, edisiAtauTahun: e.target.value })}
+                    className="form-input form-input-sm"
+                    style={{ fontSize: 12, padding: '5px 8px' }}
+                  />
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                  Jenjang (Opsional)
+                  <input
+                    type="text"
+                    aria-label="Jenjang Referensi"
+                    value={refForm.jenjang}
+                    onChange={(e) => setRefForm({ ...refForm, jenjang: e.target.value })}
+                    className="form-input form-input-sm"
+                    style={{ fontSize: 12, padding: '5px 8px' }}
+                  />
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                  Kelas (Opsional)
+                  <input
+                    type="text"
+                    aria-label="Kelas Referensi"
+                    value={refForm.kelas}
+                    onChange={(e) => setRefForm({ ...refForm, kelas: e.target.value })}
+                    className="form-input form-input-sm"
+                    style={{ fontSize: 12, padding: '5px 8px' }}
+                  />
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                  Mata Pelajaran (Opsional)
+                  <input
+                    type="text"
+                    aria-label="Mata Pelajaran Referensi"
+                    value={refForm.mataPelajaran}
+                    onChange={(e) => setRefForm({ ...refForm, mataPelajaran: e.target.value })}
+                    className="form-input form-input-sm"
+                    style={{ fontSize: 12, padding: '5px 8px' }}
+                  />
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                  Bab / Subbab (Opsional)
+                  <input
+                    type="text"
+                    aria-label="Bab atau Subbab"
+                    placeholder="Contoh: Bab 1 Tumbuhan"
+                    value={refForm.babAtauSubbab}
+                    onChange={(e) => setRefForm({ ...refForm, babAtauSubbab: e.target.value })}
+                    className="form-input form-input-sm"
+                    style={{ fontSize: 12, padding: '5px 8px' }}
+                  />
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                  Halaman (Opsional)
+                  <input
+                    type="text"
+                    aria-label="Halaman Referensi"
+                    placeholder="Contoh: 1-24"
+                    value={refForm.halaman}
+                    onChange={(e) => setRefForm({ ...refForm, halaman: e.target.value })}
+                    className="form-input form-input-sm"
+                    style={{ fontSize: 12, padding: '5px 8px' }}
+                  />
+                </label>
+              </div>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                URL Sumber HTTPS (Opsional — untuk SIBI wajib domain https://buku.kemendikdasmen.go.id)
+                <input
+                  type="url"
+                  aria-label="URL Sumber Referensi"
+                  placeholder="https://buku.kemendikdasmen.go.id/katalog/..."
+                  value={refForm.urlSumber}
+                  onChange={(e) => {
+                    setRefForm({ ...refForm, urlSumber: e.target.value });
+                    if (refFormError) setRefFormError(null);
+                  }}
+                  className="form-input form-input-sm"
+                  style={{ fontSize: 12, padding: '5px 8px' }}
+                />
+              </label>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, fontWeight: 600 }}>
+                  Catatan / Poin Materi Acuan AI (Opsional)
+                  <textarea
+                    rows={2}
+                    aria-label="Catatan Materi Guru"
+                    placeholder="Tulis poin materi atau ringkasan dari buku yang ingin diacu AI..."
+                    value={refForm.catatanMateriGuru}
+                    onChange={(e) => setRefForm({ ...refForm, catatanMateriGuru: e.target.value })}
+                    className="form-input form-input-sm"
+                    style={{ fontSize: 12, padding: '5px 8px', resize: 'vertical' }}
+                  />
+                </label>
+                {refForm.catatanMateriGuru.trim().length > 0 && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#334155', flexWrap: 'wrap' }}>
+                    Sifat teks di atas:
+                    <select
+                      aria-label="Sifat Akses Materi Guru"
+                      value={refForm.jenisAksesMateri}
+                      onChange={(e) =>
+                        setRefForm({
+                          ...refForm,
+                          jenisAksesMateri: e.target.value as JenisAksesMateriReferensi,
+                        })
+                      }
+                      className="form-select form-select-sm"
+                      style={{ fontSize: 11, padding: '2px 6px' }}
+                    >
+                      <option value="catatan_ringkas_guru">
+                        {JENIS_AKSES_MATERI_LABELS.catatan_ringkas_guru}
+                      </option>
+                      <option value="teks_disediakan_guru">
+                        {JENIS_AKSES_MATERI_LABELS.teks_disediakan_guru}
+                      </option>
+                    </select>
+                  </label>
+                )}
+              </div>
+
+              {refFormError && (
+                <div
+                  role="alert"
+                  data-testid="modul-referensi-url-error"
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    color: '#b91c1c',
+                    background: '#fef2f2',
+                    border: '1px solid #fca5a5',
+                    borderRadius: 6,
+                    padding: '6px 8px',
+                  }}
+                >
+                  {refFormError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  data-testid="modul-save-referensi-btn"
+                  onClick={handleSaveRefForm}
+                  className="btn btn-sm btn-primary"
+                  style={{ background: '#0f766e', borderColor: '#0f766e', color: '#ffffff', fontWeight: 700 }}
+                >
+                  Simpan Referensi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRefForm(false);
+                    setEditingRefId(null);
+                    setRefFormError(null);
+                  }}
+                  className="btn btn-sm btn-outline"
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Peringatan Konfirmasi Pergantian Model (saat draf telah disunting guru) */}
@@ -2550,11 +3221,63 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 </div>
               ))}
             </div>
-            <div>
-              <strong>C. Daftar Pustaka:</strong>
-              {(editableDoc.daftarPustaka || []).map((dp, i) => (
-                <div key={i} style={{ paddingLeft: 12, marginTop: 2 }}>• {dp}</div>
-              ))}
+            <div data-testid="modul-sumber-ajar-doc" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+              <strong>C. Referensi Sumber Ajar &amp; Daftar Pustaka:</strong>
+              {editableDoc.referensiSumber && editableDoc.referensiSumber.length > 0 ? (
+                <div style={{ paddingLeft: 12, marginTop: 4 }}>
+                  {editableDoc.referensiSumber.map((ref) => (
+                    <div
+                      key={ref.id}
+                      style={{
+                        marginBottom: 6,
+                        padding: '6px 8px',
+                        background: '#f8fafc',
+                        borderRadius: 6,
+                        border: '1px solid #e2e8f0',
+                        fontSize: 11.5,
+                      }}
+                    >
+                      <div>
+                        • <strong>[{JENIS_REFERENSI_LABELS[ref.jenisSumber]}]</strong> {ref.judulBuku}
+                      </div>
+                      <div style={{ color: '#475569', paddingLeft: 10 }}>
+                        {[
+                          ref.penulis ? `Penulis: ${ref.penulis}` : null,
+                          ref.edisiAtauTahun ? `Edisi/Tahun: ${ref.edisiAtauTahun}` : null,
+                          ref.babAtauSubbab ? `Bab/Subbab: ${ref.babAtauSubbab}` : null,
+                          ref.halaman ? `Halaman: ${ref.halaman}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' | ')}
+                      </div>
+                      {ref.urlSumber && (
+                        <div style={{ paddingLeft: 10, color: '#0f766e' }}>Tautan: {ref.urlSumber}</div>
+                      )}
+                      <div style={{ paddingLeft: 10, color: '#64748b', fontStyle: 'italic' }}>
+                        Status: {getReferensiStatusLabel(ref.statusVerifikasi)}
+                      </div>
+                    </div>
+                  ))}
+                  {(editableDoc.daftarPustaka || [])
+                    .filter(
+                      (dp) =>
+                        !/^\s*\[Lengkapi referensi satuan pendidikan\]/i.test(dp) &&
+                        !editableDoc.referensiSumber?.some((r) => dp.includes(r.judulBuku))
+                    )
+                    .map((dp, i) => (
+                      <div key={i} style={{ marginTop: 2 }}>• {dp}</div>
+                    ))}
+                </div>
+              ) : (
+                <div>
+                  <div style={{ paddingLeft: 12, marginTop: 2, fontStyle: 'italic', color: '#475569' }}>
+                    {PROVENANCE_MSG_UNLINKED}
+                  </div>
+                  {(editableDoc.daftarPustaka || []).map((dp, i) => (
+                    <div key={i} style={{ paddingLeft: 12, marginTop: 2 }}>• {dp}</div>
+                  ))}
+                </div>
+              )}
             </div>
             {(editableDoc.refleksiGuru?.length || editableDoc.refleksiSiswa?.length) ? (
               <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>

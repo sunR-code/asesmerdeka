@@ -10,6 +10,7 @@ import type {
   ModulContohLKPD,
   ModulDiferensiasiOperasional,
   ModulJalurDiferensiasi,
+  ModulReferensiSumberItem,
   PengalamanBelajarPM,
   PrinsipPembelajaranPM,
   TahapKegiatanTerstruktur,
@@ -35,6 +36,10 @@ import {
   summarizeAsesmenDetailToLegacy,
 } from './modulOperationalContent';
 import { validateModulAjarDokumen } from './modulAjarValidator';
+import {
+  buildReferensiPromptBlock,
+  formatReferensiSumberCitation,
+} from './modulReferensiSumber';
 import { resolveSubjectApproachRule, resolveSubjectFamily } from './lkpdSubjectBlueprints';
 import { buildSmartModulAjar } from './perangkatAjarEngine';
 import { callGeminiStructuredJSON, executeMeteredAICall } from '../services/geminiClient';
@@ -57,6 +62,7 @@ export interface ModulAjarGenerationTimeOptions {
   jumlahPertemuan?: number;
   smkTrackOverride?: 'umum' | 'kejuruan';
   variasiTeknikModel?: CooperativeTechniqueVariant;
+  referensiSumber?: ModulReferensiSumberItem[];
 }
 
 export interface ContextualModulAjarResult {
@@ -80,7 +86,7 @@ export const MODUL_AJAR_SYSTEM_INSTRUCTION = [
   '5. Asesmen & KKTP dinamis: sediakan instrumen konkret untuk diagnostik, formatif, dan asesmen akhir beserta kunci/contoh respons dan pedoman penilaian. DILARANG menanamkan angka ketuntasan tetap seperti 71 secara sembarangan jika tidak ditetapkan sekolah.',
   '6. Diferensiasi operasional 3 tingkat (kesiapan dasar, berkembang, mahir) yang semuanya menuju TP yang sama.',
   '7. Pembelajaran Mendalam & Profil Lulusan selektif: integrasikan pengalaman/prinsip Pembelajaran Mendalam hanya pada tahap yang relevan (tidak dipaksakan ke semua tahap), pilih 2-4 dimensi Profil Lulusan yang benar-benar relevan.',
-  '8. Kejujuran rujukan: DILARANG mengarang nomor ISBN, nomor halaman spesifik, atau URL/judul buku SIBI fiktif.',
+  '8. Kejujuran rujukan: gunakan hanya metadata buku dan catatan materi yang benar-benar disediakan guru. DILARANG mengarang penulis, tahun terbit, nomor ISBN, kutipan langsung fiktif, nomor halaman spesifik di luar input guru, URL SIBI fiktif, atau mengklaim membaca isi buku dari tautan URL secara otomatis.',
 ].join('\n');
 
 class ModulAIValidationRejectionError extends Error {
@@ -172,6 +178,7 @@ export function buildModulAjarGeminiPrompt(
     kktpRef.mode === 'dinamis_sekolah'
       ? `KKTP Aktif Sekolah/TP: minimal tuntas kategori Cakap mulai skor ${kktpRef.minTuntas}. Susun pedoman penilaian dan deskripsi pencapaian konsisten dengan ambang ${kktpRef.minTuntas}.`
       : 'KKTP Numerik Sekolah BELUM Ditetapkan: Gunakan penilaian kualitatif 4 tingkat (Baru Berkembang, Layak, Cakap, Mahir) pada rubrik dan pedoman penilaian. DILARANG menanamkan angka ketuntasan tetap seperti 71 secara sembarangan.';
+  const referensiPromptBlock = buildReferensiPromptBlock(timeOptions?.referensiSumber);
 
   const contohPertemuanJson = Array.from({ length: jumlahPertemuan }, (_, idx) => ({
     pertemuan: idx + 1,
@@ -221,6 +228,8 @@ ${modelDef.tahapanSintaks.map((s) => `  ${s.urutan}. ${s.namaTahap} — ${s.tuju
 - TEMA / KONTEKS LOKAL NYATA: "${konteks}"
 - ${gradeConstraint}
 - ${kktpInstruction}
+
+${referensiPromptBlock}
 
 KETENTUAN KUALITAS TIAP BAGIAN (WAJIB DIPENUHI):
 1. "bahanBacaan" (MATERI AJAR KONKRET 7 KOMPONEN):
@@ -685,9 +694,15 @@ function normalizeAIResponseStrict(
         .map((g: any) => ({ istilah: String(g.istilah).trim(), definisi: String(g.definisi || '').trim() }))
     : bahanBacaan?.istilahPenting?.map((it) => ({ istilah: it.istilah, definisi: it.pengertian })) || [];
 
+  const teacherFormattedRefs = (fallback.referensiSumber || []).map(formatReferensiSumberCitation);
+  const rawAiDaftarPustaka = asCleanStringList(parsed?.daftarPustaka).filter(
+    (entry) => !/^\s*\[Lengkapi referensi satuan pendidikan\]/i.test(entry)
+  );
   const daftarPustaka =
-    asCleanStringList(parsed?.daftarPustaka).length > 0
-      ? asCleanStringList(parsed?.daftarPustaka)
+    teacherFormattedRefs.length > 0
+      ? Array.from(new Set([...teacherFormattedRefs, ...rawAiDaftarPustaka]))
+      : rawAiDaftarPustaka.length > 0
+      ? rawAiDaftarPustaka
       : fallback.daftarPustaka;
 
   const doc: ModulAjarDokumen = {
@@ -730,6 +745,8 @@ function normalizeAIResponseStrict(
     refleksiSiswa,
     glosarium,
     daftarPustaka,
+    // Selalu pertahankan metadata sumber dari input guru/kurasi — jangan pernah menerima referensiSumber buatan AI
+    ...(fallback.referensiSumber ? { referensiSumber: fallback.referensiSumber } : {}),
   };
 
   return { doc, structuralErrors, maxTokensCut };
@@ -806,6 +823,7 @@ export async function generateContextualModulAjarWithAI(
     smkTrackOverride: timeOptions?.smkTrackOverride,
     variasiTeknikModel: timeOptions?.variasiTeknikModel,
     konteksLokal,
+    referensiSumber: timeOptions?.referensiSumber,
   });
 
   try {

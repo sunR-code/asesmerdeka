@@ -165,6 +165,40 @@ export interface ModulAjarQualityValidation {
   semanticReviewWarnings: string[];
 }
 
+export type JenisReferensiSumber =
+  | 'sibi_kemendikdasmen'
+  | 'buku_teks_lain'
+  | 'modul_atau_sumber_guru';
+
+export type StatusVerifikasiReferensi =
+  | 'belum_ditautkan'
+  | 'diinput_guru'
+  | 'terkurasi_terverifikasi';
+
+export type JenisAksesMateriReferensi =
+  | 'metadata_saja'
+  | 'catatan_ringkas_guru'
+  | 'teks_disediakan_guru';
+
+export interface ModulReferensiSumberItem {
+  id: string;
+  jenisSumber: JenisReferensiSumber;
+  jenjang?: string;
+  kelas?: string;
+  mataPelajaran?: string;
+  judulBuku: string;
+  penulis?: string;
+  edisiAtauTahun?: string;
+  babAtauSubbab?: string;
+  halaman?: string;
+  urlSumber?: string;
+  catatanMateriGuru?: string;
+  jenisAksesMateri?: JenisAksesMateriReferensi;
+  domainResmiSibi?: boolean;
+  statusVerifikasi: StatusVerifikasiReferensi;
+  diperbaruiPada?: string;
+}
+
 export interface ModulAjarDokumen {
   id: string;
   tpId?: string;
@@ -254,6 +288,9 @@ export interface ModulAjarDokumen {
   refleksiSiswa: string[];
   glosarium: { istilah: string; definisi: string }[];
   daftarPustaka: string[];
+
+  // Referensi Sumber Ajar & Provenance SIBI (Task 12.3 — opsional, backward-compatible)
+  referensiSumber?: ModulReferensiSumberItem[];
 }
 
 export type LKPDPresetType = 'kasus' | 'eksperimen' | 'diferensiasi' | 'proyek';

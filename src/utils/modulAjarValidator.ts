@@ -2,11 +2,13 @@ import type {
   ModulAjarDokumen,
   ModulAjarQualityValidation,
   ModulAjarValidationStatus,
+  ModulReferensiSumberItem,
   TahapKegiatanTerstruktur,
 } from '../types/perangkatAjar';
 import type { CustomTPItem, SchoolProfile } from './schoolProfileStorage';
 import { hasSuspiciousTruncation, isGenericSlopText } from './lkpdValidator';
 import { isValidModulAjarModelType, type ModulAjarModelType } from './modulPedagogicalModels';
+import { validateReferensiUrl } from './modulReferensiSumber';
 import { classifySMKSubjectTrack, normalizeJenjangKategori, validateModulTimeBudget } from './modulTimeBudget';
 
 const STOPWORDS = new Set([
@@ -132,26 +134,82 @@ export function evaluateOperationalActivitySpecificity(
 
 /**
  * Mendeteksi kemungkinan referensi buku fiktif (ISBN karangan, halaman spesifik karangan, atau tautan SIBI fiktif).
+ * Tautan URL SIBI resmi dan halaman yang benar-benar berasal dari `referensiSumber` guru diperbolehkan.
  */
 export function detectFabricatedBookReference(
   daftarPustaka: string[],
-  referensiCatatan?: string
+  referensiCatatan?: string,
+  referensiSumber?: ModulReferensiSumberItem[]
 ): string[] {
   const findings: string[] = [];
   const entries = [...(daftarPustaka || []), referensiCatatan || ''].filter(Boolean);
+  const refs = Array.isArray(referensiSumber) ? referensiSumber : [];
+
+  const allowedUrls = new Set<string>();
+  const allowedPages = new Set<string>();
+  const teacherNotesJoined = refs
+    .map((r) => `${r.judulBuku || ''} ${r.catatanMateriGuru || ''}`)
+    .join(' ');
+
+  for (const ref of refs) {
+    if (ref.urlSumber) {
+      const check = validateReferensiUrl(ref.urlSumber, ref.jenisSumber);
+      if (check.valid && check.normalizedUrl) {
+        allowedUrls.add(check.normalizedUrl);
+        allowedUrls.add(check.normalizedUrl.replace(/\/$/, ''));
+      }
+    }
+    if (ref.halaman) {
+      const normFull = ref.halaman.replace(/[–—]/g, '-').replace(/\s+/g, '');
+      if (normFull) allowedPages.add(normFull);
+      ref.halaman
+        .split(/[,;]/)
+        .map((part) => part.replace(/[–—]/g, '-').replace(/\s+/g, ''))
+        .filter(Boolean)
+        .forEach((p) => allowedPages.add(p));
+    }
+  }
+
   for (const entry of entries) {
     const clean = entry.trim();
     if (/^\s*\[Lengkapi referensi satuan pendidikan\]/i.test(clean)) {
       continue;
     }
-    if (/\bISBN(?:-1[03])?[:\s-]*[0-9xX-]{9,}/i.test(clean)) {
-      findings.push(`Potensi nomor ISBN karangan ditemukan pada rujukan: "${clean.slice(0, 80)}..."`);
+
+    const isbnMatches = clean.match(/\bISBN(?:-1[03])?[:\s-]*[0-9xX-]{9,}/gi) || [];
+    for (const isbnToken of isbnMatches) {
+      if (!teacherNotesJoined.includes(isbnToken.trim())) {
+        findings.push(`Potensi nomor ISBN karangan ditemukan pada rujukan: "${clean.slice(0, 80)}..."`);
+      }
     }
-    if (/https?:\/\/(?:buku|sibi)\.(?:kemdikbud|kemendikdasmen)\.go\.id\/[^\s]+/i.test(clean)) {
-      findings.push(`Potensi URL rujukan SIBI tidak terverifikasi ditemukan pada daftar pustaka: "${clean.slice(0, 80)}..."`);
+
+    const urlMatches =
+      clean.match(/https?:\/\/[^\s]*?(?:kemdikbud|kemendikdasmen)\.go\.id[^\s)\],;]*/gi) || [];
+    for (const rawFoundUrl of urlMatches) {
+      const trimmedUrl = rawFoundUrl.replace(/[.,;)]+$/, '');
+      let normalizedFound = trimmedUrl;
+      try {
+        normalizedFound = new URL(trimmedUrl).toString();
+      } catch {
+        // biarkan apa adanya bila tidak dapat diparse
+      }
+      const normalizedNoTrailing = normalizedFound.replace(/\/$/, '');
+      if (!allowedUrls.has(normalizedFound) && !allowedUrls.has(normalizedNoTrailing)) {
+        findings.push(
+          `Potensi URL rujukan SIBI tidak terverifikasi ditemukan pada daftar pustaka: "${clean.slice(0, 80)}..."`
+        );
+      }
     }
-    if (/\b(?:halaman|hlm|hal)\.?\s*\d{1,4}(?:\s*[-–]\s*\d{1,4})?/i.test(clean)) {
-      findings.push(`Potensi nomor halaman buku fiktif tanpa sumber terkurasi: "${clean.slice(0, 80)}..."`);
+
+    const pageRegex = /\b(?:halaman|hlm|hal)\.?\s*(\d{1,4}(?:\s*[-–—]\s*\d{1,4})?)/gi;
+    let pMatch: RegExpExecArray | null;
+    while ((pMatch = pageRegex.exec(clean)) !== null) {
+      const candidatePage = pMatch[1].replace(/[–—]/g, '-').replace(/\s+/g, '');
+      if (!allowedPages.has(candidatePage)) {
+        findings.push(
+          `Potensi nomor halaman buku fiktif tanpa sumber terkurasi: "${clean.slice(0, 80)}..."`
+        );
+      }
     }
   }
   return findings;
@@ -543,13 +601,53 @@ export function validateModulAjarDokumen(
     );
   }
 
-  // Anti-referensi SIBI fiktif (Task 12)
-  const fabRefs = detectFabricatedBookReference(doc.daftarPustaka || [], doc.bahanBacaan?.referensiCatatan);
+  // Anti-referensi SIBI fiktif & provenance jujur (Task 12 / 12.3)
+  const docRefs = Array.isArray(doc.referensiSumber) ? doc.referensiSumber : [];
+  for (const ref of docRefs) {
+    if (!ref.judulBuku?.trim()) {
+      structuralIssues.push('Terdapat entri referensi sumber ajar tanpa judul buku.');
+    }
+    const urlCheck = validateReferensiUrl(ref.urlSumber, ref.jenisSumber);
+    if (!urlCheck.valid && urlCheck.error) {
+      relevanceAndAntiSlopIssues.push(urlCheck.error);
+    }
+    if (sourceMode === 'ai' && ref.statusVerifikasi === 'terkurasi_terverifikasi') {
+      relevanceAndAntiSlopIssues.push(
+        'AI tidak diperbolehkan menaikkan status verifikasi referensi menjadi terkurasi secara sepihak.'
+      );
+    }
+  }
+
+  const fabRefs = detectFabricatedBookReference(
+    doc.daftarPustaka || [],
+    doc.bahanBacaan?.referensiCatatan,
+    docRefs
+  );
   if (fabRefs.length > 0) {
     if (sourceMode === 'ai') {
       relevanceAndAntiSlopIssues.push(...fabRefs);
     } else {
       semanticReviewWarnings.push(...fabRefs);
+    }
+  }
+
+  const hasDirectProvidedText = docRefs.some(
+    (ref) => ref.catatanMateriGuru && ref.jenisAksesMateri === 'teks_disediakan_guru'
+  );
+  if (sourceMode === 'ai' && !hasDirectProvidedText) {
+    const readingClaimCorpus = [
+      doc.bahanBacaan?.penjelasanKonsepUtama || '',
+      doc.bahanBacaan?.referensiCatatan || '',
+      ...(doc.daftarPustaka || []),
+    ].join(' ');
+    if (
+      /(?:telah|sudah)\s+membaca\s+(?:langsung\s+)?(?:isi\s+)?(?:buku|tautan|halaman)\s+(?:sibi|kemendikdasmen|tersebut)|mengakses\s+(?:langsung\s+)?(?:tautan|url|isi\s+buku)\s+(?:sibi|di\s+atas)|berdasarkan\s+isi\s+lengkap\s+buku\s+yang\s+(?:telah\s+)?(?:saya|kami)\s+baca/i.test(
+        readingClaimCorpus
+      )
+    ) {
+      relevanceAndAntiSlopIssues.push(
+        'Keluaran AI mengeklaim membaca isi buku SIBI/tautan URL secara langsung padahal hanya menerima metadata sumber.'
+      );
     }
   }
 

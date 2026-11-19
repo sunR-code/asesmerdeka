@@ -28,6 +28,11 @@ import { getSchoolProfile } from '../schoolProfileStorage';
 import type { SchoolProfile } from '../schoolProfileStorage';
 import { cleanTopicHeading } from '../lkpdSubjectBlueprints';
 import { resolveModulKKTPConfig } from '../modulOperationalContent';
+import {
+  getReferensiStatusLabel,
+  JENIS_REFERENSI_LABELS,
+  PROVENANCE_MSG_UNLINKED,
+} from '../modulReferensiSumber';
 import { buildSignatureBlockTable, createStyledDocxDocument } from './docxShared';
 
 /**
@@ -424,10 +429,111 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
     children.push(new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• ${g.istilah || '-'}: `, bold: true, size: 18 }), new TextRun({ text: g.definisi || '-', size: 18 })], spacing: { after: 20 } }));
   });
 
-  children.push(new Paragraph({ children: [new TextRun({ text: 'C. Daftar Pustaka:', bold: true, size: 20 })], spacing: { before: 60, after: 30 } }));
-  safeDaftarPustaka.forEach((dp) => {
-    children.push(new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• ${dp}`, size: 18 })], spacing: { after: 20 } }));
-  });
+  const safeReferensiSumber = Array.isArray(modul.referensiSumber) ? modul.referensiSumber : [];
+  children.push(
+    new Paragraph({
+      children: [new TextRun({ text: 'C. Referensi Sumber Ajar & Daftar Pustaka:', bold: true, size: 20 })],
+      spacing: { before: 60, after: 30 },
+    })
+  );
+  if (safeReferensiSumber.length > 0) {
+    safeReferensiSumber.forEach((ref) => {
+      const jenisLabel = JENIS_REFERENSI_LABELS[ref.jenisSumber] || 'Sumber Ajar';
+      children.push(
+        new Paragraph({
+          indent: { left: 240 },
+          spacing: { after: 15 },
+          children: [
+            new TextRun({ text: `• [${jenisLabel}] `, bold: true, size: 18, color: '1E3A8A' }),
+            new TextRun({ text: ref.judulBuku, bold: true, size: 18 }),
+          ],
+        })
+      );
+      const metaParts: string[] = [];
+      if (ref.penulis) metaParts.push(`Penulis: ${ref.penulis}`);
+      if (ref.edisiAtauTahun) metaParts.push(`Edisi/Tahun: ${ref.edisiAtauTahun}`);
+      const ctxParts = [
+        ref.jenjang,
+        ref.kelas ? `Kelas ${ref.kelas}` : undefined,
+        ref.mataPelajaran,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      if (ctxParts) metaParts.push(ctxParts);
+      if (ref.babAtauSubbab) metaParts.push(`Bab/Subbab: ${ref.babAtauSubbab}`);
+      if (ref.halaman) metaParts.push(`Halaman: ${ref.halaman}`);
+      if (ref.urlSumber) metaParts.push(`Tautan: ${ref.urlSumber}`);
+      if (metaParts.length > 0) {
+        children.push(
+          new Paragraph({
+            indent: { left: 380 },
+            spacing: { after: 15 },
+            children: [new TextRun({ text: metaParts.join(' | '), size: 17, color: '334155' })],
+          })
+        );
+      }
+      const statusText = ref.domainResmiSibi
+        ? `${getReferensiStatusLabel(ref.statusVerifikasi)} (Tautan domain resmi buku.kemendikdasmen.go.id)`
+        : getReferensiStatusLabel(ref.statusVerifikasi);
+      children.push(
+        new Paragraph({
+          indent: { left: 380 },
+          spacing: { after: ref.catatanMateriGuru ? 10 : 25 },
+          children: [new TextRun({ text: `Status Verifikasi: ${statusText}`, italics: true, size: 16, color: '475569' })],
+        })
+      );
+      if (ref.catatanMateriGuru) {
+        children.push(
+          new Paragraph({
+            indent: { left: 380 },
+            spacing: { after: 25 },
+            children: [
+              new TextRun({ text: 'Catatan Materi Guru: ', bold: true, size: 17, color: '334155' }),
+              new TextRun({ text: ref.catatanMateriGuru, size: 17, color: '334155' }),
+            ],
+          })
+        );
+      }
+    });
+    const nonPlaceholderDaftar = safeDaftarPustaka.filter(
+      (dp) =>
+        !/^\s*\[Lengkapi referensi satuan pendidikan\]/i.test(dp) &&
+        !safeReferensiSumber.some((ref) => dp.includes(ref.judulBuku))
+    );
+    nonPlaceholderDaftar.forEach((dp) => {
+      children.push(
+        new Paragraph({
+          indent: { left: 240 },
+          children: [new TextRun({ text: `• ${dp}`, size: 18 })],
+          spacing: { after: 20 },
+        })
+      );
+    });
+  } else {
+    children.push(
+      new Paragraph({
+        indent: { left: 240 },
+        spacing: { after: 20 },
+        children: [
+          new TextRun({
+            text: PROVENANCE_MSG_UNLINKED,
+            italics: true,
+            size: 17,
+            color: '64748B',
+          }),
+        ],
+      })
+    );
+    safeDaftarPustaka.forEach((dp) => {
+      children.push(
+        new Paragraph({
+          indent: { left: 240 },
+          children: [new TextRun({ text: `• ${dp}`, size: 18 })],
+          spacing: { after: 20 },
+        })
+      );
+    });
+  }
 
   if (modul.diferensiasiOperasional) {
     const diff = modul.diferensiasiOperasional;

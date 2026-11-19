@@ -110,6 +110,11 @@ export type CloudConflictLocator =
       propKey: string;
     }
   | {
+      kind: 'modul_referensi_item';
+      storageKey: string;
+      itemId: string;
+    }
+  | {
       kind: 'whole_entry';
       storageKey: string;
     };
@@ -1667,6 +1672,113 @@ function mergeNilaiLists(params: {
   return merged;
 }
 
+interface ReferensiRecordLike {
+  id: string;
+  judulBuku?: string;
+  [key: string]: unknown;
+}
+
+function isReferensiArrayEntry(val: unknown): val is ReferensiRecordLike[] {
+  return (
+    Array.isArray(val) &&
+    val.every((item) => isPlainObject(item) && typeof item.id === 'string' && item.id.trim().length > 0)
+  );
+}
+
+function mergeReferensiSumberArrays(params: {
+  storageKey: string;
+  baseVal: unknown;
+  localVal: unknown;
+  serverVal: unknown;
+  hasBase: boolean;
+  conflicts: CloudConflictItem[];
+  autoMergedSummary: string[];
+}): ReferensiRecordLike[] {
+  const { storageKey, baseVal, localVal, serverVal, hasBase, conflicts, autoMergedSummary } = params;
+  const baseList = isReferensiArrayEntry(baseVal) ? baseVal : [];
+  const localList = isReferensiArrayEntry(localVal) ? localVal : [];
+  const serverList = isReferensiArrayEntry(serverVal) ? serverVal : [];
+
+  const baseById = new Map(baseList.map((it) => [it.id, it]));
+  const localById = new Map(localList.map((it) => [it.id, it]));
+  const serverById = new Map(serverList.map((it) => [it.id, it]));
+  const orderedIds: string[] = [];
+  const seen = new Set<string>();
+  for (const list of [localList, serverList, baseList]) {
+    for (const item of list) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        orderedIds.push(item.id);
+      }
+    }
+  }
+
+  const merged: ReferensiRecordLike[] = [];
+  let addedFromCloud = 0;
+
+  for (const id of orderedIds) {
+    const b = baseById.get(id);
+    const l = localById.get(id);
+    const s = serverById.get(id);
+
+    if (!l && s) {
+      if (hasBase && b && stableEqual(b, s)) {
+        // Dihapus secara sadar oleh perangkat lokal
+        continue;
+      }
+      merged.push(deepClone(s));
+      addedFromCloud++;
+      continue;
+    }
+
+    if (!s && l) {
+      if (hasBase && b && stableEqual(b, l)) {
+        // Dihapus secara sadar oleh perangkat lain di cloud
+        continue;
+      }
+      merged.push(deepClone(l));
+      continue;
+    }
+
+    if (!l || !s) continue;
+
+    if (stableEqual(l, s)) {
+      merged.push(deepClone(l));
+      continue;
+    }
+
+    const res = resolveThreeWayField(Boolean(hasBase && b), b, l, s, {
+      additiveIfNoBase: true,
+    });
+    merged.push(deepClone(res.resolved as ReferensiRecordLike));
+    if (res.hasConflict) {
+      conflicts.push({
+        id: `${storageKey}::ref::${id}`,
+        storageKey,
+        category: 'umum',
+        label: `Referensi Sumber Modul (${String(l.judulBuku || s.judulBuku || id)})`,
+        fieldLabel: `Referensi "${String(l.judulBuku || id)}"`,
+        localValue: l,
+        serverValue: s,
+        baseValue: b,
+        defaultChoice: 'local',
+        locator: {
+          kind: 'modul_referensi_item',
+          storageKey,
+          itemId: id,
+        },
+      });
+    }
+  }
+
+  if (addedFromCloud > 0) {
+    autoMergedSummary.push(
+      `${addedFromCloud} referensi sumber ajar dari perangkat lain digabung otomatis ke Modul Ajar.`
+    );
+  }
+  return merged;
+}
+
 function mergeGenericObjectThreeWay(params: {
   storageKey: string;
   baseObj: Record<string, unknown> | undefined;
@@ -1674,16 +1786,36 @@ function mergeGenericObjectThreeWay(params: {
   serverObj: Record<string, unknown>;
   hasBase: boolean;
   conflicts: CloudConflictItem[];
+  autoMergedSummary: string[];
 }): Record<string, unknown> {
-  const { storageKey, baseObj, localObj, serverObj, hasBase, conflicts } = params;
+  const { storageKey, baseObj, localObj, serverObj, hasBase, conflicts, autoMergedSummary } = params;
   const keys = new Set([...Object.keys(localObj), ...Object.keys(serverObj)]);
   const merged: Record<string, unknown> = {};
+  const isModulDraftKey =
+    storageKey.startsWith('asesmerdeka_modul_v2__') || storageKey.startsWith('modul_ajar_');
 
   for (const key of keys) {
     const hasPropBase = Boolean(hasBase && baseObj && Object.prototype.hasOwnProperty.call(baseObj, key));
     const bVal = baseObj?.[key];
     const lVal = localObj[key];
     const sVal = serverObj[key];
+
+    if (
+      isModulDraftKey &&
+      key === 'referensiSumber' &&
+      (Array.isArray(lVal) || Array.isArray(sVal))
+    ) {
+      merged[key] = mergeReferensiSumberArrays({
+        storageKey,
+        baseVal: bVal,
+        localVal: lVal,
+        serverVal: sVal,
+        hasBase,
+        conflicts,
+        autoMergedSummary,
+      });
+      continue;
+    }
 
     if (lVal === undefined && sVal !== undefined) {
       if (hasPropBase && stableEqual(bVal, sVal)) continue;
@@ -1954,7 +2086,7 @@ export function analyzeWorkspaceConflict(
       continue;
     }
 
-    // 3. Merge object entries (mis. profil sekolah, map TP per scope)
+    // 3. Merge object entries (mis. profil sekolah, map TP per scope, draf modul ajar)
     if (isPlainObject(lVal) && isPlainObject(sVal)) {
       mergedEntries[key] = mergeGenericObjectThreeWay({
         storageKey: key,
@@ -1963,6 +2095,7 @@ export function analyzeWorkspaceConflict(
         serverObj: sVal,
         hasBase: hasKeyBase,
         conflicts,
+        autoMergedSummary,
       });
       continue;
     }
@@ -2022,6 +2155,25 @@ export function applyConflictChoicesToMergedEntries(
         } else {
           obj[loc.propKey] = chosenVal;
         }
+      }
+      continue;
+    }
+
+    if (loc.kind === 'modul_referensi_item') {
+      const modulObj = result[loc.storageKey];
+      if (isPlainObject(modulObj)) {
+        const list = isReferensiArrayEntry(modulObj.referensiSumber)
+          ? [...modulObj.referensiSumber]
+          : [];
+        const existingIdx = list.findIndex((it) => it.id === loc.itemId);
+        if (chosenVal === undefined) {
+          if (existingIdx >= 0) list.splice(existingIdx, 1);
+        } else if (existingIdx >= 0) {
+          list[existingIdx] = chosenVal as ReferensiRecordLike;
+        } else {
+          list.push(chosenVal as ReferensiRecordLike);
+        }
+        modulObj.referensiSumber = list;
       }
       continue;
     }

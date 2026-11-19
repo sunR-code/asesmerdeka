@@ -32,6 +32,7 @@ import type {
   PromesRowItem,
   CooperativeTechniqueVariant,
   KegiatanPembelajaranLangkah,
+  ModulReferensiSumberItem,
   TahapKegiatanTerstruktur,
 } from '../types/perangkatAjar';
 import {
@@ -79,6 +80,10 @@ import {
   selectRelevantProfilLulusanDimensions,
   summarizeAsesmenDetailToLegacy,
 } from './modulOperationalContent';
+import {
+  buildReferensiBahanBacaanNote,
+  formatReferensiSumberCitation,
+} from './modulReferensiSumber';
 
 export interface BuildSmartModulAjarOptions {
   model?: ModulAjarModelType;
@@ -88,6 +93,7 @@ export interface BuildSmartModulAjarOptions {
   smkTrackOverride?: 'umum' | 'kejuruan';
   variasiTeknikModel?: CooperativeTechniqueVariant;
   konteksLokal?: string;
+  referensiSumber?: ModulReferensiSumberItem[];
 }
 
 interface GradeScaffoldingTone {
@@ -881,13 +887,21 @@ export function buildSmartModulAjar(
           `Peserta didik siap mengikuti alur belajar ${modelDef.namaSingkat} secara bertahap.`,
         ];
 
-  const bahanBacaan = buildOperationalBahanBacaan({
+  const safeReferensiSumber =
+    Array.isArray(opts.referensiSumber) && opts.referensiSumber.length > 0
+      ? opts.referensiSumber
+      : undefined;
+  const rawBahanBacaan = buildOperationalBahanBacaan({
     tp,
     profile,
     jenjang: timePreset.jenjangKategori,
     smkTrack: timePreset.smkTrack,
     konteks,
   });
+  const bahanBacaanNoteFromRefs = buildReferensiBahanBacaanNote(safeReferensiSumber);
+  const bahanBacaan = bahanBacaanNoteFromRefs
+    ? { ...rawBahanBacaan, referensiCatatan: bahanBacaanNoteFromRefs }
+    : rawBahanBacaan;
 
   const asesmenDetail = buildOperationalAsesmenDetail({
     tp,
@@ -1066,11 +1080,17 @@ export function buildSmartModulAjar(
     ],
 
     glosarium: glossaryFromMaterials,
-    daftarPustaka: [
-      `[Lengkapi referensi satuan pendidikan] Buku teks/panduan resmi ${profile.mataPelajaranUtama} Kelas ${profile.kelasUtama} yang digunakan sekolah (cantumkan penulis, tahun terbit, penerbit, bab, dan halaman sesuai edisi aktual).`,
-      `Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP). Panduan Pembelajaran dan Asesmen (PPA) Kurikulum Merdeka.`,
-      `Catatan ajar guru & perangkat kontekstual terkait materi "${tp.materiPokok}".`,
-    ],
+    daftarPustaka: safeReferensiSumber
+      ? [
+          ...safeReferensiSumber.map(formatReferensiSumberCitation),
+          'Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP). Panduan Pembelajaran dan Asesmen (PPA) Kurikulum Merdeka.',
+        ]
+      : [
+          `[Lengkapi referensi satuan pendidikan] Buku teks/panduan resmi ${profile.mataPelajaranUtama} Kelas ${profile.kelasUtama} yang digunakan sekolah (cantumkan penulis, tahun terbit, penerbit, bab, dan halaman sesuai edisi aktual).`,
+          `Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP). Panduan Pembelajaran dan Asesmen (PPA) Kurikulum Merdeka.`,
+          `Catatan ajar guru & perangkat kontekstual terkait materi "${tp.materiPokok}".`,
+        ],
+    ...(safeReferensiSumber ? { referensiSumber: safeReferensiSumber } : {}),
   };
 }
 
