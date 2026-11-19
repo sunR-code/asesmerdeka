@@ -68,7 +68,17 @@ import {
   buildCuratedOrAdaptiveLKPDContent,
   buildLKPDDokumenFromCurated,
 } from './lkpdCurriculumFixtures';
+import { resolveSubjectFamily } from './lkpdSubjectBlueprints';
 import { validateLKPDDokumen } from './lkpdValidator';
+import {
+  buildModulLKPDSummaryFromDoc,
+  buildOperationalAsesmenDetail,
+  buildOperationalBahanBacaan,
+  buildOperationalDiferensiasi,
+  resolveRecommendedLKPDPresetForModel,
+  selectRelevantProfilLulusanDimensions,
+  summarizeAsesmenDetailToLegacy,
+} from './modulOperationalContent';
 
 export interface BuildSmartModulAjarOptions {
   model?: ModulAjarModelType;
@@ -343,7 +353,7 @@ function buildModelIntiStageContent(params: {
         case 'inq_rumusan_pertanyaan':
           return {
             aktivitasGuru:
-              'Guru membimbing siswa memilih dan memoles pertanyaan terbuka yang dapat diselidiki beserta dugaan sementara (hipotesis awal).',
+              'Guru memandu kelompok memilih 1–2 pertanyaan terbuka yang dapat diselidiki dari fenomena lalu meminta siswa menuliskan dugaan sementara (hipotesis awal) pada kolom LKPD Inkuiri.',
             aktivitasSiswa:
               'Siswa merumuskan 1–2 pertanyaan penyelidikan ilmiah/analitis terkait fokus materi dan menuliskan dugaan jawabannya disertai alasan awal.',
             instruksiPertanyaan: `"Pertanyaan apa yang paling tepat untuk menguji dugaan kita tentang '${fokus}', dan bukti apa yang perlu dicari?"`,
@@ -468,9 +478,9 @@ function buildModelIntiStageContent(params: {
           };
         case 'coop_penyajian_peran':
           return {
-            aktivitasGuru: `Guru memaparkan kerangka konsep inti "${fokus}" secara ringkas-jelas dan memperagakan aturan main ${cooperativeVariant}.`,
+            aktivitasGuru: `Guru memaparkan kerangka konsep inti "${fokus}" menggunakan papan ringkasan dan memperagakan aturan main serta giliran tugas ${cooperativeVariant}.`,
             aktivitasSiswa:
-              'Siswa menyimak penjelasan kerangka konsep, mencatat istilah kunci, serta menanyakan alur peran bila ada bagian yang belum jelas.',
+              'Siswa mencatat istilah kunci dari ringkasan konsep di papan, menandai pembagian tugas masing-masing pada kartu peran tim, dan mengajukan pertanyaan klarifikasi alur peran.',
             instruksiPertanyaan: `"Perhatikan contoh inti berikut: bagian mana yang harus dipastikan dikuasai oleh seluruh anggota tim kalian?"`,
             mediaBahan: 'Papan/slide ringkasan konsep inti & petunjuk teknik',
             buktiBelajar: 'Catatan kerangka konsep awal siswa.',
@@ -828,23 +838,17 @@ export function buildSmartModulAjar(
       ? opts.konteksLokal.trim()
       : `${tone.konteksLingkungan} terkait ${tp.materiPokok}`;
 
-  const profilList =
-    timePreset.jenjangKategori === 'SD/MI'
-      ? [
-          'Penalaran Kritis (mengamati fakta sederhana dan menjelaskan alasan jawaban dengan kata sendiri)',
-          'Kolaborasi (bekerja rukun, bergiliran peran, dan mendengarkan pendapat teman)',
-          'Kemandirian (menyelesaikan langkah tugas di lembar kerja dengan tekun dan jujur)',
-        ]
-      : [
-          'Penalaran Kritis (menganalisis informasi/bukti, mengevaluasi argumen, dan menarik simpulan logis)',
-          'Kolaborasi (bekerja sama aktif dengan pembagian peran terukur untuk mencapai target bersama)',
-          'Kemandirian (mengelola strategi belajar, melakukan cek pemahaman diri, dan bertanggung jawab atas hasil)',
-          'Kreativitas (mengembangkan alternatif penyelesaian atau rancangan karya kontekstual yang relevan)',
-        ];
+  const subjectFamily = resolveSubjectFamily(profile.mataPelajaranUtama || '');
+  const profilList = selectRelevantProfilLulusanDimensions(
+    tp,
+    profile,
+    timePreset.jenjangKategori,
+    timePreset.smkTrack
+  );
 
   const saranaList = [
     tone.mediaKhas,
-    'Buku teks utama & buku panduan guru yang relevan (lengkapi edisi & bab/halaman pada daftar pustaka)',
+    'Buku teks utama & buku panduan guru yang digunakan satuan pendidikan (lengkapi edisi & bab/halaman pada daftar pustaka)',
     'Papan tulis / spidol / media presentasi atau alat peraga kelas',
   ];
 
@@ -877,20 +881,47 @@ export function buildSmartModulAjar(
           `Peserta didik siap mengikuti alur belajar ${modelDef.namaSingkat} secara bertahap.`,
         ];
 
-  const bahanBacaan = {
-    ringkasanInti:
-      tp.arahanRangkuman?.trim() ||
-      `Materi "${tp.materiPokok}" berfokus pada pencapaian TP ${tp.kode}: ${tp.tujuanPembelajaran}`,
-    konsepKunci: [
-      `Pokok bahasan utama: ${tp.materiPokok} (Elemen ${tp.elemen})`,
-      ...(tp.buktiKetercapaian?.slice(0, 2) || [
-        `Kompetensi target: ${tp.kompetensiInti || tp.tujuanPembelajaran}`,
-      ]),
-      ...(tp.subTP?.slice(0, 2).map((s) => `${s.kode}: ${s.fokusMateri}`) || []),
-    ],
-    referensiCatatan:
-      'Ringkasan bahan ajar diturunkan dari metadata TP aktif. Pastikan guru melengkapi rujukan buku teks resmi (mis. SIBI) sebelum digunakan sebagai bahan ajar utama.',
-  };
+  const bahanBacaan = buildOperationalBahanBacaan({
+    tp,
+    profile,
+    jenjang: timePreset.jenjangKategori,
+    smkTrack: timePreset.smkTrack,
+    konteks,
+  });
+
+  const asesmenDetail = buildOperationalAsesmenDetail({
+    tp,
+    profile,
+    jenjang: timePreset.jenjangKategori,
+    smkTrack: timePreset.smkTrack,
+    konteks,
+  });
+  const legacyAsesmenSummary = summarizeAsesmenDetailToLegacy(asesmenDetail);
+
+  const diferensiasiOperasional = buildOperationalDiferensiasi({
+    tp,
+    profile,
+    jenjang: timePreset.jenjangKategori,
+    smkTrack: timePreset.smkTrack,
+    konteks,
+  });
+
+  const recommendedPreset = resolveRecommendedLKPDPresetForModel(modelDef.id, subjectFamily);
+  const linkedLKPD = buildSmartLKPD(
+    tp,
+    profile,
+    recommendedPreset,
+    opts.konteksLokal?.trim() || undefined
+  );
+  const contohLKPD = buildModulLKPDSummaryFromDoc(linkedLKPD, 'modul_terintegrasi');
+
+  const glossaryFromMaterials =
+    bahanBacaan.istilahPenting && bahanBacaan.istilahPenting.length > 0
+      ? bahanBacaan.istilahPenting.map((it) => ({
+          istilah: it.istilah,
+          definisi: it.pengertian,
+        }))
+      : buildTopicRelevantGlossary(tp, modelDef.namaSingkat);
 
   const kegiatanPembelajaran: KegiatanPembelajaranLangkah[] = meetingSlices.map((slice) => {
     const tahapTerstruktur = buildStructuredMeetingStages({
@@ -987,11 +1018,8 @@ export function buildSmartModulAjar(
     bahanBacaan,
     kegiatanPembelajaran,
 
-    asesmen: {
-      diagnostik: tone.asesmenAwalContoh,
-      formatif: tone.asesmenFormatifContoh,
-      sumatif: tone.asesmenSumatifContoh,
-    },
+    asesmen: legacyAsesmenSummary,
+    asesmenDetail,
     rubrikPenilaianSingkat: [
       {
         kriteria: `Penguasaan Konsep ${tp.materiPokok}`,
@@ -1009,15 +1037,27 @@ export function buildSmartModulAjar(
       },
     ],
 
+    diferensiasiOperasional,
+    contohLKPD,
+    catatanValidasi: {
+      status: 'template_awal',
+      usedFallback: true,
+      structuralIssues: [],
+      relevanceAndAntiSlopIssues: [],
+      semanticReviewWarnings: [
+        'Draf ini merupakan Template / Draf Awal adaptif berbasis TP dan jenjang. Periksa kesesuaian contoh konkret, butir asesmen, serta buku rujukan kelas sebelum digunakan mengajar.',
+      ],
+    },
+
     pengayaanDanRemedial: {
-      pengayaan: tone.pengayaanStrategi,
-      remedial: tone.remedialStrategi,
+      pengayaan: `${diferensiasiOperasional.kesiapanMahir.aktivitasKonkret[0]} (${diferensiasiOperasional.kesiapanMahir.dukunganScaffolding})`,
+      remedial: `${diferensiasiOperasional.kesiapanDasar.dukunganScaffolding} Latihan utama: ${diferensiasiOperasional.kesiapanDasar.aktivitasKonkret[0]}`,
     },
 
     refleksiGuru: [
       `Apakah alokasi waktu ${meetingPlan.totalMenitPertemuan} menit per pertemuan cukup bagi siswa menyelesaikan seluruh tahap ${modelDef.namaSingkat}?`,
       `Tahap manakah yang paling membantu siswa memahami "${tp.materiPokok}", dan miskonsepsi apa yang perlu diperkuat?`,
-      'Apakah penyesuaian pendampingan telah menjangkau siswa yang masih kesulitan serta memberi tantangan bagi siswa yang cepat tuntas?',
+      'Apakah penyesuaian pendampingan (kesiapan dasar, berkembang, dan mahir) sudah menjangkau kebutuhan belajar di kelas?',
     ],
     refleksiSiswa: [
       `Hal baru apa tentang "${tp.materiPokok}" yang paling jelas saya pahami hari ini?`,
@@ -1025,7 +1065,7 @@ export function buildSmartModulAjar(
       'Bagaimana peran aktif saya membantu teman atau kelompok saat pembelajaran berlangsung?',
     ],
 
-    glosarium: buildTopicRelevantGlossary(tp, modelDef.namaSingkat),
+    glosarium: glossaryFromMaterials,
     daftarPustaka: [
       `[Lengkapi referensi satuan pendidikan] Buku teks/panduan resmi ${profile.mataPelajaranUtama} Kelas ${profile.kelasUtama} yang digunakan sekolah (cantumkan penulis, tahun terbit, penerbit, bab, dan halaman sesuai edisi aktual).`,
       `Badan Standar, Kurikulum, dan Asesmen Pendidikan (BSKAP). Panduan Pembelajaran dan Asesmen (PPA) Kurikulum Merdeka.`,

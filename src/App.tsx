@@ -22,7 +22,7 @@ import { TeacherGuideView } from './components/TeacherGuideView';
 import { AdminPortal } from './components/admin/AdminPortal';
 import type { AsesmenDokumen, GenerationRequest, UserQuota } from './types/assessment';
 import type { RangkumanDokumen, RangkumanRequest } from './types/summary';
-import type { ModulAjarDokumen, LKPDDokumen } from './types/perangkatAjar';
+import type { ModulAjarDokumen, LKPDDokumen, LKPDPresetType } from './types/perangkatAjar';
 import {
   getUserQuota,
   deductQuota,
@@ -55,6 +55,7 @@ import type { SchoolProfile, CustomTPItem } from './utils/schoolProfileStorage';
 import { getKelasHarianData } from './utils/kelasHarianStorage';
 import { getSemesterCurriculumPlan } from './utils/kurikulumCatalog';
 import {
+  loadLKPDDraft,
   loadLatestLKPDDraft,
   loadLatestModulAjarDraft,
 } from './utils/perangkatDraftStorage';
@@ -658,11 +659,23 @@ export function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleOpenLKPD = (tp: CustomTPItem, profile: SchoolProfile) => {
+  const handleOpenLKPD = (
+    tp: CustomTPItem,
+    profile: SchoolProfile,
+    options?: { preset?: LKPDPresetType; konteks?: string }
+  ) => {
     setActiveTP(tp);
     setActiveLKPDTP(tp);
-    const saved = loadLatestLKPDDraft(profile, tp);
-    const doc = saved?.doc || buildSmartLKPD(tp, profile);
+    const targetPreset = options?.preset;
+    const saved = targetPreset
+      ? loadLKPDDraft(profile, tp, targetPreset) || loadLatestLKPDDraft(profile, tp)?.doc
+      : loadLatestLKPDDraft(profile, tp)?.doc;
+    const konteks = options?.konteks?.trim() || undefined;
+    const doc = saved
+      ? konteks && !saved.konteksAktual
+        ? { ...saved, konteksAktual: konteks }
+        : saved
+      : buildSmartLKPD(tp, profile, targetPreset || 'kasus', konteks);
     setCurrentLKPD(doc);
     setActiveTab('lkpd');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -964,6 +977,9 @@ export function App() {
                   onPrint={handlePrint}
                   onBackToClassHub={() => setActiveTab('tp_list')}
                   onDraftSaved={(doc) => setCurrentModulAjar(doc)}
+                  onOpenLKPDStudio={(tpItem, opts) =>
+                    handleOpenLKPD(tpItem, schoolProfile, opts)
+                  }
                 />
               </div>
             )}

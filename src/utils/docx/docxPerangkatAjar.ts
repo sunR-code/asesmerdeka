@@ -27,6 +27,7 @@ import type {
 import { getSchoolProfile } from '../schoolProfileStorage';
 import type { SchoolProfile } from '../schoolProfileStorage';
 import { cleanTopicHeading } from '../lkpdSubjectBlueprints';
+import { resolveModulKKTPConfig } from '../modulOperationalContent';
 import { buildSignatureBlockTable, createStyledDocxDocument } from './docxShared';
 
 /**
@@ -333,13 +334,59 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
     new Paragraph({ children: [new TextRun({ text: `• Asesmen Sumatif: `, bold: true, size: 19 }), new TextRun({ text: modul.asesmen?.sumatif || '-', size: 19 })], spacing: { after: 80 } })
   );
 
-  // Rubrik Singkat
+  if (modul.asesmenDetail) {
+    const ad = modul.asesmenDetail;
+    children.push(
+      new Paragraph({ children: [new TextRun({ text: 'Rincian Instrumen Asesmen & Kunci/Pedoman:', bold: true, size: 19, color: '1E3A8A' })], spacing: { before: 40, after: 30 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `1. Diagnostik (${ad.diagnostik?.tujuanPemeriksaanPrasyarat || '-'}): `, bold: true, size: 18 }), new TextRun({ text: (ad.diagnostik?.pertanyaanAtauTugasAwal || []).join(' | ') || '-', size: 18 })], spacing: { after: 20 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `   Indikator Interpretasi: `, bold: true, size: 17 }), new TextRun({ text: ad.diagnostik?.indikatorInterpretasi || '-', size: 17 })], spacing: { after: 30 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `2. Formatif (${ad.formatif?.instruksiAktivitas || '-'}): `, bold: true, size: 18 }), new TextRun({ text: `Tugas: ${(ad.formatif?.pertanyaanAtauTugas || []).join(' | ') || '-'} • Bukti: ${(ad.formatif?.buktiYangDiamati || []).join('; ') || '-'}`, size: 18 })], spacing: { after: 20 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `   Umpan Balik Guru: `, bold: true, size: 17 }), new TextRun({ text: ad.formatif?.umpanBalikGuru || '-', size: 17 })], spacing: { after: 30 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `3. Asesmen Akhir (${ad.akhir?.bentukUtama || '-'}):`, bold: true, size: 18 })], spacing: { after: 20 } })
+    );
+    (ad.akhir?.butirTugas || []).forEach((bt) => {
+      children.push(
+        new Paragraph({
+          indent: { left: 420 },
+          spacing: { after: 15 },
+          children: [
+            new TextRun({ text: `Butir ${bt.nomor || '-'} (${bt.bentuk || '-'}): `, bold: true, size: 17 }),
+            new TextRun({ text: `${bt.pertanyaanAtauTugas || '-'} | Kunci/Respons: ${bt.kunciAtauContohRespons || '-'}`, size: 17 }),
+          ],
+        })
+      );
+    });
+    if (ad.akhir?.pedomanPenilaian) {
+      children.push(
+        new Paragraph({
+          indent: { left: 240 },
+          spacing: { after: 60 },
+          children: [
+            new TextRun({ text: 'Pedoman Penilaian & KKTP: ', bold: true, size: 17 }),
+            new TextRun({ text: ad.akhir.pedomanPenilaian, size: 17 }),
+          ],
+        })
+      );
+    }
+  }
+
+  // Rubrik Singkat dengan Header KKTP Dinamis
   if (modul.rubrikPenilaianSingkat && modul.rubrikPenilaianSingkat.length > 0) {
+    const kktpLabels =
+      modul.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel ||
+      resolveModulKKTPConfig(undefined, profile).rentangLabel;
+    const rubHeaders = [
+      'Kriteria Penilaian',
+      kktpLabels?.baruBerkembang || 'Baru Berkembang',
+      kktpLabels?.layak || 'Layak',
+      kktpLabels?.cakap || 'Cakap',
+      kktpLabels?.mahir || 'Mahir',
+    ];
     const rubRows = [
       new TableRow({
         tableHeader: true,
         cantSplit: true,
-        children: ['Kriteria Penilaian', 'Baru Berkembang (0-60)', 'Layak (61-70)', 'Cakap (71-85)', 'Mahir (86-100)'].map(
+        children: rubHeaders.map(
           (h) => new TableCell({ shading: { fill: '1E3A8A' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, color: 'FFFFFF', size: 17 })] })] })
         ),
       }),
@@ -382,14 +429,84 @@ export function buildModulAjarElements(modul: ModulAjarDokumen, userProfile?: Sc
     children.push(new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `• ${dp}`, size: 18 })], spacing: { after: 20 } }));
   });
 
-  if (modul.bahanBacaan) {
+  if (modul.diferensiasiOperasional) {
+    const diff = modul.diferensiasiOperasional;
     children.push(
-      new Paragraph({ children: [new TextRun({ text: 'D. Bahan Bacaan Guru & Peserta Didik:', bold: true, size: 20 })], spacing: { before: 80, after: 30 } }),
-      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: modul.bahanBacaan.ringkasanInti || '', size: 18 })], spacing: { after: 30 } })
+      new Paragraph({ children: [new TextRun({ text: 'Diferensiasi Operasional 3 Jalur Kesiapan:', bold: true, size: 20 })], spacing: { before: 80, after: 30 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: diff.prinsipKesetaraanTP || '-', italics: true, size: 18 })], spacing: { after: 20 } })
     );
-    if (modul.bahanBacaan.konsepKunci?.length) {
+    [
+      { label: 'Jalur Dasar', val: diff.kesiapanDasar },
+      { label: 'Jalur Berkembang', val: diff.kesiapanBerkembang },
+      { label: 'Jalur Mahir', val: diff.kesiapanMahir },
+    ].forEach(({ label, val }) => {
+      if (!val) return;
       children.push(
-        new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `Konsep Kunci: ${modul.bahanBacaan.konsepKunci.join(' • ')}`, italics: true, size: 18 })], spacing: { after: 40 } })
+        new Paragraph({
+          indent: { left: 240 },
+          spacing: { after: 25 },
+          children: [
+            new TextRun({ text: `• ${label}: `, bold: true, size: 18 }),
+            new TextRun({
+              text: `${val.dukunganScaffolding || '-'} Aktivitas: ${(val.aktivitasKonkret || []).join('; ') || '-'} (Media: ${val.mediaPendukung || '-'} | Bukti: ${val.buktiBelajarJalur || '-'})`,
+              size: 18,
+            }),
+          ],
+        })
+      );
+    });
+  }
+
+  if (modul.contohLKPD) {
+    const lkpd = modul.contohLKPD;
+    children.push(
+      new Paragraph({ children: [new TextRun({ text: `Contoh LKPD Terintegrasi (${(lkpd.presetType || 'kasus').toUpperCase()}): ${lkpd.judul || '-'}`, bold: true, size: 20 })], spacing: { before: 80, after: 30 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `Tujuan: ${lkpd.tujuanPengerjaan || '-'} | Konteks: ${lkpd.konteksTugas || '-'}`, size: 18 })], spacing: { after: 20 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `Bahan/Data: ${(lkpd.bahanAtauData || []).join('; ') || '-'}`, size: 18 })], spacing: { after: 20 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `Langkah: ${(lkpd.langkahPengerjaan || []).join(' • ') || '-'}`, size: 18 })], spacing: { after: 20 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `Pertanyaan Inti: ${(lkpd.pertanyaanAtauRuangKerja || []).join(' | ') || '-'}`, size: 18 })], spacing: { after: 20 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `Hasil & Kriteria: ${lkpd.hasilYangDiharapkan || '-'} (${(lkpd.kriteriaPenilaian || []).join('; ') || '-'})`, size: 18 })], spacing: { after: 40 } })
+    );
+  }
+
+  if (modul.bahanBacaan) {
+    const bb = modul.bahanBacaan;
+    children.push(
+      new Paragraph({ children: [new TextRun({ text: 'D. Bahan Bacaan & Materi Ajar Konkret:', bold: true, size: 20 })], spacing: { before: 80, after: 30 } }),
+      new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: bb.penjelasanKonsepUtama || bb.ringkasanInti || '-', size: 18 })], spacing: { after: 30 } })
+    );
+    if (bb.subKonsep?.length) {
+      bb.subKonsep.forEach((sk) => {
+        children.push(
+          new Paragraph({ indent: { left: 360 }, spacing: { after: 15 }, children: [new TextRun({ text: `• ${sk.judul || '-'}: `, bold: true, size: 18 }), new TextRun({ text: sk.uraian || '-', size: 18 })] })
+        );
+      });
+    }
+    if (bb.contohKonkret?.length) {
+      children.push(
+        new Paragraph({ indent: { left: 240 }, spacing: { after: 20 }, children: [new TextRun({ text: 'Contoh Konkret: ', bold: true, size: 18 }), new TextRun({ text: bb.contohKonkret.join(' | '), size: 18 })] })
+      );
+    }
+    if (bb.contohPenyelesaian?.langkahPenyelesaian?.length) {
+      children.push(
+        new Paragraph({ indent: { left: 240 }, spacing: { after: 20 }, children: [new TextRun({ text: `${bb.contohPenyelesaian.judulContoh || 'Contoh Penyelesaian'}: `, bold: true, size: 18 }), new TextRun({ text: `${bb.contohPenyelesaian.langkahPenyelesaian.join(' -> ')} (${bb.contohPenyelesaian.kesimpulanHasil || '-'})`, size: 18 })] })
+      );
+    }
+    if (bb.hubunganDenganTP) {
+      children.push(
+        new Paragraph({ indent: { left: 240 }, spacing: { after: 20 }, children: [new TextRun({ text: 'Hubungan dengan TP: ', bold: true, size: 18 }), new TextRun({ text: bb.hubunganDenganTP, size: 18 })] })
+      );
+    }
+    if (bb.potensiMiskonsepsi?.length) {
+      bb.potensiMiskonsepsi.forEach((mk) => {
+        children.push(
+          new Paragraph({ indent: { left: 360 }, spacing: { after: 15 }, children: [new TextRun({ text: `• Miskonsepsi (${mk.miskonsepsi || '-'}): `, bold: true, size: 18 }), new TextRun({ text: mk.caraMeluruskan || '-', size: 18 })] })
+        );
+      });
+    }
+    if (bb.konsepKunci?.length) {
+      children.push(
+        new Paragraph({ indent: { left: 240 }, children: [new TextRun({ text: `Konsep Kunci: ${bb.konsepKunci.join(' • ')}`, italics: true, size: 18 })], spacing: { after: 40 } })
       );
     }
   }

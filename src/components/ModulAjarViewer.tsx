@@ -13,10 +13,14 @@ import {
   AlertTriangle,
   CheckCircle2,
   Layers,
+  BookOpen,
+  ClipboardCheck,
+  ExternalLink,
 } from 'lucide-react';
 import type {
   CooperativeTechniqueVariant,
   KegiatanPembelajaranLangkah,
+  LKPDPresetType,
   ModulAjarDokumen,
   TahapKegiatanTerstruktur,
 } from '../types/perangkatAjar';
@@ -41,6 +45,7 @@ import {
   validateModulTimeBudget,
   validateSessionTimeBudget,
 } from '../utils/modulTimeBudget';
+import { resolveModulKKTPConfig } from '../utils/modulOperationalContent';
 import { buildSmartModulAjar } from '../utils/perangkatAjarEngine';
 import {
   fetchSharedCurriculum,
@@ -48,6 +53,7 @@ import {
   hydrateSharedDocWithLocalProfile,
 } from '../utils/sharedCurriculumService';
 import {
+  loadLatestLKPDDraft,
   loadModulAjarDraft,
   saveModulAjarDraft,
 } from '../utils/perangkatDraftStorage';
@@ -61,6 +67,10 @@ interface ModulAjarViewerProps {
   onPrint: () => void;
   onBackToClassHub: () => void;
   onDraftSaved?: (doc: ModulAjarDokumen) => void;
+  onOpenLKPDStudio?: (
+    tp: CustomTPItem,
+    options?: { preset?: LKPDPresetType; konteks?: string }
+  ) => void;
 }
 
 interface AutoExpandingTextareaProps
@@ -122,6 +132,7 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
   onPrint,
   onBackToClassHub,
   onDraftSaved,
+  onOpenLKPDStudio,
 }) => {
   const activeProfile = schoolProfile || getSchoolProfile();
   const [copied, setCopied] = useState(false);
@@ -186,6 +197,13 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
   const [pendingModelSwitch, setPendingModelSwitch] = useState<{
     targetModel: ModulAjarModelType;
   } | null>(null);
+  const [aiFailureNotice, setAiFailureNotice] = useState<{
+    message: string;
+    issues?: string[];
+    fallbackDoc: ModulAjarDokumen;
+    repairAttempted?: boolean;
+    quotaError?: boolean;
+  } | null>(null);
   const [konteksInput, setKonteksInput] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -238,6 +256,14 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
   const timeValidation = useMemo(
     () => validateModulTimeBudget(editableDoc, activeProfile),
     [editableDoc, activeProfile]
+  );
+  const kktpDisplay = useMemo(
+    () => resolveModulKKTPConfig(effectiveTP, activeProfile),
+    [effectiveTP, activeProfile]
+  );
+  const linkedLKPDStudioDraft = useMemo(
+    () => loadLatestLKPDDraft(activeProfile, effectiveTP),
+    [activeProfile, effectiveTP]
   );
   const isLegacyDifferentiatedDraft = isLegacyModulAjarModelId(editableDoc.modelType);
 
@@ -744,22 +770,38 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           variasiTeknikModel: selectedModel === 'cooperative' ? cooperativeVariant : undefined,
         }
       );
-      const sourceKind = result.usedFallback ? 'template' : 'ai_generated';
+
+      if (result.usedFallback) {
+        // Pertahankan draf existing agar suntingan guru tidak tertimpa saat AI gagal/ditolak validator
+        setAiFailureNotice({
+          message:
+            result.errorMsg ||
+            'Layanan AI belum menghasilkan modul ajar yang memenuhi kriteria operasional.',
+          issues: result.validationErrors,
+          fallbackDoc: result.modul,
+          repairAttempted: result.repairAttempted,
+          quotaError: result.quotaError,
+        });
+        showToast('AI gagal/ditolak — draf yang sedang dibuka tetap dipertahankan.');
+        return;
+      }
+
+      setAiFailureNotice(null);
       const nextDoc: ModulAjarDokumen = {
         ...result.modul,
         tpId: effectiveTP.id,
         modelType: selectedModel,
-        draftSource: sourceKind,
+        draftSource: 'ai_generated',
       };
       setEditableDoc(nextDoc);
       syncTimeStatesFromDoc(nextDoc);
-      saveToLocalStorage(nextDoc, sourceKind, selectedModel);
+      saveToLocalStorage(nextDoc, 'ai_generated', selectedModel);
       setIsFromCommunity(false);
-      if (result.usedFallback) {
-        showToast('Draf dibuat dengan template otomatis sesuai model & waktu (offline/fallback).');
-      } else {
-        showToast('✨ Modul Ajar AI berhasil dibuat!');
-      }
+      showToast(
+        result.repairAttempted
+          ? '✨ Modul Ajar AI berhasil disusun & lolos validasi setelah 1x perbaikan!'
+          : '✨ Modul Ajar AI berhasil disusun & lolos validasi kualitas!'
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Terjadi kesalahan';
       alert('Gagal membuat modul ajar: ' + msg);
@@ -894,9 +936,9 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
               }}
             >
               {editableDoc.draftSource === 'ai_generated'
-                ? '✨ Draf AI'
+                ? '✨ AI Generated'
                 : editableDoc.draftSource === 'template'
-                  ? '🧩 Template Adaptif'
+                  ? '🧩 Template / Draf Awal'
                   : '✏️ Edit Guru'}
             </span>
             <span
@@ -1369,6 +1411,109 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             ℹ️ Draf ini memakai label model lama <strong>Berdiferensiasi</strong>. Anda tetap dapat membaca, mengedit, menyimpan, dan mengekspornya, atau memilih salah satu dari 7 sintaks model di atas bila ingin beralih.
           </div>
         )}
+
+        {/* Info Kegagalan / Penolakan AI Tanpa Menghapus Draf Existing */}
+        {aiFailureNotice && (
+          <div
+            role="alert"
+            data-testid="modul-ai-failure-banner"
+            style={{
+              background: '#fef2f2',
+              border: '1px solid #fca5a5',
+              borderRadius: 10,
+              padding: '10px 14px',
+              fontSize: 12.5,
+              color: '#991b1b',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            <div>
+              <strong>Generasi AI Belum Diterapkan — Draf Sebelumnya Tetap Dipertahankan:</strong>{' '}
+              {aiFailureNotice.message}{' '}
+              {!aiFailureNotice.quotaError &&
+                '(Kuota kredit AI tidak terpotong / telah dikembalikan secara otomatis.)'}
+            </div>
+            {aiFailureNotice.issues && aiFailureNotice.issues.length > 0 && (
+              <ul style={{ margin: '0 0 0 18px', padding: 0, fontSize: 11.5 }}>
+                {aiFailureNotice.issues.slice(0, 4).map((iss, idx) => (
+                  <li key={idx}>{iss}</li>
+                ))}
+              </ul>
+            )}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {!aiFailureNotice.quotaError && (
+                <button
+                  type="button"
+                  onClick={() => handleGenerateAI()}
+                  disabled={isGenerating}
+                  className="btn btn-sm btn-primary"
+                  style={{ background: '#4f46e5', borderColor: '#4f46e5', color: '#fff', fontWeight: 700 }}
+                >
+                  Coba AI Lagi
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const applied = {
+                    ...aiFailureNotice.fallbackDoc,
+                    tpId: effectiveTP.id,
+                    modelType: selectedModel,
+                    draftSource: 'template' as const,
+                  };
+                  setEditableDoc(applied);
+                  syncTimeStatesFromDoc(applied);
+                  saveToLocalStorage(applied, 'template', selectedModel);
+                  setAiFailureNotice(null);
+                  showToast('Template / Draf Awal terstruktur berhasil diterapkan.');
+                }}
+                className="btn btn-sm btn-outline"
+                style={{ borderColor: '#d97706', color: '#92400e', background: '#fffbeb', fontWeight: 700 }}
+              >
+                Terapkan Template / Draf Awal
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiFailureNotice(null)}
+                className="btn btn-sm btn-outline"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Ringkasan Status Validasi Kualitas Modul */}
+        {editableDoc.catatanValidasi && (
+          <div
+            data-testid="modul-quality-validation-note"
+            style={{
+              background:
+                editableDoc.catatanValidasi.status === 'valid_ai' ? '#ecfdf5' : '#f8fafc',
+              border: `1px solid ${
+                editableDoc.catatanValidasi.status === 'valid_ai' ? '#86efac' : '#cbd5e1'
+              }`,
+              borderRadius: 8,
+              padding: '6px 12px',
+              fontSize: 11.5,
+              color:
+                editableDoc.catatanValidasi.status === 'valid_ai' ? '#065f46' : '#475569',
+            }}
+          >
+            <strong>
+              {editableDoc.catatanValidasi.status === 'valid_ai'
+                ? '✓ Lolos Validator Kualitas AI'
+                : editableDoc.catatanValidasi.status === 'template_awal'
+                  ? '🧩 Template / Draf Awal Terstruktur'
+                  : 'ℹ️ Status Peninjauan Modul'}
+              :
+            </strong>{' '}
+            {editableDoc.catatanValidasi.semanticReviewWarnings?.[0] ||
+              'Pastikan kesesuaian contoh dan asesmen dengan kondisi nyata kelas Anda.'}
+          </div>
+        )}
       </div>
 
       {/* Community Reference Banner */}
@@ -1547,18 +1692,28 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
           </div>
 
           {editableDoc.bahanBacaan && (
-            <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 4 }}>
-                Ringkasan Bahan Bacaan Guru & Siswa:
+            <div
+              data-testid="modul-materi-ajar-konkret"
+              style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 12.5, color: '#1e293b' }}
+            >
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: '#166534', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <BookOpen size={15} /> Materi Ajar Konkret &amp; Bahan Bacaan Guru–Siswa:
               </div>
               <AutoExpandingTextarea
-                value={editableDoc.bahanBacaan.ringkasanInti || ''}
+                value={
+                  editableDoc.bahanBacaan.penjelasanKonsepUtama ||
+                  editableDoc.bahanBacaan.ringkasanInti ||
+                  ''
+                }
                 onChange={(e) => {
                   const updated = {
                     ...editableDoc,
                     bahanBacaan: {
                       ...(editableDoc.bahanBacaan || { konsepKunci: [] }),
                       ringkasanInti: e.target.value,
+                      ...(editableDoc.bahanBacaan?.penjelasanKonsepUtama !== undefined
+                        ? { penjelasanKonsepUtama: e.target.value }
+                        : {}),
                     },
                   };
                   setEditableDoc(updated);
@@ -1567,6 +1722,87 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                 rows={2}
                 style={{ fontSize: 12.5, color: '#14532d' }}
               />
+
+              {editableDoc.bahanBacaan.subKonsep && editableDoc.bahanBacaan.subKonsep.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <strong style={{ color: '#166534' }}>Subkonsep Inti:</strong>
+                  <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+                    {editableDoc.bahanBacaan.subKonsep.map((sk, idx) => (
+                      <li key={idx} style={{ marginBottom: 3 }}>
+                        <strong>{sk.judul}:</strong> {sk.uraian}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {editableDoc.bahanBacaan.istilahPenting && editableDoc.bahanBacaan.istilahPenting.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <strong style={{ color: '#166534' }}>Istilah Penting:</strong>
+                  <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+                    {editableDoc.bahanBacaan.istilahPenting.map((it, idx) => (
+                      <li key={idx} style={{ marginBottom: 2 }}>
+                        <strong>{it.istilah}:</strong> {it.pengertian}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {editableDoc.bahanBacaan.contohKonkret && editableDoc.bahanBacaan.contohKonkret.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <strong style={{ color: '#166534' }}>Contoh Konkret Kontekstual:</strong>
+                  <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+                    {editableDoc.bahanBacaan.contohKonkret.map((ct, idx) => (
+                      <li key={idx} style={{ marginBottom: 2 }}>{ct}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {editableDoc.bahanBacaan.contohPenyelesaian && (
+                <div style={{ marginTop: 8, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 6, padding: '8px 10px' }}>
+                  <div style={{ fontWeight: 700, color: '#15803d', marginBottom: 3 }}>
+                    {editableDoc.bahanBacaan.contohPenyelesaian.judulContoh}
+                  </div>
+                  {editableDoc.bahanBacaan.contohPenyelesaian.konteks && (
+                    <div style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
+                      {editableDoc.bahanBacaan.contohPenyelesaian.konteks}
+                    </div>
+                  )}
+                  <ol style={{ margin: '2px 0 4px 18px', padding: 0, fontSize: 12 }}>
+                    {editableDoc.bahanBacaan.contohPenyelesaian.langkahPenyelesaian.map((lk, idx) => (
+                      <li key={idx} style={{ marginBottom: 2 }}>{lk}</li>
+                    ))}
+                  </ol>
+                  {editableDoc.bahanBacaan.contohPenyelesaian.kesimpulanHasil && (
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#166534' }}>
+                      Simpulan: {editableDoc.bahanBacaan.contohPenyelesaian.kesimpulanHasil}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {editableDoc.bahanBacaan.hubunganDenganTP && (
+                <div style={{ marginTop: 8, fontSize: 12 }}>
+                  <strong style={{ color: '#166534' }}>Keterkaitan dengan TP:</strong>{' '}
+                  {editableDoc.bahanBacaan.hubunganDenganTP}
+                </div>
+              )}
+
+              {editableDoc.bahanBacaan.potensiMiskonsepsi && editableDoc.bahanBacaan.potensiMiskonsepsi.length > 0 && (
+                <div style={{ marginTop: 8, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px' }}>
+                  <strong style={{ color: '#92400e' }}>Potensi Miskonsepsi &amp; Cara Guru Meluruskannya:</strong>
+                  <ul style={{ margin: '4px 0 0 18px', padding: 0, fontSize: 12, color: '#78350f' }}>
+                    {editableDoc.bahanBacaan.potensiMiskonsepsi.map((mk, idx) => (
+                      <li key={idx} style={{ marginBottom: 4 }}>
+                        <strong>Miskonsepsi:</strong> {mk.miskonsepsi} → <strong>Pelurusan Guru:</strong> {mk.caraMeluruskan}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {editableDoc.bahanBacaan.konsepKunci && editableDoc.bahanBacaan.konsepKunci.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                   {editableDoc.bahanBacaan.konsepKunci.map((kk, kIdx) => (
@@ -1585,6 +1821,11 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
                       {kk}
                     </span>
                   ))}
+                </div>
+              )}
+              {editableDoc.bahanBacaan.referensiCatatan && (
+                <div style={{ marginTop: 6, fontSize: 11, color: '#475569', fontStyle: 'italic' }}>
+                  {editableDoc.bahanBacaan.referensiCatatan}
                 </div>
               )}
             </div>
@@ -1959,16 +2200,113 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
             </div>
           </div>
 
+          {/* Instrumen Asesmen Konkret Terperinci (Task 12.2 Task C) */}
+          {editableDoc.asesmenDetail && (
+            <div
+              data-testid="modul-asesmen-detail"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                marginBottom: 14,
+                fontSize: 12,
+                color: '#1e293b',
+              }}
+            >
+              <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontWeight: 800, color: '#1e40af', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ClipboardCheck size={14} /> 1. Instrumen Asesmen Diagnostik Awal
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Tujuan Prasyarat:</strong> {editableDoc.asesmenDetail.diagnostik.tujuanPemeriksaanPrasyarat}
+                </div>
+                <ul style={{ margin: '2px 0 4px 18px', padding: 0 }}>
+                  {editableDoc.asesmenDetail.diagnostik.pertanyaanAtauTugasAwal.map((q, idx) => (
+                    <li key={idx} style={{ marginBottom: 2 }}>{q}</li>
+                  ))}
+                </ul>
+                <div style={{ color: '#475569' }}>
+                  <strong>Indikator Interpretasi:</strong> {editableDoc.asesmenDetail.diagnostik.indikatorInterpretasi}
+                </div>
+              </div>
+
+              <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontWeight: 800, color: '#047857', marginBottom: 4 }}>
+                  2. Instrumen Asesmen Formatif Proses
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Aktivitas Penilaian:</strong> {editableDoc.asesmenDetail.formatif.instruksiAktivitas}
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Pertanyaan / Cek Proses:</strong>
+                  <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
+                    {editableDoc.asesmenDetail.formatif.pertanyaanAtauTugas.map((q, idx) => (
+                      <li key={idx}>{q}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Bukti Diamati:</strong> {editableDoc.asesmenDetail.formatif.buktiYangDiamati.join('; ')}
+                </div>
+                <div style={{ color: '#475569' }}>
+                  <strong>Umpan Balik Guru:</strong> {editableDoc.asesmenDetail.formatif.umpanBalikGuru}
+                </div>
+              </div>
+
+              <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontWeight: 800, color: '#7c2d12', marginBottom: 4 }}>
+                  3. Instrumen Asesmen Akhir ({editableDoc.asesmenDetail.akhir.bentukUtama})
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
+                  {editableDoc.asesmenDetail.akhir.butirTugas.map((bt) => (
+                    <div key={bt.nomor} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 9px' }}>
+                      <div>
+                        <strong>Butir {bt.nomor} ({bt.bentuk}):</strong> {bt.pertanyaanAtauTugas}
+                      </div>
+                      <div style={{ marginTop: 3, color: '#065f46' }}>
+                        <strong>Kunci / Contoh Respons:</strong> {bt.kunciAtauContohRespons}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <strong>Pedoman Penilaian:</strong> {editableDoc.asesmenDetail.akhir.pedomanPenilaian}
+                </div>
+                {editableDoc.asesmenDetail.akhir.kktpReferensi?.catatan && (
+                  <div style={{ marginTop: 4, fontSize: 11.5, color: '#1e40af' }}>
+                    <strong>Catatan KKTP:</strong> {editableDoc.asesmenDetail.akhir.kktpReferensi.catatan}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {editableDoc.rubrikPenilaianSingkat && editableDoc.rubrikPenilaianSingkat.length > 0 && (
             <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', minWidth: 560, borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: '#1e3a8a', color: '#ffffff', textAlign: 'left' }}>
                   <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '25%' }}>Kriteria Penilaian</th>
-                  <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '18%', background: '#b91c1c' }}>Baru Berkembang (0-60)</th>
-                  <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '18%', background: '#b45309' }}>Layak (61-70)</th>
-                  <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '18%', background: '#1d4ed8' }}>Cakap (71-85)</th>
-                  <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '21%', background: '#047857' }}>Mahir (86-100)</th>
+                  <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '18%', background: '#b91c1c' }}>
+                    {editableDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.baruBerkembang ||
+                      kktpDisplay.rentangLabel?.baruBerkembang ||
+                      'Baru Berkembang'}
+                  </th>
+                  <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '18%', background: '#b45309' }}>
+                    {editableDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.layak ||
+                      kktpDisplay.rentangLabel?.layak ||
+                      'Layak'}
+                  </th>
+                  <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '18%', background: '#1d4ed8' }}>
+                    {editableDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.cakap ||
+                      kktpDisplay.rentangLabel?.cakap ||
+                      'Cakap'}
+                  </th>
+                  <th style={{ padding: '8px', border: '1px solid #cbd5e1', width: '21%', background: '#047857' }}>
+                    {editableDoc.asesmenDetail?.akhir?.kktpReferensi?.rentangLabel?.mahir ||
+                      kktpDisplay.rentangLabel?.mahir ||
+                      'Mahir'}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -2055,9 +2393,150 @@ export const ModulAjarViewer: React.FC<ModulAjarViewerProps> = ({
         {/* IV. LAMPIRAN & REFERENSI */}
         <div style={{ marginBottom: 26 }}>
           <h3 style={{ fontSize: 15, fontWeight: 800, color: '#1e3a8a', borderBottom: '2px solid #e2e8f0', paddingBottom: 4, marginBottom: 12 }}>
-            IV. LAMPIRAN & REFERENSI
+            IV. LAMPIRAN, DIFERENSIASI &amp; REFERENSI
           </h3>
           <div style={{ fontSize: 12.5, color: '#334155' }}>
+            {editableDoc.diferensiasiOperasional && (
+              <div data-testid="modul-diferensiasi-operasional" style={{ marginBottom: 14 }}>
+                <strong style={{ color: '#0f172a' }}>A1. Diferensiasi Operasional Lintas Kesiapan (Menuju TP Sama):</strong>
+                <div style={{ fontSize: 12, color: '#475569', marginTop: 2, marginBottom: 8 }}>
+                  {editableDoc.diferensiasiOperasional.prinsipKesetaraanTP}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 10 }}>
+                  {[
+                    {
+                      title: 'Jalur A — Kesiapan Dasar',
+                      bg: '#fff7ed',
+                      border: '#fed7aa',
+                      accent: '#9a3412',
+                      data: editableDoc.diferensiasiOperasional.kesiapanDasar,
+                    },
+                    {
+                      title: 'Jalur B — Kesiapan Berkembang',
+                      bg: '#eff6ff',
+                      border: '#bfdbfe',
+                      accent: '#1e40af',
+                      data: editableDoc.diferensiasiOperasional.kesiapanBerkembang,
+                    },
+                    {
+                      title: 'Jalur C — Kesiapan Mahir',
+                      bg: '#ecfdf5',
+                      border: '#a7f3d0',
+                      accent: '#065f46',
+                      data: editableDoc.diferensiasiOperasional.kesiapanMahir,
+                    },
+                  ].map((tier) => (
+                    <div
+                      key={tier.title}
+                      style={{
+                        background: tier.bg,
+                        border: `1px solid ${tier.border}`,
+                        borderRadius: 8,
+                        padding: '10px 12px',
+                        fontSize: 12,
+                      }}
+                    >
+                      <div style={{ fontWeight: 800, color: tier.accent, marginBottom: 4 }}>{tier.title}</div>
+                      <div style={{ marginBottom: 4 }}>
+                        <strong>Sasaran:</strong> {tier.data.targetKesiapan}
+                      </div>
+                      <div style={{ marginBottom: 4 }}>
+                        <strong>Scaffolding / Bantuan:</strong> {tier.data.dukunganScaffolding}
+                      </div>
+                      <div style={{ marginBottom: 4 }}>
+                        <strong>Aktivitas &amp; Tugas Konkret:</strong>
+                        <ul style={{ margin: '2px 0 0 16px', padding: 0 }}>
+                          {tier.data.aktivitasKonkret.map((ak, aIdx) => (
+                            <li key={aIdx} style={{ marginBottom: 2 }}>{ak}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: '#334155', marginBottom: 2 }}>
+                        <strong>Media:</strong> {tier.data.mediaPendukung}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: '#334155' }}>
+                        <strong>Bukti Belajar:</strong> {tier.data.buktiBelajarJalur}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {editableDoc.contohLKPD && (
+              <div
+                data-testid="modul-contoh-lkpd"
+                style={{
+                  marginBottom: 14,
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 10,
+                  padding: '12px 14px',
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+                  <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 13 }}>
+                    Contoh LKPD Terintegrasi ({editableDoc.contohLKPD.presetType.toUpperCase()}): {editableDoc.contohLKPD.judul}
+                  </div>
+                  {onOpenLKPDStudio && (
+                    <button
+                      type="button"
+                      className="no-print btn btn-sm btn-primary"
+                      onClick={() =>
+                        onOpenLKPDStudio(effectiveTP, {
+                          preset: editableDoc.contohLKPD?.presetType,
+                          konteks: konteksInput.trim() || undefined,
+                        })
+                      }
+                      style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    >
+                      <ExternalLink size={13} /> Buka &amp; Lanjutkan di LKPD Studio
+                    </button>
+                  )}
+                </div>
+                {linkedLKPDStudioDraft && (
+                  <div className="no-print" style={{ fontSize: 11.5, color: '#047857', marginBottom: 6, fontWeight: 600 }}>
+                    ✓ Tersinkron dengan draf aktif LKPD Studio ({linkedLKPDStudioDraft.doc.judul}) untuk TP {effectiveTP.kode}.
+                  </div>
+                )}
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Tujuan Pengerjaan:</strong> {editableDoc.contohLKPD.tujuanPengerjaan}
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Konteks / Stimulus Tugas:</strong> {editableDoc.contohLKPD.konteksTugas}
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Petunjuk Siswa:</strong> {editableDoc.contohLKPD.petunjukSiswa.join(' · ')}
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Bahan / Data yang Diperlukan:</strong> {editableDoc.contohLKPD.bahanAtauData.join('; ')}
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Langkah Pengerjaan:</strong>
+                  <ol style={{ margin: '2px 0 0 18px', padding: 0 }}>
+                    {editableDoc.contohLKPD.langkahPengerjaan.map((lk, lIdx) => (
+                      <li key={lIdx} style={{ marginBottom: 2 }}>{lk}</li>
+                    ))}
+                  </ol>
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <strong>Pertanyaan / Ruang Kerja Inti:</strong>
+                  <ul style={{ margin: '2px 0 0 18px', padding: 0 }}>
+                    {editableDoc.contohLKPD.pertanyaanAtauRuangKerja.map((pq, pIdx) => (
+                      <li key={pIdx} style={{ marginBottom: 2 }}>{pq}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div style={{ marginBottom: 3 }}>
+                  <strong>Hasil yang Diharapkan:</strong> {editableDoc.contohLKPD.hasilYangDiharapkan}
+                </div>
+                <div>
+                  <strong>Kriteria Penilaian:</strong> {editableDoc.contohLKPD.kriteriaPenilaian.join('; ')}
+                </div>
+              </div>
+            )}
+
             <div style={{ marginBottom: 6 }}>
               <strong>A. Pengayaan & Remedial:</strong>
               <div style={{ paddingLeft: 12, marginTop: 2 }}>• Pengayaan: {editableDoc.pengayaanDanRemedial?.pengayaan}</div>

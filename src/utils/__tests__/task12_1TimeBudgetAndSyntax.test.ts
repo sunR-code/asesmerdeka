@@ -32,6 +32,7 @@ import {
   validateSessionTimeBudget,
 } from '../modulTimeBudget';
 import { saveSubjectJPConfig } from '../jpConfigStorage';
+import { activateLicense } from '../licenseManager';
 import { buildSmartModulAjar } from '../perangkatAjarEngine';
 import {
   loadLatestModulAjarDraft,
@@ -489,9 +490,9 @@ describe('Task 12.1 — Time-Budget Engine & Pedagogical Syntax Foundation', () 
     });
 
     it('memastikan fallback generateContextualModulAjarWithAI dan prompt AI memakai model serta alokasi waktu terpilih, bukan PBL 2 pertemuan', async () => {
-      vi.spyOn(geminiClient, 'callGeminiStructuredJSON').mockRejectedValueOnce(
-        new Error('Network offline test')
-      );
+      const geminiSpy = vi
+        .spyOn(geminiClient, 'callGeminiStructuredJSON')
+        .mockRejectedValueOnce(new Error('Network offline test'));
 
       const sdProfile = makeProfile({
         jenjang: 'SD/MI',
@@ -515,8 +516,61 @@ describe('Task 12.1 — Time-Budget Engine & Pedagogical Syntax Foundation', () 
       expect(stageNames.join(' ')).not.toContain('Orientasi pada Masalah Autentik');
 
       // Test AI path dengan tahapTerstruktur yang durasinya meleset -> otomatis direkonsiliasi tepat 120 menit
-      vi.spyOn(geminiClient, 'callGeminiStructuredJSON').mockResolvedValueOnce({
-        judul: 'Modul Uji AI Rekonsiliasi',
+      activateLicense('ASM-GM26-1TAT-1QBM-133R');
+      geminiSpy.mockReset();
+      geminiSpy.mockResolvedValueOnce({
+        judul: 'Modul Uji AI Rekonsiliasi: Fotosintesis pada Tumbuhan Hijau',
+        pemahamanBermakna:
+          'Peserta didik memahami bahwa fotosintesis menghasilkan glukosa dan oksigen dengan bantuan cahaya matahari.',
+        pertanyaanPemantik: [
+          'Dari mana tumbuhan mendapatkan energi untuk membuat makanannya?',
+          'Apa peran cahaya matahari pada daun selama fotosintesis?',
+          'Mengapa daun di tempat gelap berbeda dengan yang terkena cahaya?',
+        ],
+        profilPelajarPancasila: [
+          'Penalaran Kritis (menganalisis data hasil pengamatan fotosintesis)',
+          'Kolaborasi (bekerja sama mencatat hasil uji daun pada kelompok)',
+        ],
+        bahanBacaan: {
+          penjelasanKonsepUtama:
+            'Fotosintesis pada tumbuhan hijau berlangsung di kloroplas daun menggunakan air dari akar dan karbon dioksida dari stomata dengan energi cahaya matahari untuk menghasilkan karbohidrat dan oksigen.',
+          subKonsep: [
+            {
+              judul: 'Bahan Baku Fotosintesis',
+              uraian: 'Air diserap akar menuju daun dan CO2 masuk melalui stomata daun.',
+            },
+            {
+              judul: 'Hasil Fotosintesis',
+              uraian: 'Proses ini menghasilkan glukosa sebagai cadangan energi dan oksigen bagi makhluk hidup.',
+            },
+          ],
+          istilahPenting: [
+            { istilah: 'Klorofil', pengertian: 'Zat hijau daun yang menangkap energi cahaya.' },
+            { istilah: 'Stomata', pengertian: 'Pori daun tempat keluar masuknya gas CO2 dan O2.' },
+            { istilah: 'Glukosa', pengertian: 'Gula sederhana hasil fotosintesis untuk energi tumbuhan.' },
+          ],
+          contohKonkret: [
+            'Daun tanaman yang ditutup kertas timah tidak membentuk pati pada uji iodium dibanding daun yang terbuka.',
+          ],
+          contohPenyelesaian: {
+            judulContoh: 'Analisis Hasil Uji Daun Terang vs Gelap',
+            konteks: 'Membandingkan dua helai daun dalam percobaan cahaya.',
+            langkahPenyelesaian: [
+              'Amati warna daun sebelum dan sesudah ditetesi larutan iodium.',
+              'Bandingkan bagian daun yang menerima cahaya dengan bagian yang tertutup.',
+              'Simpulkan bahwa cahaya diperlukan agar fotosintesis menghasilkan amilum.',
+            ],
+            kesimpulanHasil: 'Bagian daun terkena cahaya berubah warna gelap karena mengandung pati.',
+          },
+          hubunganDenganTP:
+            'Penjelasan bahan baku, proses, dan hasil percobaan daun menghantarkan pencapaian TP Fotosintesis pada Tumbuhan Hijau.',
+          potensiMiskonsepsi: [
+            {
+              miskonsepsi: 'Siswa sering mengira tumbuhan menyerap makanan jadi dari tanah.',
+              caraMeluruskan: 'Tunjukkan bahwa akar hanya menyerap air dan mineral, sedangkan makanan disintesis di daun.',
+            },
+          ],
+        },
         kegiatanPembelajaran: [
           {
             pertemuan: 1,
@@ -524,40 +578,176 @@ describe('Task 12.1 — Time-Budget Engine & Pedagogical Syntax Foundation', () 
             tahapTerstruktur: [
               {
                 fase: 'pendahuluan',
-                namaTahap: 'Pembuka',
-                tujuanTahap: 'Siap belajar',
-                aktivitasGuru: 'Guru mengecek kesiapan',
-                aktivitasSiswa: 'Siswa menjawab pemanasan',
-                instruksiPertanyaan: 'Siap?',
-                mediaBahan: 'Papan',
+                namaTahap: 'Pendahuluan & Kesiapan Belajar',
+                tujuanTahap: 'Memetakan prasyarat bagian tumbuhan dan tujuan pengamatan fotosintesis.',
+                aktivitasGuru: 'Guru menampilkan dua pot daun tanaman dan menanyakan fungsi daun pada tumbuhan hijau.',
+                aktivitasSiswa: 'Siswa mengamati kedua pot daun dan menjawab tanya jawab prasyarat di buku catatan.',
+                instruksiPertanyaan: 'Bagian daun mana yang menurut kalian berperan membuat makanan?',
+                mediaBahan: 'Dua pot tanaman dan papan tulis',
                 durasiMenit: 10,
-                buktiBelajar: 'Respon',
+                buktiBelajar: 'Respon prasyarat siswa',
+                pengalamanBelajar: 'Memahami',
+                prinsipPembelajaran: ['Berkesadaran'],
               },
               {
                 fase: 'inti',
-                namaTahap: '1. Tahap Inti AI',
-                tujuanTahap: 'Eksplorasi',
-                aktivitasGuru: 'Guru memandu pengamatan',
-                aktivitasSiswa: 'Siswa mencatat hasil',
-                instruksiPertanyaan: 'Mengapa?',
-                mediaBahan: 'LKPD',
-                durasiMenit: 30,
-                buktiBelajar: 'Tabel',
+                namaTahap: '1. Orientasi Fenomena dan Pemantik Inkuiri',
+                tujuanTahap: 'Menimbulkan rasa ingin tahu pada fenomena perbedaan daun terang vs gelap.',
+                aktivitasGuru: 'Guru memperlihatkan gambar hasil uji dua helai daun tanpa menyebutkan kesimpulan terlebih dahulu.',
+                aktivitasSiswa: 'Siswa mengamati perbedaan warna daun dan mencatat pertanyaan awal pada LKPD.',
+                instruksiPertanyaan: 'Mengapa warna kedua bagian daun pada gambar ini tidak sama?',
+                mediaBahan: 'Kartu gambar fenomena daun fotosintesis',
+                durasiMenit: 10,
+                buktiBelajar: 'Catatan pengamatan anomali warna daun',
+                pengalamanBelajar: 'Memahami',
+                prinsipPembelajaran: ['Bermakna'],
+              },
+              {
+                fase: 'inti',
+                namaTahap: '2. Merumuskan Pertanyaan Penyelidikan dan Dugaan Awal',
+                tujuanTahap: 'Merumuskan pertanyaan penyelidikan dan hipotesis awal fotosintesis.',
+                aktivitasGuru: 'Guru memandu kelompok memilih pertanyaan penyelidikan tentang syarat cahaya pada fotosintesis.',
+                aktivitasSiswa: 'Siswa menulis pertanyaan penyelidikan beserta dugaan awal kelompok di tabel LKPD.',
+                instruksiPertanyaan: 'Tuliskan dugaan awal kalian tentang pengaruh cahaya terhadap hasil fotosintesis!',
+                mediaBahan: 'LKPD Inkuiri Fotosintesis',
+                durasiMenit: 15,
+                buktiBelajar: 'Rumusan pertanyaan & hipotesis tertulis',
+              },
+              {
+                fase: 'inti',
+                namaTahap: '3. Merancang dan Melaksanakan Investigasi Bukti',
+                tujuanTahap: 'Mengumpulkan bukti pengamatan percobaan fotosintesis secara objektif.',
+                aktivitasGuru: 'Guru memandu siswa memeriksa tabel pengamatan data gelembung gas dan uji daun pada LKPD.',
+                aktivitasSiswa: 'Siswa mencatat jumlah gelembung dan perubahan warna daun secara teliti pada tabel bukti.',
+                instruksiPertanyaan: 'Catat data pengamatan nyata pada setiap baris perlakuan cahaya!',
+                mediaBahan: 'Tabel data investigasi LKPD',
+                durasiMenit: 15,
+                buktiBelajar: 'Tabel bukti investigasi terisi',
+                pengalamanBelajar: 'Mengaplikasi',
+              },
+              {
+                fase: 'inti',
+                namaTahap: '4. Menganalisis Temuan dan Menguji Argumen Berbasis Data',
+                tujuanTahap: 'Menguji dugaan awal dengan membandingkan bukti tabel hasil investigasi.',
+                aktivitasGuru: 'Guru menantang tiap kelompok mencocokkan data pengamatan daun terhadap dugaan awal mereka.',
+                aktivitasSiswa: 'Siswa menyusun argumen berbasis bukti data apakah dugaan awal terbukti atau direvisi.',
+                instruksiPertanyaan: 'Bukti data mana yang mendukung jawaban kelompok kalian?',
+                mediaBahan: 'Matriks Bukti vs Dugaan LKPD',
+                durasiMenit: 10,
+                buktiBelajar: 'Draf argumen berbasis data',
+                pengalamanBelajar: 'Mengaplikasi',
+              },
+              {
+                fase: 'inti',
+                namaTahap: '5. Mengomunikasikan Simpulan dan Refleksi Penyelidikan',
+                tujuanTahap: 'Menyajikan simpulan penyelidikan dan menuliskan pergeseran pemahaman.',
+                aktivitasGuru: 'Guru memimpin forum paparan simpulan hasil penyelidikan fotosintesis dari dua kelompok.',
+                aktivitasSiswa: 'Siswa memaparkan simpulan berbasis bukti serta menuliskan pemahaman barunya.',
+                instruksiPertanyaan: 'Simpulan apa yang terbukti dari seluruh data pengamatan hari ini?',
+                mediaBahan: 'Papan sintesis simpulan kelas',
+                durasiMenit: 10,
+                buktiBelajar: 'Catatan simpulan akhir penyelidikan',
+                pengalamanBelajar: 'Merefleksi',
               },
               {
                 fase: 'penutup',
-                namaTahap: 'Penutup',
-                tujuanTahap: 'Refleksi',
-                aktivitasGuru: 'Guru menyimpulkan',
-                aktivitasSiswa: 'Siswa mengisi exit ticket',
-                instruksiPertanyaan: 'Apa hasilnya?',
-                mediaBahan: 'Kartu',
+                namaTahap: 'Penutup & Refleksi Akhir',
+                tujuanTahap: 'Memastikan ketercapaian tujuan fotosintesis dengan exit ticket.',
+                aktivitasGuru: 'Guru membagikan kartu exit ticket berisi 1 pertanyaan cek bahan dan hasil fotosintesis.',
+                aktivitasSiswa: 'Siswa mengisi exit ticket mandiri dan menuliskan refleksi kesulitan belajar.',
+                instruksiPertanyaan: 'Sebutkan bahan baku dan hasil utama fotosintesis pada kartu exit ticket!',
+                mediaBahan: 'Kartu exit ticket',
                 durasiMenit: 10,
-                buktiBelajar: 'Exit ticket',
+                buktiBelajar: 'Kartu exit ticket terisi',
+                pengalamanBelajar: 'Merefleksi',
+                prinsipPembelajaran: ['Berkesadaran'],
               },
             ],
           },
         ],
+        asesmenDetail: {
+          diagnostik: {
+            tujuanPemeriksaanPrasyarat: 'Mengecek pemahaman siswa tentang organ daun dan fungsinya sebelum belajar fotosintesis.',
+            pertanyaanAtauTugasAwal: ['Sebutkan bagian tumbuhan yang menyerap air dan yang menangkap cahaya!'],
+            indikatorInterpretasi: 'Siswa siap jika menyebut akar (air) dan daun (cahaya).',
+          },
+          formatif: {
+            instruksiAktivitas: 'Observasi pengisian tabel bukti investigasi fotosintesis selama kegiatan kelompok.',
+            pertanyaanAtauTugas: ['Mengapa daun perlu cahaya matahari?'],
+            buktiYangDiamati: ['Kelengkapan tabel bukti & ketepatan alasan jawaban'],
+            umpanBalikGuru: 'Minta siswa menunjuk baris data pada tabel jika alasan belum berbasis bukti.',
+          },
+          akhir: {
+            bentukUtama: 'Interpretasi Data Pengamatan Fotosintesis',
+            butirTugas: [
+              {
+                nomor: 1,
+                bentuk: 'Analisis Data',
+                pertanyaanAtauTugas: 'Jelaskan bahan baku dan hasil fotosintesis berdasarkan data percobaan daun!',
+                kunciAtauContohRespons: 'Air + CO2 dengan bantuan cahaya di klorofil menghasilkan glukosa dan O2.',
+              },
+              {
+                nomor: 2,
+                bentuk: 'Prediksi Bukti',
+                pertanyaanAtauTugas: 'Apa hasil uji daun jika daun ditutup kertas aluminium seharian?',
+                kunciAtauContohRespons: 'Bagian tertutup tidak membentuk amilum karena cahaya terhalang.',
+              },
+            ],
+            pedomanPenilaian: 'Penilaian mengacu pada rubrik kualitatif ketepatan bukti dan alasan.',
+          },
+        },
+        rubrikPenilaianSingkat: [
+          {
+            kriteria: 'Pemahaman Proses Fotosintesis',
+            baruBerkembang: 'Belum mengenali bahan atau hasil fotosintesis.',
+            layak: 'Menyebut sebagian bahan namun belum menjelaskan hasil.',
+            cakap: 'Menjelaskan bahan, peran cahaya/klorofil, dan hasil secara tepat.',
+            mahir: 'Menganalisis perubahan variabel cahaya/CO2 terhadap laju hasil.',
+          },
+          {
+            kriteria: 'Keterampilan Inkuiri Berbasis Bukti',
+            baruBerkembang: 'Menyimpulkan tanpa merujuk data tabel.',
+            layak: 'Mencatat data namun belum konsisten mengaitkan dengan dugaan.',
+            cakap: 'Menghubungkan data pengamatan langsung ke simpulan akhir.',
+            mahir: 'Menguji dugaan dan membuktikan sebab-akibat perbedaan hasil uji.',
+          },
+        ],
+        diferensiasiOperasional: {
+          prinsipKesetaraanTP: 'Semua jalur menguasai bahan dan hasil fotosintesis pada tumbuhan hijau.',
+          kesiapanDasar: {
+            targetKesiapan: 'Perlu bimbingan prasyarat organ daun.',
+            dukunganScaffolding: 'Guru menyediakan bagan panah air, cahaya, CO2 -> glukosa dan oksigen.',
+            aktivitasKonkret: ['Melengkapi kotak panah bagan fotosintesis berpanduan gambar daun dan cahaya.'],
+            mediaPendukung: 'Kartu bagan fotosintesis bergambar',
+            buktiBelajarJalur: 'Bagan proses fotosintesis terisi tepat',
+          },
+          kesiapanBerkembang: {
+            targetKesiapan: 'Siap menganalisis data tabel reguler.',
+            dukunganScaffolding: 'Arahan cek-poin tabel pengamatan di LKPD.',
+            aktivitasKonkret: ['Membandingkan data warna daun terang vs gelap pada tabel pengamatan reguler.'],
+            mediaPendukung: 'LKPD Inkuiri Fotosintesis reguler',
+            buktiBelajarJalur: 'Laporan analisis data uji daun lengkap',
+          },
+          kesiapanMahir: {
+            targetKesiapan: 'Siap menganalisis variasi faktor pembatas.',
+            dukunganScaffolding: 'Tantangan analisis variabel tambahan tanpa petunjuk langkah.',
+            aktivitasKonkret: ['Mengevaluasi pengaruh intensitas cahaya dan kadar CO2 pada kasus rumah kaca tumbuhan.'],
+            mediaPendukung: 'Kartu skenario variasi intensitas cahaya',
+            buktiBelajarJalur: 'Argumen prediksi perubahan laju fotosintesis',
+          },
+        },
+        contohLKPD: {
+          presetType: 'eksperimen',
+          judul: 'Investigasi Bukti Cahaya pada Fotosintesis',
+          konteksTugas: 'Membandingkan daun terkena cahaya matahari dan daun tertutup kertas timah.',
+          tujuanPengerjaan: 'Membuktikan kebutuhan cahaya dalam proses fotosintesis tumbuhan hijau.',
+          petunjukSiswa: ['Amati gambar hasil uji dua kondisi daun', 'Catat data perubahan warna ke tabel'],
+          bahanAtauData: ['Tabel data percobaan cahaya dan warna daun setelah uji iodium'],
+          langkahPengerjaan: ['Catat kondisi perlakuan tiap daun', 'Bandingkan perubahan warna sebelum dan sesudah'],
+          pertanyaanAtauRuangKerja: ['Mengapa bagian tertutup tidak berubah gelap?', 'Bahan apa yang diperlukan daun?'],
+          hasilYangDiharapkan: 'Tabel pengamatan terisi lengkap beserta kesimpulan kebutuhan cahaya fotosintesis.',
+          kriteriaPenilaian: ['Ketepatan pencatatan data pengamatan', 'Kejelasan simpulan berbasis bukti'],
+        },
       });
 
       const smpProfile = makeProfile({ jenjang: 'SMP/MTs', kelasUtama: '8', mataPelajaranUtama: 'IPA' });

@@ -54,6 +54,117 @@ export interface KegiatanPembelajaranLangkah {
   tahapTerstruktur?: TahapKegiatanTerstruktur[];
 }
 
+export interface ModulSubKonsepItem {
+  judul: string;
+  uraian: string;
+}
+
+export interface ModulIstilahPentingItem {
+  istilah: string;
+  pengertian: string;
+}
+
+export interface ModulContohLangkahItem {
+  judulContoh: string;
+  konteks: string;
+  langkahPenyelesaian: string[];
+  kesimpulanHasil: string;
+}
+
+export interface ModulMiskonsepsiItem {
+  miskonsepsi: string;
+  caraMeluruskan: string;
+}
+
+export interface ModulAsesmenDiagnostikDetail {
+  tujuanPemeriksaanPrasyarat: string;
+  pertanyaanAtauTugasAwal: string[];
+  indikatorInterpretasi: string;
+}
+
+export interface ModulAsesmenFormatifDetail {
+  instruksiAktivitas: string;
+  pertanyaanAtauTugas: string[];
+  buktiYangDiamati: string[];
+  umpanBalikGuru: string;
+}
+
+export interface ModulAsesmenAkhirButir {
+  nomor: number;
+  bentuk: string;
+  pertanyaanAtauTugas: string;
+  kunciAtauContohRespons: string;
+}
+
+export interface ModulKKTPReferensi {
+  mode: 'dinamis_sekolah' | 'deskriptif_rubrik';
+  minTuntas?: number;
+  rentangLabel?: {
+    baruBerkembang: string;
+    layak: string;
+    cakap: string;
+    mahir: string;
+  };
+  catatan: string;
+}
+
+export interface ModulAsesmenAkhirDetail {
+  bentukUtama: string;
+  butirTugas: ModulAsesmenAkhirButir[];
+  pedomanPenilaian: string;
+  kktpReferensi?: ModulKKTPReferensi;
+}
+
+export interface ModulAsesmenDetail {
+  diagnostik: ModulAsesmenDiagnostikDetail;
+  formatif: ModulAsesmenFormatifDetail;
+  akhir: ModulAsesmenAkhirDetail;
+}
+
+export interface ModulJalurDiferensiasi {
+  targetKesiapan: string;
+  dukunganScaffolding: string;
+  aktivitasKonkret: string[];
+  mediaPendukung: string;
+  buktiBelajarJalur: string;
+}
+
+export interface ModulDiferensiasiOperasional {
+  prinsipKesetaraanTP: string;
+  kesiapanDasar: ModulJalurDiferensiasi;
+  kesiapanBerkembang: ModulJalurDiferensiasi;
+  kesiapanMahir: ModulJalurDiferensiasi;
+}
+
+export interface ModulContohLKPD {
+  presetType: LKPDPresetType;
+  judul: string;
+  konteksTugas: string;
+  tujuanPengerjaan: string;
+  petunjukSiswa: string[];
+  bahanAtauData: string[];
+  langkahPengerjaan: string[];
+  pertanyaanAtauRuangKerja: string[];
+  hasilYangDiharapkan: string;
+  kriteriaPenilaian: string[];
+  sumberLKPD: 'lkpd_studio_draft' | 'modul_terintegrasi' | 'ai_generated';
+}
+
+export type ModulAjarValidationStatus =
+  | 'valid_ai'
+  | 'template_awal'
+  | 'perlu_review_guru'
+  | 'gagal_validasi';
+
+export interface ModulAjarQualityValidation {
+  status: ModulAjarValidationStatus;
+  usedFallback: boolean;
+  repairAttempted?: boolean;
+  structuralIssues: string[];
+  relevanceAndAntiSlopIssues: string[];
+  semanticReviewWarnings: string[];
+}
+
 export interface ModulAjarDokumen {
   id: string;
   tpId?: string;
@@ -104,6 +215,13 @@ export interface ModulAjarDokumen {
     ringkasanInti: string;
     konsepKunci: string[];
     referensiCatatan?: string;
+    penjelasanKonsepUtama?: string;
+    subKonsep?: ModulSubKonsepItem[];
+    istilahPenting?: ModulIstilahPentingItem[];
+    contohKonkret?: string[];
+    contohPenyelesaian?: ModulContohLangkahItem;
+    hubunganDenganTP?: string;
+    potensiMiskonsepsi?: ModulMiskonsepsiItem[];
   };
   kegiatanPembelajaran: KegiatanPembelajaranLangkah[];
 
@@ -113,6 +231,7 @@ export interface ModulAjarDokumen {
     formatif: string;
     sumatif: string;
   };
+  asesmenDetail?: ModulAsesmenDetail;
   rubrikPenilaianSingkat: {
     kriteria: string;
     baruBerkembang: string;
@@ -120,6 +239,11 @@ export interface ModulAjarDokumen {
     cakap: string;
     mahir: string;
   }[];
+
+  // Diferensiasi Operasional & Contoh LKPD Terintegrasi (Task 12.2)
+  diferensiasiOperasional?: ModulDiferensiasiOperasional;
+  contohLKPD?: ModulContohLKPD;
+  catatanValidasi?: ModulAjarQualityValidation;
 
   // Penutup & Lampiran
   pengayaanDanRemedial: {
