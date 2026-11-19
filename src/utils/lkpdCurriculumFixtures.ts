@@ -1386,14 +1386,209 @@ function buildSainsCuratedFixture(
     };
   }
 
-  // Sains lainnya (Wujud Zat SD, Asam-Basa Kimia, Transpor Membran/Osmosis Biologi) sesuai topik terkait
+  // Tumbuhan & Fotosintesis SD (agar tidak pernah keliru jatuh ke fixture Perubahan Wujud Es)
   const isSD = grade.gradeBand === 'sd_awal' || grade.gradeBand === 'sd_atas';
+  if (
+    isSD &&
+    /\b(?:fotosintesis|klorofil|bagian\s+tubuh\s+tumbuhan|fungsi\s+akar|akar[\s–-]+daun)\b/i.test(
+      lower
+    )
+  ) {
+    const stimulusText =
+      'Kelompok siswa menaruh dua pot tanaman hijau sejenis yang sama segar di tempat berbeda selama 5 hari. Pot A diletakkan di teras sekolah yang terkena cahaya matahari pagi dan disiram air secukupnya setiap hari. Pot B diletakkan di dalam lemari kelas yang gelap tanpa cahaya matahari, tetapi tetap disiram air dalam jumlah sama. Pada hari ke-5, daun Pot A tetap hijau segar dan tumbuh tegak, sedangkan daun Pot B tampak pucat kekuningan dan layu. Jelaskan peran akar menyerap air, batang menyalurkan air, serta daun berklorofil mengolah air dan karbon dioksida dengan cahaya matahari pada proses fotosintesis!';
+    const expData = {
+      tools: [
+        '2 pot tanaman hijau kecil sejenis (mis. kacang hijau atau bayam)',
+        'Gelas takar air penyiram',
+        'Label penanda Pot A dan Pot B',
+        'Penggaris cm & kaca pembesar (opsional)',
+      ],
+      hipotesis:
+        'Tanaman yang mendapat cahaya matahari dan air cukup dapat melakukan fotosintesis sehingga daunnya tetap hijau segar dibanding tanaman di tempat gelap.',
+      safety: [
+        'Cuci tangan dengan sabun setelah memegang tanah pot; letakkan pot di permukaan datar agar tidak tersenggol atau jatuh.',
+      ],
+      table: {
+        kolom: ['Perlakuan Pot', 'Cahaya Matahari', 'Penyiraman Air', 'Warna & Kondisi Daun Hari ke-5'],
+        baris: [
+          ['Pot A (Teras bercahaya)', 'Terkena cahaya matahari langsung', 'Disiram teratur', 'Daun hijau segar, batang tegak'],
+          ['Pot B (Lemari gelap)', 'Tidak terkena cahaya matahari', 'Disiram teratur', 'Daun pucat kekuningan, agak layu'],
+        ],
+      },
+    };
+
+    return {
+      isCuratedFixture: true,
+      subJudulTopik: cleanTopicHeading(tp.materiPokok),
+      pendekatanKegiatan:
+        preset === 'eksperimen'
+          ? 'Pengamatan Organ Tumbuhan, Uji Kebutuhan Cahaya & Keselamatan Praktik'
+          : 'Analisis Data Pengamatan Tumbuhan & Proses Fotosintesis',
+      modeKerja: 'Kelompok Kecil (3–4 Siswa)',
+      alokasiWaktu: '2 x 35 Menit',
+      targetBelajarSiswa: [
+        'Mengidentifikasi fungsi bagian tubuh tumbuhan (akar, batang, daun, dan bunga) pada pertumbuhan tanaman.',
+        'Menguraikan bahan masukan (air, karbon dioksida, cahaya matahari, klorofil) dan hasil proses fotosintesis (karbohidrat/makanan & oksigen) berdasarkan bukti pengamatan.',
+      ],
+      prasyaratMateri: tp.prasyarat || [
+        'Mengenal bagian tumbuhan hijau yang sering dijumpai di rumah dan sekolah',
+      ],
+      petunjukPengerjaan: [
+        'Amati perbedaan perlakuan serta kondisi daun pada tabel pengamatan Pot A dan Pot B dengan teliti.',
+        'Gunakan fakta dari tabel dan pemahaman fungsi akar, batang, serta daun berklorofil saat menjawab.',
+      ],
+      stimulusKasus: {
+        judul: 'Mengamati Pertumbuhan Dua Tanaman Hijau: Terkena Matahari vs Tempat Gelap',
+        teks: stimulusText,
+        pertanyaanAwal:
+          'Perbedaan warna dan kesegaran daun apa yang terlihat antara Pot A dan Pot B setelah 5 hari?',
+      },
+      stimulusData: {
+        jenisData: 'tabel',
+        tabelData: expData.table,
+        catatanAsumsi: expData.safety.join(' '),
+      },
+      ...adaptPresetExtras(preset, tp.materiPokok, stimulusText, expData),
+      langkahAktivitas: [
+        {
+          langkahKe: 1,
+          judulLangkah: 'Identifikasi fungsi bagian tubuh tumbuhan',
+          instruksi:
+            'Tuliskan fungsi utama akar (menyerap air dan mineral), batang (menyalurkan air dan menopang tumbuhan), daun (tempat fotosintesis), dan bunga (alat perkembangbiakan).',
+          ruangJawabanJenis: 'uraian_singkat',
+        },
+        {
+          langkahKe: 2,
+          judulLangkah: 'Bandingkan data Pot A dan Pot B pada tabel pengamatan',
+          instruksi:
+            'Catat faktor yang dibuat sama (jumlah air dan jenis tanaman) serta faktor yang dibedakan (cahaya matahari), lalu hubungkan dengan kondisi daun pada hari ke-5.',
+          ruangJawabanJenis: 'uraian_singkat',
+        },
+        {
+          langkahKe: 3,
+          judulLangkah: 'Lengkapi skema masukan dan hasil proses fotosintesis',
+          instruksi:
+            'Susun skema singkat bahan yang diperlukan daun berklorofil (air + karbon dioksida + cahaya matahari) dan zat hasil fotosintesis (karbohidrat/makanan + oksigen).',
+          ruangJawabanJenis: 'uraian_panjang',
+        },
+      ],
+      pemeriksaanHasil: [
+        'Pastikan kesimpulanmu menyebutkan perbedaan Pot A dan Pot B sesuai tabel serta menyebut bahan masukan dan hasil fotosintesis.',
+      ],
+      pertanyaanAnalisis: [
+        {
+          id: 'q-sains-foto-1',
+          nomor: 1,
+          tingkatKognitif: 'Dasar',
+          alasanTingkatKognitif:
+            'Membaca data perlakuan dan hasil pengamatan kondisi daun Pot A vs Pot B dari tabel.',
+          ruangJawabanJenis: 'uraian_singkat',
+          pertanyaan:
+            'Pot manakah yang tetap berdaun hijau segar pada hari ke-5, dan faktor apa yang membedakan perawatannya dari pot lainnya?',
+          panduanJawabanSingkat:
+            'Pot A tetap berdaun hijau segar karena mendapat cahaya matahari langsung, sedangkan kedua pot sama-sama disiram air teratur.',
+        },
+        {
+          id: 'q-sains-foto-2',
+          nomor: 2,
+          tingkatKognitif: 'Menengah',
+          alasanTingkatKognitif:
+            'Menghubungkan fungsi akar–batang–daun berklorofil dengan proses fotosintesis serta hasilnya bagi makhluk hidup.',
+          ruangJawabanJenis: 'uraian_panjang',
+          pertanyaan:
+            'Bagaimana kerja sama akar, batang, daun berklorofil, cahaya matahari, air, dan karbon dioksida dalam proses fotosintesis, serta apa dua hasil utamanya bagi tumbuhan dan manusia?',
+          panduanJawabanSingkat:
+            'Akar menyerap air dari tanah, batang menyalurkannya ke daun; klorofil di daun menangkap cahaya matahari untuk mengubah air dan karbon dioksida menjadi makanan/karbohidrat bagi tumbuhan serta melepaskan gas oksigen bagi pernapasan makhluk hidup.',
+        },
+      ],
+      dukunganTambahan:
+        'Ingat alur sederhana tumbuhan hijau: Akar serap air -> Batang salurkan ke daun -> Daun bermatahari masak makanan (fotosintesis).',
+      pengayaan: {
+        instruksi: 'Pengayaan terkait TP:',
+        tugas: [
+          'Mengapa menanam pohon hijau di halaman sekolah membuat udara siang hari terasa lebih sejuk dan segar untuk bernapas?',
+        ],
+      },
+      kesimpulanRefleksi: [
+        'Kesimpulan pengamatan: Daun tumbuhan hijau memerlukan ...... agar dapat melakukan proses fotosintesis yang menghasilkan ...... dan ......',
+        'Bagian fungsi organ tumbuhan manakah yang menurutmu perlu diamati lebih jelas lagi di kebun sekolah?',
+      ],
+      panduanGuru: {
+        kunciDanContohJawaban: [
+          {
+            nomor: 1,
+            jawabanInti:
+              'Pot A (teras bercahaya), faktor pembedanya adalah ketersediaan cahaya matahari.',
+            langkahPenyelesaian: ['Bandingkan kolom Cahaya Matahari dan Warna Daun antara Pot A dan Pot B.'],
+          },
+          {
+            nomor: 2,
+            jawabanInti:
+              'Akar menyerap air, batang menyalurkannya ke daun; klorofil + cahaya mengolah air & CO2 menjadi karbohidrat (makanan) + oksigen (O2).',
+            langkahPenyelesaian: [
+              'Pastikan siswa menyebut air diserap akar, disalurkan batang, dan diolah di daun dengan bantuan cahaya matahari.',
+            ],
+          },
+        ],
+        miskonsepsiUmum: [
+          {
+            miskonsepsi:
+              'Siswa sering mengira tumbuhan memperoleh makanan jadi dengan "memakan tanah" lewat akar, bukan membuatnya sendiri di daun.',
+            caraMenangani:
+              'Jelaskan bahwa akar hanya menyerap air dan mineral tanah, sedangkan makanan (karbohidrat) dibuat sendiri di daun melalui fotosintesis berbantu cahaya.',
+          },
+        ],
+        pemetaanTP: [
+          {
+            kodeSubTP: `${tp.kode}.A`,
+            kompetensiTarget: 'Mengidentifikasi fungsi akar, batang, daun, dan bunga',
+            aktivitasTerkait: 'Langkah 1 & Pertanyaan 1',
+          },
+          {
+            kodeSubTP: `${tp.kode}.B`,
+            kompetensiTarget: 'Menguraikan masukan dan hasil proses fotosintesis',
+            aktivitasTerkait: 'Langkah 2–3 & Pertanyaan 2',
+          },
+        ],
+        rubrikPenilaian: [
+          {
+            aspek: 'Identifikasi fungsi akar–batang–daun–bunga',
+            perluBimbingan: 'Menyebut bagian tumbuhan tanpa menuliskan fungsinya dengan tepat.',
+            berkembang: 'Menjelaskan sebagian fungsi organ tumbuhan namun fungsi akar dan batang masih tertukar.',
+            cakap: 'Mengidentifikasi fungsi utama akar, batang, daun, dan bunga dengan tepat.',
+            mahir: 'Menghubungkan alur kerja sama akar–batang–daun secara runtut dalam kehidupan tumbuhan.',
+          },
+          {
+            aspek: 'Analisis perbandingan data pengamatan Pot A vs Pot B',
+            perluBimbingan: 'Menyimpulkan hasil tanaman tanpa merujuk fakta perlakuan cahaya pada tabel.',
+            berkembang: 'Mencatat perbedaan kondisi daun Pot A dan Pot B tetapi belum memisahkan variabel kontrol dan bebas.',
+            cakap: 'Membandingkan data Pot A vs Pot B secara akurat beserta peran cahaya matahari.',
+            mahir: 'Membuktikan hubungan sebab-akibat kondisi cahaya dengan kesegaran daun serta kelangsungan fotosintesis.',
+          },
+          {
+            aspek: 'Ketepatan skema masukan dan hasil fotosintesis',
+            perluBimbingan: 'Belum mampu menyebutkan bahan masukan atau hasil fotosintesis secara lengkap.',
+            berkembang: 'Menyebutkan sebagian bahan masukan (air/cahaya) namun melupakan karbon dioksida atau oksigen.',
+            cakap: 'Menuliskan masukan (air, karbon dioksida, cahaya, klorofil) dan hasil (karbohidrat & oksigen) dengan benar.',
+            mahir: 'Menguraikan masukan–hasil fotosintesis lengkap disertai manfaat karbohidrat bagi tumbuhan dan oksigen bagi makhluk hidup.',
+          },
+        ],
+      },
+    };
+  }
+
+  // Sains lainnya (Wujud Zat SD, Asam-Basa Kimia, Transpor Membran/Osmosis Biologi) sesuai topik terkait
   const matchesCuratedSainsSD =
-    isSD && /(wujud|zat|kalor|mencair|membeku|menguap|panas|suhu|es)/i.test(lower);
+    isSD &&
+    /\b(?:wujud(?:\s+zat|\s+benda)?|perubahan\s+wujud|zat|kalor|mencair|membeku|menguap|mengembun|menyublim|panas|suhu|es(?:\s+batu)?)\b/i.test(
+      lower
+    );
   const matchesCuratedKimia =
-    /(asam|basa|lakmus|ph|indikator|larutan)/i.test(lower);
+    !isSD &&
+    /\b(?:asam(?!\s+amino)|basa|lakmus|ph|indikator|larutan)\b/i.test(lower);
   const matchesCuratedBiologi =
-    /(sel|membran|transpor|osmosis|difusi|organel)/i.test(lower);
+    !isSD &&
+    /\b(?:sel|membran|transpor|osmosis|difusi|organel)\b/i.test(lower);
 
   if (!matchesCuratedSainsSD && !matchesCuratedKimia && !matchesCuratedBiologi) {
     return null;

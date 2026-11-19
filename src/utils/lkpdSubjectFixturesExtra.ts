@@ -1203,7 +1203,7 @@ export function buildExtendedSubjectFixture(
           : 'Apa hasil cetak algoritma saat nilai = 75 menurut kode baris 2 saat ini?',
       },
       stimulusData: {
-        jenisData: 'algoritma',
+        jenisData: isPKK ? 'tabel' : 'algoritma',
         tabelData: isPKK
           ? {
               kolom: ['Temuan', 'Jenis Bahaya / Pelanggaran', 'Tindakan Koreksi / APD'],
@@ -1239,7 +1239,7 @@ export function buildExtendedSubjectFixture(
           instruksi: isPKK
             ? 'Tuliskan langkah koreksi aman untuk keempat temuan secara berurutan.'
             : 'Ubah operator pada baris ke-2 agar aturan "tepat 75 atau lebih = Tuntas" terpenuhi dan buktikan hasil ujinya.',
-          ruangJawabanJenis: 'langkah_algoritma',
+          ruangJawabanJenis: isPKK ? 'uraian_panjang' : 'langkah_algoritma',
         },
       ],
       pemeriksaanHasil: [
@@ -1249,7 +1249,7 @@ export function buildExtendedSubjectFixture(
       ],
       pertanyaanAnalisis: [
         {
-          id: 'q-inf-1',
+          id: isPKK ? 'q-pkk-1' : 'q-inf-1',
           nomor: 1,
           tingkatKognitif: 'Dasar',
           alasanTingkatKognitif: isPKK ? 'Mencocokkan pelanggaran temuan ke bahaya kerja terkait.' : 'Menelusuri input batas 75 pada percabangan > secara harfiah.',
@@ -1262,11 +1262,13 @@ export function buildExtendedSubjectFixture(
             : '75 > 75 bernilai Salah (False), sehingga algoritma mencetak "Perlu Bimbingan" (keliru terhadap aturan minimal 75 tuntas).',
         },
         {
-          id: 'q-inf-2',
+          id: isPKK ? 'q-pkk-2' : 'q-inf-2',
           nomor: 2,
           tingkatKognitif: 'Menengah',
-          alasanTingkatKognitif: 'Memperbaiki bug kondisi batas (off-by-one/strict inequality) dan memvalidasi dengan boundary test cases.',
-          ruangJawabanJenis: 'langkah_algoritma',
+          alasanTingkatKognitif: isPKK
+            ? 'Menyusun langkah koreksi 5R dan SOP keselamatan produksi prototipe agar mutu produk serta efisiensi biaya (HPP) tetap terjaga.'
+            : 'Memperbaiki bug kondisi batas (off-by-one/strict inequality) dan memvalidasi dengan boundary test cases.',
+          ruangJawabanJenis: isPKK ? 'uraian_panjang' : 'langkah_algoritma',
           pertanyaan: isPKK
             ? 'Susun kembali daftar langkah 5R singkat untuk memperbaiki Temuan (4) agar alat ukur akurat tetap terawat dan cepat ditemukan!'
             : 'Tuliskan perbaikan lengkap baris ke-2 kode di atas, lalu uji apa yang dicetak bila diuji tiga angka batas: 74, 75, dan 76!',
@@ -1294,13 +1296,33 @@ export function buildExtendedSubjectFixture(
       ],
       panduanGuru: {
         kunciDanContohJawaban: [
-          { nomor: 1, jawabanInti: isPKK ? 'Goggles + bahaya sulutan percikan api ke uap mudah terbakar.' : '75 > 75 bernilai False -> tercetak "Perlu Bimbingan" (Bug).', langkahPenyelesaian: ['Trace kondisi batas 75.'] },
-          { nomor: 2, jawabanInti: isPKK ? 'Penataan 5R dengan shadow board & kotak alat presisi.' : 'Ganti menjadi `nilai >= 75`; hasil: 74=Perlu Bimbingan, 75=Tuntas, 76=Tuntas.', langkahPenyelesaian: ['Verifikasi boundary values 74, 75, 76.'] },
+          {
+            nomor: 1,
+            jawabanInti: isPKK ? 'Goggles + bahaya sulutan percikan api ke uap mudah terbakar.' : '75 > 75 bernilai False -> tercetak "Perlu Bimbingan" (Bug).',
+            langkahPenyelesaian: isPKK
+              ? [
+                  'Tetapkan APD pelindung mata (safety goggles/face shield) untuk Temuan (3).',
+                  'Jelaskan risiko percikan bunga api gerinda terhadap uap cairan pembersih pada Temuan (2) yang membahayakan keselamatan kerja dan aset produksi prototipe.',
+                ]
+              : ['Trace kondisi batas 75.'],
+          },
+          {
+            nomor: 2,
+            jawabanInti: isPKK ? 'Penataan 5R dengan shadow board & kotak alat presisi.' : 'Ganti menjadi `nilai >= 75`; hasil: 74=Perlu Bimbingan, 75=Tuntas, 76=Tuntas.',
+            langkahPenyelesaian: isPKK
+              ? [
+                  'Urutkan tindakan 5R (Ringkas, Rapi, Resik, Rawat, Rajin) pada Temuan (4) menggunakan shadow board berlabel dan kotak alat ukur presisi.',
+                  'Kaitkan ketertiban alat ukur dengan akurasi prototipe, mutu produk, dan pengendalian biaya produksi/HPP usaha.',
+                ]
+              : ['Verifikasi boundary values 74, 75, 76.'],
+          },
         ],
         miskonsepsiUmum: [
           {
             miskonsepsi: isPKK ? 'Menganggap sarung tangan kain cukup melindungi mata atau menaruh cairan kimia tertutup rapat aman dekat gerinda.' : 'Hanya menguji angka acak tengah (misal 60 dan 88) sehingga bug tepat di nilai batas `75` lolos tidak terdeteksi.',
-            caraMenangani: 'Tekankan aturan boundary testing: uji selalu nilai tepat di ambang batas (n−1, n, n+1).',
+            caraMenangani: isPKK
+              ? 'Demonstrasikan fungsi tiap jenis APD sesuai bahaya mekanik/kimia, periksa label keselamatan bahan (MSDS), dan kaitkan kepatuhan K3LH/5R dengan mutu prototipe serta efisiensi biaya produksi usaha.'
+              : 'Tekankan aturan boundary testing: uji selalu nilai tepat di ambang batas (n−1, n, n+1).',
           },
         ],
         pemetaanTP: [
