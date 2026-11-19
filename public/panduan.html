@@ -3,1362 +3,1767 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Buku Panduan Praktis AsesMerdeka - Alur Kerja Nyata Guru</title>
+  <title>Buku Panduan Praktis Guru AsesMerdeka (Bagian 1–8)</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       --primary: #1e40af;
-      --primary-light: #eff6ff;
-      --primary-hover: #1d4ed8;
-      --secondary: #059669;
-      --secondary-light: #ecfdf5;
-      --accent: #d97706;
-      --accent-light: #fef3c7;
-      --purple: #7c3aed;
-      --purple-light: #f5f3ff;
-      --surface: #ffffff;
-      --bg: #f8fafc;
-      --border: #e2e8f0;
+      --primary-soft: #eff6ff;
+      --border: #cbd5e1;
       --text: #0f172a;
-      --text-muted: #64748b;
-      --radius-sm: 8px;
-      --radius-md: 14px;
-      --radius-lg: 20px;
-      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05);
-      --shadow-md: 0 8px 24px -4px rgba(15, 23, 42, 0.08);
-      --shadow-lg: 0 16px 36px -6px rgba(15, 23, 42, 0.12);
-      --font-base: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --muted: #334155;
+      --bg: #f8fafc;
+      --surface: #ffffff;
     }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      -webkit-tap-highlight-color: transparent;
-    }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { max-width: 100%; overflow-x: clip; }
     body {
-      font-family: var(--font-base);
-      background-color: var(--bg);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
       color: var(--text);
-      line-height: 1.7;
       font-size: 16px;
+      line-height: 1.72;
       scroll-behavior: smooth;
     }
-
-    /* Top Sticky Navigation */
-    .top-navbar {
+    body.font-large { font-size: 18px; }
+    .top-bar {
       position: sticky;
       top: 0;
       z-index: 100;
-      background: rgba(255, 255, 255, 0.94);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      background: rgba(255,255,255,0.96);
+      backdrop-filter: blur(10px);
       border-bottom: 1px solid var(--border);
-      padding: 12px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
+      padding: 10px 16px;
     }
-
-    .brand-wrap {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      text-decoration: none;
-      color: inherit;
-      padding: 6px 12px 6px 8px;
-      margin: -6px 0 -6px -8px;
-      border-radius: 12px;
-      border: 1px solid transparent;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-
-    .brand-wrap:hover {
-      background: #f1f5f9;
-      border-color: #cbd5e1;
-      transform: translateY(-1px);
-    }
-
-    .brand-logo-icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.24);
-      overflow: hidden;
-    }
-
-    .brand-title-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .back-home-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      font-weight: 700;
-      color: #1e40af;
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      padding: 2px 8px;
-      border-radius: 9999px;
-      white-space: nowrap;
-      transition: all 0.2s ease;
-    }
-
-    .brand-wrap:hover .back-home-pill {
-      background: #1e40af;
-      color: #ffffff;
-      border-color: #1e40af;
-    }
-
-    .brand-text h1 {
-      font-size: 17px;
-      font-weight: 800;
-      color: #0f172a;
-      line-height: 1.2;
-    }
-
-    .brand-text p {
-      font-size: 12px;
-      color: var(--text-muted);
-      font-weight: 500;
-    }
-
-    .nav-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .btn-action {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      padding: 7px 14px;
-      border-radius: var(--radius-sm);
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .btn-action:hover {
-      background: #f1f5f9;
-      border-color: #cbd5e1;
-    }
-
-    .btn-action.btn-print {
-      background: #1e40af;
-      color: #ffffff;
-      border-color: #1e40af;
-    }
-
-    .btn-action.btn-print:hover {
-      background: #1d4ed8;
-    }
-
-    /* Page Layout */
-    .page-layout {
-      max-width: 1140px;
+    .top-bar-inner {
+      max-width: 1200px;
       margin: 0 auto;
-      padding: 24px 20px 80px 20px;
-      display: grid;
-      grid-template-columns: 280px 1fr;
-      gap: 32px;
-      align-items: start;
-    }
-
-    /* Sidebar Table of Contents */
-    .toc-sidebar {
-      position: sticky;
-      top: 80px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 20px 16px;
-      box-shadow: var(--shadow-sm);
-      max-height: calc(100vh - 100px);
-      overflow-y: auto;
-    }
-
-    .toc-header {
-      font-size: 12.5px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: space-between;
-    }
-
-    .toc-list {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-    }
-
-    .toc-link {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 10px;
-      border-radius: 8px;
-      font-size: 13.5px;
-      font-weight: 600;
-      color: #334155;
-      text-decoration: none;
-      transition: all 0.15s;
-    }
-
-    .toc-link:hover {
-      background: var(--primary-light);
-      color: var(--primary);
-      transform: translateX(3px);
-    }
-
-    .toc-link span.num {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 22px;
-      height: 22px;
-      background: #f1f5f9;
-      color: #475569;
-      border-radius: 6px;
-      font-size: 11px;
-      font-weight: 800;
-      flex-shrink: 0;
-    }
-
-    .toc-link:hover span.num {
-      background: var(--primary);
-      color: #ffffff;
-    }
-
-    /* Content Area */
-    .content-area {
-      min-width: 0;
-    }
-
-    /* Hero Banner */
-    .hero-card {
-      background: linear-gradient(135deg, #0f172a, #1e3a8a 60%, #1e40af);
-      color: #ffffff;
-      border-radius: var(--radius-lg);
-      padding: 38px 32px;
-      box-shadow: var(--shadow-lg);
-      margin-bottom: 32px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .hero-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(59, 130, 246, 0.35);
-      border: 1px solid rgba(147, 197, 253, 0.4);
-      padding: 5px 14px;
-      border-radius: 9999px;
-      font-size: 12.5px;
-      font-weight: 700;
-      margin-bottom: 16px;
-      backdrop-filter: blur(4px);
-    }
-
-    .hero-card h2 {
-      font-size: 29px;
-      font-weight: 800;
-      line-height: 1.3;
-      margin-bottom: 12px;
-    }
-
-    .hero-card p {
-      font-size: 16px;
-      opacity: 0.92;
-      max-width: 720px;
-      line-height: 1.65;
-    }
-
-    /* Timeline Stepper (Visual Roadmap) */
-    .roadmap-wrapper {
-      background: #ffffff;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 28px 24px;
-      margin-bottom: 32px;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .roadmap-head {
-      margin-bottom: 20px;
-    }
-
-    .roadmap-head h3 {
-      font-size: 20px;
-      font-weight: 800;
-      color: #0f172a;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .roadmap-head p {
-      font-size: 14px;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
-
-    .timeline-track {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      position: relative;
-      margin-top: 16px;
-    }
-
-    .timeline-node {
-      display: grid;
-      grid-template-columns: 50px 1fr;
-      gap: 16px;
-      align-items: start;
-      text-decoration: none;
-      color: inherit;
-      padding: 14px;
-      border-radius: var(--radius-md);
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      transition: all 0.2s;
-    }
-
-    .timeline-node:hover {
-      background: #eff6ff;
-      border-color: #93c5fd;
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-sm);
-    }
-
-    .node-icon-wrap {
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-      font-weight: 800;
-      flex-shrink: 0;
-      color: #ffffff;
-    }
-
-    .node-fase1 { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
-    .node-fase2 { background: linear-gradient(135deg, #059669, #047857); }
-    .node-fase3 { background: linear-gradient(135deg, #d97706, #b45309); }
-    .node-fase4 { background: linear-gradient(135deg, #7c3aed, #6d28d9); }
-    .node-fase5 { background: linear-gradient(135deg, #e11d48, #be123c); }
-
-    .node-content h4 {
-      font-size: 16px;
-      font-weight: 800;
-      color: #0f172a;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .node-tag {
-      font-size: 11px;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .tag-blue { background: #dbeafe; color: #1e40af; }
-    .tag-green { background: #d1fae5; color: #065f46; }
-    .tag-amber { background: #fef3c7; color: #92400e; }
-    .tag-purple { background: #ede9fe; color: #5b21b6; }
-    .tag-rose { background: #ffe4e6; color: #9f1239; }
-
-    .node-content p {
-      font-size: 13.5px;
-      color: #475569;
-      margin-top: 4px;
-      line-height: 1.5;
-    }
-
-    /* Quick Matrix / Intent Finder */
-    .intent-matrix {
-      background: #ffffff;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 28px 24px;
-      margin-bottom: 32px;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .intent-matrix h3 {
-      font-size: 20px;
-      font-weight: 800;
-      color: #0f172a;
-      margin-bottom: 6px;
-    }
-
-    .intent-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 14px;
-      margin-top: 18px;
-    }
-
-    .intent-card {
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 16px;
-      transition: all 0.2s;
-    }
-
-    .intent-card:hover {
-      background: #ffffff;
-      border-color: #cbd5e1;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .intent-goal {
-      font-size: 13.5px;
-      font-weight: 700;
-      color: #1e293b;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .intent-action {
-      font-size: 13px;
-      color: #475569;
-      line-height: 1.5;
-    }
-
-    .intent-action strong {
-      color: var(--primary);
-    }
-
-    /* Section Styling */
-    .guide-section {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 34px 28px;
-      margin-bottom: 32px;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .section-head {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      margin-bottom: 22px;
-      padding-bottom: 16px;
-      border-bottom: 2px solid #f1f5f9;
-    }
-
-    .section-badge-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-      flex-shrink: 0;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.06);
-    }
-
-    .badge-icon-1 { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
-    .badge-icon-2 { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
-    .badge-icon-3 { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
-    .badge-icon-4 { background: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; }
-    .badge-icon-5 { background: #fff1f2; color: #be123c; border: 1px solid #fecdd3; }
-
-    .section-head h3 {
-      font-size: 23px;
-      font-weight: 800;
-      color: #0f172a;
-      line-height: 1.25;
-    }
-
-    .section-head p.subtitle {
-      font-size: 13.5px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    .guide-section p {
-      margin-bottom: 16px;
-      color: #334155;
-      font-size: 15.5px;
-    }
-
-    /* Detailed Visual Steps */
-    .visual-step-flow {
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-      margin: 24px 0;
-    }
-
-    .vstep-card {
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 22px;
-      position: relative;
-    }
-
-    .vstep-card.active-step {
-      background: #ffffff;
-      border-color: #93c5fd;
-      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
-    }
-
-    .vstep-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-
-    .vstep-header h4 {
-      font-size: 17px;
-      font-weight: 800;
-      color: #0f172a;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .vstep-time {
-      font-size: 12px;
-      font-weight: 700;
-      background: #e2e8f0;
-      color: #475569;
-      padding: 3px 10px;
-      border-radius: 999px;
-    }
-
-    .vstep-card p {
-      font-size: 14.5px;
-      color: #475569;
-      margin-bottom: 12px;
-    }
-
-    /* Mockup Buttons */
-    .btn-mockup-group {
-      display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      margin: 14px 0;
     }
-
-    .btn-mock {
+    .top-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+    .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .btn {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 9px 15px;
+      justify-content: center;
+      gap: 6px;
+      min-height: 44px;
+      padding: 8px 14px;
       border-radius: 10px;
-      font-size: 13.5px;
-      font-weight: 800;
-      color: #ffffff;
-      cursor: default;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-      border: none;
-    }
-
-    .btn-mock-modul { background: #1e40af; }
-    .btn-mock-lkpd { background: #047857; }
-    .btn-mock-soal { background: #2563eb; }
-    .btn-mock-rangkuman { background: #7c3aed; }
-    .btn-mock-supervisi { background: #059669; }
-
-    /* Alert / Callout Boxes */
-    .callout {
-      border-radius: var(--radius-md);
-      padding: 16px 20px;
-      margin: 20px 0;
-      display: flex;
-      gap: 14px;
-      align-items: flex-start;
-      font-size: 14.5px;
-      line-height: 1.6;
-    }
-
-    .callout-icon {
-      font-size: 22px;
-      line-height: 1;
-      flex-shrink: 0;
-    }
-
-    .callout-tip {
-      background: var(--secondary-light);
-      border-left: 4px solid var(--secondary);
-      color: #065f46;
-    }
-
-    .callout-important {
-      background: #eff6ff;
-      border-left: 4px solid #2563eb;
-      color: #1e3a8a;
-    }
-
-    .callout-warning {
-      background: var(--accent-light);
-      border-left: 4px solid var(--accent);
-      color: #92400e;
-    }
-
-    /* Real Scenario Story Box */
-    .scenario-box {
-      background: linear-gradient(135deg, #fdfbf7, #fef8ee);
-      border: 1px solid #fed7aa;
-      border-radius: var(--radius-md);
-      padding: 22px;
-      margin: 24px 0;
-    }
-
-    .scenario-box h4 {
-      font-size: 16px;
-      font-weight: 800;
-      color: #9a3412;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 12px;
-    }
-
-    .scenario-timeline {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .scenario-step {
-      display: grid;
-      grid-template-columns: 85px 1fr;
-      gap: 12px;
       font-size: 14px;
-      color: #431407;
-      line-height: 1.5;
-    }
-
-    .scenario-time {
-      font-weight: 800;
-      color: #c2410c;
-    }
-
-    /* Comparison Table */
-    .custom-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 20px 0;
-      font-size: 14px;
-    }
-
-    .custom-table th {
-      background: #f1f5f9;
-      color: #1e293b;
       font-weight: 700;
-      text-align: left;
-      padding: 12px 16px;
-      border-bottom: 2px solid var(--border);
-    }
-
-    .custom-table td {
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      color: #334155;
-    }
-
-    .custom-table tr:hover td {
-      background: #f8fafc;
-    }
-
-    /* Accordion FAQ */
-    .faq-item {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      margin-bottom: 12px;
-      overflow: hidden;
-      background: var(--surface);
-    }
-
-    .faq-question {
-      padding: 16px 20px;
-      font-weight: 700;
-      font-size: 15px;
-      color: #0f172a;
       cursor: pointer;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      color: #0f172a;
+      font-family: inherit;
+      max-width: 100%;
+      white-space: normal;
+      text-align: center;
+    }
+    .btn-back { background: #eff6ff; border-color: #93c5fd; color: #1e40af; }
+    .btn-primary { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+    .breadcrumb { font-size: 12.5px; color: #475569; }
+    .breadcrumb strong { color: #1e40af; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 22px 16px 72px; }
+    .hero {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 60%, #1e40af 100%);
+      color: #ffffff;
+      border-radius: 18px;
+      padding: clamp(22px, 3vw, 34px);
+      margin-bottom: 24px;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.16);
+      border: 1px solid rgba(255,255,255,0.28);
+      padding: 4px 12px;
+      border-radius: 99px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .hero h1 { font-size: clamp(28px, 3.6vw, 36px); line-height: 1.24; font-weight: 800; margin-bottom: 10px; }
+    .hero p { color: #e2e8f0; max-width: 820px; }
+    .card-panel {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 22px;
+    }
+    .card-panel-head {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      user-select: none;
-      background: #fcfdfe;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 14px;
     }
-
-    .faq-question:hover {
+    .card-panel h2 { font-size: 21px; font-weight: 800; }
+    .search-input {
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 1px solid #94a3b8;
+      border-radius: 10px;
+      font-size: 15px;
+      font-family: inherit;
+      width: min(100%, 300px);
+    }
+    .intent-grid, .toc-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr));
+      gap: 12px;
+    }
+    .intent-card, .toc-card {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
       background: #f8fafc;
+      text-decoration: none;
+      color: inherit;
+      min-height: 44px;
     }
-
-    .faq-answer {
-      padding: 16px 20px;
-      font-size: 14.5px;
-      color: #475569;
-      line-height: 1.65;
-      border-top: 1px solid var(--border);
-      background: #ffffff;
+    .intent-card:hover, .toc-card:hover { border-color: #2563eb; background: #eff6ff; }
+    .intent-title { font-size: 16px; font-weight: 800; color: #0f172a; }
+    .intent-summary { font-size: 14px; color: #334155; }
+    .intent-location { font-size: 13px; font-weight: 700; color: #1e40af; margin-top: auto; }
+    .toc-card { background: #ffffff; }
+    .toc-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .toc-card-title { font-size: 15.5px; font-weight: 800; color: #0f172a; }
+    .badge-code {
+      font-size: 12px; font-weight: 800; background: #1e40af; color: #ffffff;
+      padding: 2px 10px; border-radius: 99px;
     }
-
-    /* Footer */
-    .page-footer {
-      text-align: center;
-      padding: 40px 20px;
-      color: var(--text-muted);
-      font-size: 14px;
-      border-top: 1px solid var(--border);
-      margin-top: 40px;
+    .badge-cat {
+      font-size: 12px; font-weight: 700; background: #f1f5f9; color: #334155;
+      padding: 2px 9px; border-radius: 99px;
     }
-
-    /* Mobile Responsive */
-    @media (max-width: 860px) {
-      .page-layout {
-        grid-template-columns: 1fr;
-        padding: 16px 14px 60px 14px;
-        gap: 20px;
-      }
-
-      .toc-sidebar {
-        display: none;
-      }
-
-      .hero-card {
-        padding: 24px 20px;
-      }
-
-      .hero-card h2 {
-        font-size: 23px;
-      }
-
-      .guide-section {
-        padding: 22px 18px;
-      }
-
-      .top-navbar {
-        padding: 10px 14px;
-      }
-
-      .scenario-step {
-        grid-template-columns: 1fr;
-        gap: 4px;
-      }
-
-      .btn-action span.label {
-        display: none;
-      }
-
-      .brand-text p {
-        font-size: 11px;
-      }
-
-      .back-home-pill {
-        font-size: 10px;
-        padding: 1px 7px;
-      }
+    .badge-time {
+      font-size: 12px; font-weight: 700; background: #ecfdf5; color: #065f46;
+      border: 1px solid #a7f3d0; padding: 2px 9px; border-radius: 99px;
     }
-
-    /* Print Styles */
+    .layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 24px; align-items: start; }
+    .sidebar {
+      position: sticky; top: 82px;
+      background: #ffffff; border: 1px solid var(--border); border-radius: 14px;
+      padding: 16px; max-height: calc(100vh - 104px); overflow-y: auto;
+    }
+    .sidebar-title {
+      font-size: 13px; font-weight: 800; text-transform: uppercase; color: #475569;
+      padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0;
+    }
+    .sidebar ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+    .sidebar-link {
+      display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 10px;
+      text-decoration: none; color: #1e293b; font-size: 14.5px; font-weight: 600; min-height: 44px;
+      border: 2px solid transparent;
+    }
+    .sidebar-link.is-active { background: #eff6ff; border-color: #2563eb; color: #1e3a8a; font-weight: 800; }
+    .sidebar-num {
+      width: 26px; height: 26px; border-radius: 7px; background: #f1f5f9; color: #334155;
+      display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; flex-shrink: 0;
+    }
+    .sidebar-link.is-active .sidebar-num { background: #2563eb; color: #ffffff; }
+    .mobile-drawer-wrap { display: none; margin-bottom: 16px; }
+    .mobile-drawer-list {
+      margin-top: 8px; background: #ffffff; border: 1px solid var(--border); border-radius: 12px;
+      padding: 10px; display: none; flex-direction: column; gap: 6px;
+    }
+    .mobile-drawer-list.open { display: flex; }
+    .mobile-drawer-item {
+      display: block; padding: 11px 12px; border-radius: 9px; border: 1px solid #e2e8f0;
+      background: #f8fafc; color: #0f172a; text-decoration: none; font-weight: 700; font-size: 15px; min-height: 44px;
+    }
+    .guide-article {
+      background: #ffffff; border: 1px solid var(--border); border-radius: 18px;
+      padding: clamp(20px, 3vw, 32px); margin-bottom: 24px;
+    }
+    .article-header { border-bottom: 2px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 20px; }
+    .article-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .guide-article h2 { font-size: clamp(24px, 3vw, 30px); line-height: 1.28; font-weight: 800; margin-bottom: 8px; }
+    .article-subtitle { color: var(--muted); margin-bottom: 12px; }
+    .ui-location-hint { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 14.5px; }
+    .ui-pills-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin-bottom: 20px; }
+    .ui-pills-title { font-size: 14px; font-weight: 800; margin-bottom: 8px; }
+    .ui-pills-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+    .ui-pill-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; max-width: 100%; }
+    .ui-pill-btn { font-size: 13px; font-weight: 800; padding: 4px 10px; border-radius: 7px; }
+    .ui-pill-primary { background: #2563eb; color: #ffffff; }
+    .ui-pill-success { background: #059669; color: #ffffff; }
+    .ui-pill-outline { background: #f1f5f9; color: #0f172a; border: 1px solid #94a3b8; }
+    .ui-pill-note { font-size: 13.5px; color: #334155; }
+    .section-stack { display: flex; flex-direction: column; gap: 20px; }
+    .section-stack h3 { font-size: 19px; font-weight: 800; color: #1e3a8a; margin-bottom: 6px; }
+    .section-stack h3.heading-success { color: #065f46; }
+    .section-stack h3.heading-warning { color: #9a3412; }
+    .prep-list { margin-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+    .callout { border-radius: 12px; padding: 14px 16px; border-left: 5px solid #2563eb; background: #eff6ff; }
+    .callout-warning { border-left-color: #d97706; background: #fffbeb; }
+    .callout-title { font-weight: 800; margin-bottom: 4px; }
+    .step-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    .step-card {
+      background: #f8fafc; border: 1px solid var(--border); border-radius: 12px;
+      padding: 14px 16px; display: flex; align-items: flex-start; gap: 12px;
+    }
+    .step-num {
+      width: 30px; height: 30px; border-radius: 50%; background: #1e40af; color: #ffffff;
+      font-size: 14px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
+    }
+    .step-action { font-weight: 800; margin-bottom: 3px; }
+    .step-detail { color: #334155; }
+    .table-box, .sim-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+    .sim-box { background: #fffbeb; border-color: #fcd34d; }
+    .sim-badge {
+      display: inline-block; font-size: 12px; font-weight: 800; background: #fef3c7; color: #92400e;
+      border: 1px solid #f59e0b; padding: 2px 10px; border-radius: 99px; margin-bottom: 6px;
+    }
+    .table-caption { font-size: 14.5px; color: #475569; margin: 4px 0 12px; }
+    .table-scroll { width: 100%; overflow-x: auto; }
+    .guide-table { width: 100%; border-collapse: collapse; background: #ffffff; font-size: 14px; }
+    .guide-table th, .guide-table td { border: 1px solid #cbd5e1; padding: 9px 10px; text-align: left; vertical-align: top; }
+    .guide-table th { background: #f1f5f9; font-weight: 700; }
+    .result-box { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 14px 16px; color: #064e3b; display: flex; flex-direction: column; gap: 6px; }
+    .mistake-stack { display: flex; flex-direction: column; gap: 10px; }
+    .mistake-card { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; padding: 14px 16px; }
+    .mistake-title { font-weight: 800; color: #9a3412; margin-bottom: 4px; }
+    .next-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 14px 16px; }
+    .btn-next-inline {
+      display: inline-flex; align-items: center; gap: 6px; margin-top: 10px;
+      background: #2563eb; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 14.5px;
+      padding: 9px 14px; border-radius: 9px; min-height: 44px;
+    }
+    .faq-section { border-top: 1px solid #e2e8f0; padding-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .faq-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 11px; padding: 14px 16px; }
+    .faq-q { font-weight: 800; margin-bottom: 4px; }
+    .chapter-nav {
+      margin-top: 22px; padding-top: 18px; border-top: 1px solid #e2e8f0;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px;
+    }
+    .btn-nav {
+      display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; border-radius: 11px;
+      border: 1px solid var(--border); background: #ffffff; color: #0f172a; text-decoration: none; min-height: 52px;
+    }
+    .btn-nav span { font-size: 12px; font-weight: 700; color: #64748b; }
+    .btn-nav-next { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+    .btn-nav-next span { color: #dbeafe; }
+    .btn-nav-done { background: #059669; border-color: #059669; color: #ffffff; }
+    .btn-nav-done span { color: #d1fae5; }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: minmax(0, 1fr); }
+      .sidebar { display: none; }
+      .mobile-drawer-wrap { display: block; }
+    }
     @media print {
-      body {
-        background: #ffffff;
-        font-size: 12pt;
-      }
-      .top-navbar, .toc-sidebar, .btn-action, .hero-card::after {
-        display: none !important;
-      }
-      .page-layout {
-        display: block;
-        max-width: 100%;
-        padding: 0;
-      }
-      .guide-section {
-        border: 1px solid #ccc;
-        box-shadow: none;
-        page-break-inside: avoid;
-        margin-bottom: 20px;
-      }
-      .hero-card {
-        background: #1e3a8a !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
+      .no-print { display: none !important; }
+      body { background: #ffffff; font-size: 12pt; }
+      .layout { display: block; }
+      .guide-article { border: 1px solid #ccc; page-break-inside: avoid; }
     }
   </style>
 </head>
 <body>
-
-  <!-- Sticky Top Bar -->
-  <header class="top-navbar no-print">
-    <a href="/" onclick="goHome(event)" class="brand-wrap" title="Kembali ke Halaman Utama AsesMerdeka" aria-label="Kembali ke Halaman Utama AsesMerdeka">
-      <div class="brand-logo-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="40" height="40" fill="none" style="display:block;">
-          <defs>
-            <linearGradient id="am_bg" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#1e40af" />
-              <stop offset="52%" stop-color="#2563eb" />
-              <stop offset="100%" stop-color="#0d9488" />
-            </linearGradient>
-            <linearGradient id="am_page_left" x1="24" y1="30" x2="60" y2="92" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#ffffff" />
-              <stop offset="100%" stop-color="#e0f2fe" />
-            </linearGradient>
-            <linearGradient id="am_page_right" x1="60" y1="30" x2="96" y2="92" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#f0fdf4" />
-              <stop offset="100%" stop-color="#ccfbf1" />
-            </linearGradient>
-            <linearGradient id="am_gold" x1="72" y1="14" x2="104" y2="46" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#fde047" />
-              <stop offset="50%" stop-color="#fbbf24" />
-              <stop offset="100%" stop-color="#f59e0b" />
-            </linearGradient>
-          </defs>
-          <rect x="4" y="4" width="112" height="112" rx="28" fill="url(#am_bg)" />
-          <rect x="6" y="6" width="108" height="108" rx="26" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2" />
-          <path d="M60 40C49 33 34 32 23 35C21.3 35.5 20 37 20 38.8V82.5C20 84.6 21.9 86.2 24 85.7C35 83.2 49 84.5 60 92V40Z" fill="url(#am_page_left)" />
-          <path d="M60 40C71 33 86 32 97 35C98.7 35.5 100 37 100 38.8V82.5C100 84.6 98.1 86.2 96 85.7C85 83.2 71 84.5 60 92V40Z" fill="url(#am_page_right)" />
-          <path d="M60 20L36 70H46.5L52 58H68L73.5 70H84L60 20ZM55.8 47.5L60 37.8L64.2 47.5H55.8Z" fill="#ffffff" />
-          <path d="M46 75L56 84L78 62" stroke="#0d9488" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M90 14C90.7 21.8 94.2 25.3 102 26C94.2 26.7 90.7 30.2 90 38C89.3 30.2 85.8 26.7 78 26C85.8 25.3 89.3 21.8 90 14Z" fill="url(#am_gold)" />
-        </svg>
-      </div>
-      <div class="brand-text">
-        <div class="brand-title-row">
-          <h1>AsesMerdeka</h1>
-          <span class="back-home-pill">← Halaman Utama</span>
+  <header class="top-bar no-print">
+    <div class="top-bar-inner">
+      <div class="top-left">
+        <a href="/" class="btn btn-back">← Kembali ke Aplikasi</a>
+        <div>
+          <div style="font-weight:800; font-size:15px;">Panduan Praktis Guru AsesMerdeka</div>
+          <nav class="breadcrumb" aria-label="Breadcrumb panduan">
+            Aplikasi / Panduan Guru / <strong id="breadcrumb-current">Semua Bagian (1–8)</strong>
+          </nav>
         </div>
-        <p>Buku Panduan Alur Kerja Nyata Guru</p>
       </div>
-    </a>
-    <div class="nav-actions">
-      <button class="btn-action" onclick="toggleTextSize()" title="Ubah Ukuran Tulisan">
-        🔤 <span class="label">Ukuran Tulisan</span>
-      </button>
-      <button class="btn-action btn-print" onclick="window.print()" title="Cetak atau Simpan PDF">
-        🖨️ <span class="label">Cetak / Simpan PDF</span>
-      </button>
+      <div class="top-actions">
+        <button type="button" class="btn" onclick="toggleFontSize()" id="btn-font-toggle">Ukuran Tulisan: 16px / 18px</button>
+        <button type="button" class="btn btn-primary" onclick="window.print()">Cetak / Simpan PDF</button>
+      </div>
     </div>
   </header>
 
-  <!-- Page Layout -->
-  <div class="page-layout">
+  <div class="container">
+    <section class="hero">
+      <span class="hero-badge">Panduan Langkah Demi Langkah Sesuai Urutan Kerja Guru</span>
+      <h1>Buku Panduan Praktis Penggunaan AsesMerdeka</h1>
+      <p>Disusun dengan bahasa sederhana dan satu langkah untuk satu tindakan. Bapak/Ibu dapat langsung memilih kebutuhan di bawah ini atau mengikuti Bagian 1 sampai Bagian 8 secara berurutan.</p>
+    </section>
 
-    <!-- Table of Contents -->
-    <aside class="toc-sidebar no-print">
-      <div class="toc-header">
-        <span>Garis Waktu Mengajar</span>
-        <span>⏱️</span>
+    <section class="card-panel no-print" aria-label="Jalur cepat Saya ingin">
+      <div class="card-panel-head">
+        <div>
+          <h2>Saya ingin...</h2>
+          <p style="font-size:14.5px; color:#475569;">Klik tujuan pekerjaan di bawah untuk menuju bagian panduan yang tepat:</p>
+        </div>
+        <input type="search" id="guide-search" class="search-input" placeholder="Cari topik: ATP, Modul Ajar, KKTP, Backup..." oninput="filterGuide(this.value)">
       </div>
-      <ul class="toc-list">
-        <li><a href="#roadmap" class="toc-link"><span class="num">🗺️</span> Peta Alur Mengajar</a></li>
-        <li><a href="#intent" class="toc-link"><span class="num">🎯</span> Mau Bikin Apa Hari Ini?</a></li>
-        <li><a href="#fase1" class="toc-link"><span class="num">1</span> Awal Semester (Setup)</a></li>
-        <li><a href="#fase2" class="toc-link"><span class="num">2</span> Sebelum Masuk Kelas (RPP)</a></li>
-        <li><a href="#fase3" class="toc-link"><span class="num">3</span> Setelah Kelas Selesai</a></li>
-        <li><a href="#fase4" class="toc-link"><span class="num">4</span> Musim Ulangan & Ujian</a></li>
-        <li><a href="#fase5" class="toc-link"><span class="num">5</span> Musim Supervisi & Rapor</a></li>
-        <li><a href="#skenario" class="toc-link"><span class="num">📖</span> Contoh Nyata 1 Hari Guru</a></li>
-        <li><a href="#faq" class="toc-link"><span class="num">❓</span> Tanya Jawab (FAQ)</a></li>
-      </ul>
-    </aside>
+      <div class="intent-grid">
+      <a href="#bagian-2" class="intent-card" onclick="selectChapter('bagian-2')">
+        <div class="intent-title">Menyiapkan kelas untuk semester baru</div>
+        <div class="intent-summary">Pilih Jenjang, Kelas, Tahun Ajaran, Semester, Mata Pelajaran, dan Rombel aktif.</div>
+        <div class="intent-location">Lokasi: Bilah atas &quot;Ganti kelas/mapel&quot; atau Pengaturan ruang kerja →</div>
+      </a>
 
-    <!-- Main Content Articles -->
-    <main class="content-area">
+      <a href="#bagian-3" class="intent-card" onclick="selectChapter('bagian-3')">
+        <div class="intent-title">Membuat ATP</div>
+        <div class="intent-summary">Susun CP, TP, dan urutan ATP tingkat fase sebelum diturunkan ke Prota &amp; Promes.</div>
+        <div class="intent-location">Lokasi: Menu kiri &quot;Alur Tujuan (ATP)&quot; -&gt; atur urutan TP -&gt; &quot;Setujui ATP Fase&quot; →</div>
+      </a>
 
-      <!-- Hero Welcome Card -->
-      <section class="hero-card">
-        <div class="hero-badge">Kurikulum Merdeka Tanpa Lembur</div>
-        <h2>Buku Panduan: Alur Mengajar Guru Bebas Bingung</h2>
-        <p>
-          Bapak/Ibu Guru tidak perlu pusing melihat banyaknya tombol di aplikasi. Administrasi mengajar Kurikulum Merdeka sebenarnya mengikuti <strong>garis waktu alami Bapak/Ibu mengajar</strong>: dari awal semester, malam sebelum mengajar, hingga pengisian rapor.
-        </p>
-      </section>
+      <a href="#bagian-4" class="intent-card" onclick="selectChapter('bagian-4')">
+        <div class="intent-title">Membuat Modul Ajar</div>
+        <div class="intent-summary">Buka draf RPP/Modul Ajar per bab, sesuaikan model belajar, lalu unduh Word (.docx).</div>
+        <div class="intent-location">Lokasi: Menu kiri &quot;Peta TP &amp; Modul Ajar&quot; -&gt; tombol &quot;Modul Ajar&quot; →</div>
+      </a>
 
-      <!-- Roadmap Timeline Section -->
-      <section id="roadmap" class="roadmap-wrapper">
-        <div class="roadmap-head">
-          <h3>🗺️ Peta Garis Waktu Guru (Dari Awal Semester Sampai Rapor)</h3>
-          <p>Klik salah satu tahapan di bawah untuk langsung menuju panduan detilnya:</p>
+      <a href="#bagian-5" class="intent-card" onclick="selectChapter('bagian-5')">
+        <div class="intent-title">Mengisi presensi</div>
+        <div class="intent-summary">Impor nama siswa kelas Anda lalu catat kehadiran 16 pertemuan dan Jurnal Mengajar.</div>
+        <div class="intent-location">Lokasi: Menu kiri &quot;Presensi Siswa&quot; -&gt; klik status H/S/I/A →</div>
+      </a>
+
+      <a href="#bagian-6" class="intent-card" onclick="selectChapter('bagian-6')">
+        <div class="intent-title">Mengolah nilai</div>
+        <div class="intent-summary">Masukkan nilai Formatif per TP, STS, dan SAS; cek Analisis TP &amp; status KKTP.</div>
+        <div class="intent-location">Lokasi: Menu kiri &quot;Buku Nilai Asesmen&quot; -&gt; Atur Bobot &amp; KKTP →</div>
+      </a>
+
+      <a href="#bagian-6" class="intent-card" onclick="selectChapter('bagian-6')">
+        <div class="intent-title">Membuat rapor</div>
+        <div class="intent-summary">Susun kalimat deskripsi capaian tertinggi &amp; perlu bimbingan untuk disalin ke e-Rapor.</div>
+        <div class="intent-location">Lokasi: Menu kiri &quot;Auto-Deskripsi e-Rapor&quot; →</div>
+      </a>
+
+      <a href="#bagian-7" class="intent-card" onclick="selectChapter('bagian-7')">
+        <div class="intent-title">Mengunduh dokumen</div>
+        <div class="intent-summary">Unduh 9 berkas administrasi supervisi lengkap ber-kop surat resmi sekolah.</div>
+        <div class="intent-location">Lokasi: Menu kiri &quot;Paket Siap Supervisi&quot; -&gt; Unduh Master Bundel (.docx) / Arsip (.zip) →</div>
+      </a>
+
+      <a href="#bagian-8" class="intent-card" onclick="selectChapter('bagian-8')">
+        <div class="intent-title">Memulihkan data</div>
+        <div class="intent-summary">Amankan pekerjaan lewat Backup (.json) atau sinkronkan perangkat lewat Lisensi aktif.</div>
+        <div class="intent-location">Lokasi: Bilah atas &quot;Profil sekolah&quot; -&gt; tombol &quot;Pulihkan Data (.json)&quot; atau Cloud Sync →</div>
+      </a></div>
+    </section>
+
+    <section class="card-panel no-print" aria-label="Daftar Isi Panduan">
+      <div class="card-panel-head">
+        <div>
+          <h2>Daftar Isi Panduan (Bagian 1 – Bagian 8)</h2>
         </div>
-
-        <div class="timeline-track">
-          <!-- Step 1 -->
-          <a href="#fase1" class="timeline-node">
-            <div class="node-icon-wrap node-fase1">1</div>
-            <div class="node-content">
-              <h4>
-                Awal Semester Baru: Setel Kelas & Profil
-                <span class="node-tag tag-blue">Sekali Seumur Semester • 3 Menit</span>
-              </h4>
-              <p>Pilih kelas dan mata pelajaran. Seluruh Capaian Pembelajaran (CP) dan Alur Tujuan (ATP) resmi langsung tersusun otomatis.</p>
-            </div>
-          </a>
-
-          <!-- Step 2 -->
-          <a href="#fase2" class="timeline-node">
-            <div class="node-icon-wrap node-fase2">2</div>
-            <div class="node-content">
-              <h4>
-                Malam Sebelum Mengajar: Ambil Modul Ajar (RPP) & LKPD
-                <span class="node-tag tag-green">Rutinitas Mingguan • 2 Menit</span>
-              </h4>
-              <p>Buka menu Peta TP, klik tombol Modul Ajar untuk pegangan mengajar dan tombol LKPD untuk dicetak ke murid.</p>
-            </div>
-          </a>
-
-          <!-- Step 3 -->
-          <a href="#fase3" class="timeline-node">
-            <div class="node-icon-wrap node-fase3">3</div>
-            <div class="node-content">
-              <h4>
-                Siang Hari Selesai Kelas: Isi Absen & Jurnal
-                <span class="node-tag tag-amber">Rutinitas Harian • 1 Menit</span>
-              </h4>
-              <p>Buka menu Presensi untuk mencatat kehadiran murid dan simpan Jurnal Mengajar harian tanpa perlu ketik ulang materi.</p>
-            </div>
-          </a>
-
-          <!-- Step 4 -->
-          <a href="#fase4" class="timeline-node">
-            <div class="node-icon-wrap node-fase4">4</div>
-            <div class="node-content">
-              <h4>
-                Tengah & Akhir Semester: Naskah Ujian & Rekap Nilai
-                <span class="node-tag tag-purple">Musim Ulangan STS & SAS</span>
-              </h4>
-              <p>AI menyusun naskah soal ulangan lengkap dengan kunci jawaban. Masukkan nilai formatif & sumatif, nilai akhir langsung beres.</p>
-            </div>
-          </a>
-
-          <!-- Step 5 -->
-          <a href="#fase5" class="timeline-node">
-            <div class="node-icon-wrap node-fase5">5</div>
-            <div class="node-content">
-              <h4>
-                Pemeriksaan Supervisi & Rapor: 1-Klik Unduh ZIP
-                <span class="node-tag tag-rose">Penyelamat Waktu Guru</span>
-              </h4>
-              <p>Unduh seluruh dokumen semesteran dalam 1 file ZIP untuk Kepala Sekolah, dan salin kalimat narasi deskripsi e-Rapor otomatis.</p>
-            </div>
-          </a>
+        <button type="button" class="btn" onclick="showAllChapters()">Tampilkan Semua Bagian (1–8)</button>
+      </div>
+      <div class="toc-grid">
+      <a href="#bagian-1" class="toc-card" data-toc-card="bagian-1" onclick="selectChapter('bagian-1')">
+        <div class="toc-card-meta">
+          <span class="badge-code">BAGIAN 1</span>
+          <span class="badge-cat">Pengenalan &amp; Awal Pemakaian</span>
         </div>
-      </section>
+        <div class="toc-card-title">Mulai Menggunakan AsesMerdeka</div>
+      </a>
 
-      <!-- Intent Matrix / Quick Finder -->
-      <section id="intent" class="intent-matrix">
-        <h3>🎯 Papan Pencari Cepat: "Hari Ini Saya Mau Buat Apa?"</h3>
-        <p style="font-size: 14px; color: var(--text-muted);">
-          Gunakan panduan kilat di bawah ini saat Bapak/Ibu membutuhkan dokumen tertentu:
-        </p>
-
-        <div class="intent-grid">
-          <div class="intent-card">
-            <div class="intent-goal">📘 Mau Rencana Mengajar (RPP)</div>
-            <div class="intent-action">Buka <strong>Peta TP</strong> ➔ Klik tombol biru <strong>Modul Ajar (RPP)</strong> ➔ Unduh Word.</div>
-          </div>
-
-          <div class="intent-card">
-            <div class="intent-goal">📄 Mau Tugas/Lembar Kerja Murid</div>
-            <div class="intent-action">Buka <strong>Peta TP</strong> ➔ Klik tombol hijau <strong>LKPD Siswa</strong> ➔ Cetak ke kertas.</div>
-          </div>
-
-          <div class="intent-card">
-            <div class="intent-goal">📝 Mau Bikin Soal Ulangan</div>
-            <div class="intent-action">Buka <strong>Peta TP</strong> ➔ Klik tombol <strong>Buat Soal Evaluasi</strong> ➔ Soal + Kunci Jawaban instan.</div>
-          </div>
-
-          <div class="intent-card">
-            <div class="intent-goal">🛡️ Mau Kumpul Berkas ke Pengawas</div>
-            <div class="intent-action">Buka menu <strong>Paket Siap Supervisi</strong> ➔ Klik <strong>Unduh Paket Lengkap (.ZIP)</strong>.</div>
-          </div>
-
-          <div class="intent-card">
-            <div class="intent-goal">✍️ Mau Tulis Deskripsi Rapor</div>
-            <div class="intent-action">Buka <strong>Auto-Deskripsi e-Rapor</strong> ➔ Narasi otomatis capaian tertinggi & terendah murid siap copy.</div>
-          </div>
-
-          <div class="intent-card">
-            <div class="intent-goal">👥 Mau Catat Absen Kelas</div>
-            <div class="intent-action">Buka menu <strong>Presensi Siswa</strong> ➔ Klik tombol status kehadiran 16 pertemuan.</div>
-          </div>
+      <a href="#bagian-2" class="toc-card" data-toc-card="bagian-2" onclick="selectChapter('bagian-2')">
+        <div class="toc-card-meta">
+          <span class="badge-code">BAGIAN 2</span>
+          <span class="badge-cat">Persiapan Awal Semester</span>
         </div>
-      </section>
+        <div class="toc-card-title">Persiapan Awal Semester &amp; Kelas</div>
+      </a>
 
-      <!-- Fase 1 -->
-      <article id="fase1" class="guide-section">
-        <div class="section-head">
-          <div class="section-badge-icon badge-icon-1">1</div>
-          <div>
-            <h3>Fase 1: Awal Semester Baru (Setel Sekali Saja)</h3>
-            <p class="subtitle">Hanya butuh waktu sekitar 3 menit di awal tahun ajaran atau saat ganti kelas.</p>
-          </div>
+      <a href="#bagian-3" class="toc-card" data-toc-card="bagian-3" onclick="selectChapter('bagian-3')">
+        <div class="toc-card-meta">
+          <span class="badge-code">BAGIAN 3</span>
+          <span class="badge-cat">Kurikulum &amp; Perencanaan</span>
         </div>
+        <div class="toc-card-title">Menyiapkan Kurikulum (CP → TP → ATP → Prota/Promes)</div>
+      </a>
 
-        <p>
-          Sebelum mulai menyusun materi, aplikasi butuh mengetahui kelas mana yang Bapak/Ibu ajar. Ikuti 2 langkah mudah ini:
-        </p>
+      <a href="#bagian-4" class="toc-card" data-toc-card="bagian-4" onclick="selectChapter('bagian-4')">
+        <div class="toc-card-meta">
+          <span class="badge-code">BAGIAN 4</span>
+          <span class="badge-cat">Persiapan Mengajar</span>
+        </div>
+        <div class="toc-card-title">Modul Ajar, Materi, LKPD, Soal Evaluasi &amp; Ujian</div>
+      </a>
 
-        <div class="visual-step-flow">
-          <div class="vstep-card active-step">
-            <div class="vstep-header">
-              <h4>Langkah 1.1: Memilih Kelas & Mata Pelajaran</h4>
-              <span class="vstep-time">Waktu: 1 Menit</span>
-            </div>
-            <p>
-              Klik tombol besar <strong>"Pilih Kelas & Mata Pelajaran"</strong> di bilah atas layar. Pilih Jenjang (SD/SMP/SMA), Kelas, Mata Pelajaran, dan Semester. Lalu klik tombol hijau <strong>"Simpan & Masuk ke Kelas Ini"</strong>.
-            </p>
-            <div class="callout callout-important" style="margin: 10px 0 0 0;">
-              <div class="callout-icon">✨</div>
-              <div>
-                <strong>Keajaiban Otomatis:</strong> Begitu tombol disimpan, seluruh Capaian Pembelajaran (CP), Alur Tujuan (ATP), dan daftar bab pelajaran resmi dari Kementerian langsung terisi otomatis. Bapak/Ibu tidak perlu mengetik nama materi dari nol!
+      <a href="#bagian-5" class="toc-card" data-toc-card="bagian-5" onclick="selectChapter('bagian-5')">
+        <div class="toc-card-meta">
+          <span class="badge-code">BAGIAN 5</span>
+          <span class="badge-cat">Kegiatan Harian Guru</span>
+        </div>
+        <div class="toc-card-title">Ruang Kerja Harian: Presensi &amp; Jurnal Mengajar</div>
+      </a>
+
+      <a href="#bagian-6" class="toc-card" data-toc-card="bagian-6" onclick="selectChapter('bagian-6')">
+        <div class="toc-card-meta">
+          <span class="badge-code">BAGIAN 6</span>
+          <span class="badge-cat">Penilaian &amp; Rapor</span>
+        </div>
+        <div class="toc-card-title">Buku Nilai, KKTP, Bukti Asesmen &amp; e-Rapor</div>
+      </a>
+
+      <a href="#bagian-7" class="toc-card" data-toc-card="bagian-7" onclick="selectChapter('bagian-7')">
+        <div class="toc-card-meta">
+          <span class="badge-code">BAGIAN 7</span>
+          <span class="badge-cat">Supervisi &amp; Administrasi</span>
+        </div>
+        <div class="toc-card-title">Paket Siap Supervisi &amp; Ekspor Dokumen (.docx / .zip)</div>
+      </a>
+
+      <a href="#bagian-8" class="toc-card" data-toc-card="bagian-8" onclick="selectChapter('bagian-8')">
+        <div class="toc-card-meta">
+          <span class="badge-code">BAGIAN 8</span>
+          <span class="badge-cat">Penyimpanan, Backup &amp; Bantuan</span>
+        </div>
+        <div class="toc-card-title">Penyimpanan Lokal, Cloud Sync, Backup &amp; Bantuan</div>
+      </a></div>
+    </section>
+
+    <div class="mobile-drawer-wrap no-print">
+      <button type="button" class="btn" style="width:100%; justify-content:space-between;" onclick="toggleMobileDrawer()">
+        <span>Daftar Bab Panduan (1–8)</span>
+        <span id="drawer-arrow">▼</span>
+      </button>
+      <div class="mobile-drawer-list" id="mobile-drawer">
+        <a href="#bagian-1" class="mobile-drawer-item" onclick="selectChapter('bagian-1')">BAGIAN 1 — Mulai Menggunakan AsesMerdeka</a>
+<a href="#bagian-2" class="mobile-drawer-item" onclick="selectChapter('bagian-2')">BAGIAN 2 — Persiapan Awal Semester &amp; Kelas</a>
+<a href="#bagian-3" class="mobile-drawer-item" onclick="selectChapter('bagian-3')">BAGIAN 3 — Menyiapkan Kurikulum (CP → TP → ATP → Prota/Promes)</a>
+<a href="#bagian-4" class="mobile-drawer-item" onclick="selectChapter('bagian-4')">BAGIAN 4 — Modul Ajar, Materi, LKPD, Soal Evaluasi &amp; Ujian</a>
+<a href="#bagian-5" class="mobile-drawer-item" onclick="selectChapter('bagian-5')">BAGIAN 5 — Ruang Kerja Harian: Presensi &amp; Jurnal Mengajar</a>
+<a href="#bagian-6" class="mobile-drawer-item" onclick="selectChapter('bagian-6')">BAGIAN 6 — Buku Nilai, KKTP, Bukti Asesmen &amp; e-Rapor</a>
+<a href="#bagian-7" class="mobile-drawer-item" onclick="selectChapter('bagian-7')">BAGIAN 7 — Paket Siap Supervisi &amp; Ekspor Dokumen (.docx / .zip)</a>
+<a href="#bagian-8" class="mobile-drawer-item" onclick="selectChapter('bagian-8')">BAGIAN 8 — Penyimpanan Lokal, Cloud Sync, Backup &amp; Bantuan</a>
+      </div>
+    </div>
+
+    <div class="layout">
+      <aside class="sidebar no-print" aria-label="Daftar bab panduan">
+        <div class="sidebar-title">Daftar Bab (8 Bagian)</div>
+        <ul>
+      <li>
+        <a href="#bagian-1" class="sidebar-link" data-sidebar-link="bagian-1" onclick="selectChapter('bagian-1')">
+          <span class="sidebar-num">1</span>
+          <span>Mulai Menggunakan AsesMerdeka</span>
+        </a>
+      </li>
+
+      <li>
+        <a href="#bagian-2" class="sidebar-link" data-sidebar-link="bagian-2" onclick="selectChapter('bagian-2')">
+          <span class="sidebar-num">2</span>
+          <span>Persiapan Awal Semester &amp; Kelas</span>
+        </a>
+      </li>
+
+      <li>
+        <a href="#bagian-3" class="sidebar-link" data-sidebar-link="bagian-3" onclick="selectChapter('bagian-3')">
+          <span class="sidebar-num">3</span>
+          <span>Menyiapkan Kurikulum (CP → TP → ATP → Prota/Promes)</span>
+        </a>
+      </li>
+
+      <li>
+        <a href="#bagian-4" class="sidebar-link" data-sidebar-link="bagian-4" onclick="selectChapter('bagian-4')">
+          <span class="sidebar-num">4</span>
+          <span>Modul Ajar, Materi, LKPD, Soal Evaluasi &amp; Ujian</span>
+        </a>
+      </li>
+
+      <li>
+        <a href="#bagian-5" class="sidebar-link" data-sidebar-link="bagian-5" onclick="selectChapter('bagian-5')">
+          <span class="sidebar-num">5</span>
+          <span>Ruang Kerja Harian: Presensi &amp; Jurnal Mengajar</span>
+        </a>
+      </li>
+
+      <li>
+        <a href="#bagian-6" class="sidebar-link" data-sidebar-link="bagian-6" onclick="selectChapter('bagian-6')">
+          <span class="sidebar-num">6</span>
+          <span>Buku Nilai, KKTP, Bukti Asesmen &amp; e-Rapor</span>
+        </a>
+      </li>
+
+      <li>
+        <a href="#bagian-7" class="sidebar-link" data-sidebar-link="bagian-7" onclick="selectChapter('bagian-7')">
+          <span class="sidebar-num">7</span>
+          <span>Paket Siap Supervisi &amp; Ekspor Dokumen (.docx / .zip)</span>
+        </a>
+      </li>
+
+      <li>
+        <a href="#bagian-8" class="sidebar-link" data-sidebar-link="bagian-8" onclick="selectChapter('bagian-8')">
+          <span class="sidebar-num">8</span>
+          <span>Penyimpanan Lokal, Cloud Sync, Backup &amp; Bantuan</span>
+        </a>
+      </li></ul>
+      </aside>
+
+      <main id="chapters-container">
+        
+  <article id="bagian-1" class="guide-article" data-chapter-id="bagian-1" data-keywords="dashboard awal profil sekolah kop surat lisensi pratinjau tersimpan lokal workspace">
+    <div class="article-header">
+      <div class="article-badges">
+        <span class="badge-code">BAGIAN 1</span>
+        <span class="badge-cat">Pengenalan &amp; Awal Pemakaian</span>
+        <span class="badge-time">Sekali di awal • ±3 menit</span>
+      </div>
+      <h2>BAGIAN 1 — MULAI MENGGUNAKAN ASESMERDEKA</h2>
+      <p class="article-subtitle">Mengenal layar utama, tombol header, Profil sekolah, penyimpanan lokal, status lisensi, dan cara memulai workspace.</p>
+      <div class="ui-location-hint"><strong>Letak di Aplikasi:</strong> Bilah atas (Header), Menu navigasi kiri (Sidebar), dan layar Pengaturan ruang kerja.</div>
+    </div>
+
+    <div class="ui-pills-box">
+        <div class="ui-pills-title">Tombol Asli di Layar Aplikasi:</div>
+        <div class="ui-pills-grid">
+          <div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Profil sekolah</span>
+                <span class="ui-pill-note">Di bilah atas: isi kop surat &amp; tanda tangan</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Lisensi</span>
+                <span class="ui-pill-note">Di bilah atas: aktivasi kode &amp; lihat paket</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-primary">Panduan</span>
+                <span class="ui-pill-note">Di bilah atas: buka panduan ini kapan saja</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Bantuan</span>
+                <span class="ui-pill-note">Di bilah atas: kirim laporan kendala</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-success">Buka ruang kerja</span>
+                <span class="ui-pill-note">Masuk ke administrasi kelas &amp; mapel terpilih</span>
               </div>
-            </div>
-          </div>
-
-          <div class="vstep-card">
-            <div class="vstep-header">
-              <h4>Langkah 1.2: Mengisi Profil Sekolah & Tanda Tangan</h4>
-              <span class="vstep-time">Waktu: 2 Menit</span>
-            </div>
-            <p>
-              Klik tombol <strong>"Profil Sekolah"</strong> (ikon gedung di kanan atas). Masukkan nama sekolah, nama Bapak/Ibu Guru beserta NIP, dan nama Kepala Sekolah beserta NIP.
-            </p>
-            <p style="margin-bottom: 0;">
-              <em>Manfaatnya:</em> Setiap kali Bapak/Ibu mengunduh file Word atau mencetak berkas, bagian kop surat dan kolom tanda tangan di lembar pengesahan sudah otomatis tercantum nama lengkap Bapak/Ibu!
-            </p>
-          </div>
         </div>
-      </article>
+      </div>
 
-      <!-- Fase 2 -->
-      <article id="fase2" class="guide-section">
-        <div class="section-head">
-          <div class="section-badge-icon badge-icon-2">2</div>
-          <div>
-            <h3>Fase 2: Menyiapkan Pembelajaran (Malam Sebelum Masuk Kelas)</h3>
-            <p class="subtitle">Menu paling favorit guru untuk menyiapkan RPP dan lembar kerja tugas murid.</p>
-          </div>
-        </div>
+    <div class="section-stack">
+      <section>
+        <h3>1. Tujuan</h3>
+        <p>Membantu Bapak/Ibu Guru memahami tata letak layar utama AsesMerdeka, mengisi identitas sekolah untuk kop surat dokumen, serta memahami cara kerja penyimpanan data dan lisensi sebelum mulai menyusun administrasi semester.</p>
+      </section>
 
-        <p>
-          Ketika besok pagi Bapak/Ibu ada jam mengajar di kelas, cukup buka menu paling atas di sisi kiri: <strong>"Peta TP & Modul Ajar"</strong>.
-          Layar akan menampilkan kartu-kartu materi per bab. Di bawah tiap bab terdapat 4 tombol aksi:
-        </p>
+      <section>
+        <h3>2. Kapan digunakan?</h3>
+        <p>Digunakan saat pertama kali membuka AsesMerdeka di laptop atau HP, saat berganti perangkat baru, atau sebelum mengunduh dokumen resmi ke format Word (.docx) agar nama guru, NIP, dan kepala sekolah terpasang rapi.</p>
+      </section>
 
-        <div class="btn-mockup-group">
-          <button class="btn-mock btn-mock-modul">📘 Modul Ajar (RPP)</button>
-          <button class="btn-mock btn-mock-lkpd">📄 LKPD Siswa</button>
-          <button class="btn-mock btn-mock-soal">📝 Buat Soal Evaluasi</button>
-          <button class="btn-mock btn-mock-rangkuman">📖 Rangkuman Materi</button>
-        </div>
+      <section>
+        <h3>3. Persiapan</h3>
+        <ul class="prep-list">
+          <li>Nama sekolah/madrasah, alamat sekolah, dan baris kop instansi/dinas.</li><li>Nama lengkap Bapak/Ibu Guru serta NIP/NUPTK (jika ada).</li><li>Nama lengkap Kepala Sekolah/Madrasah serta NIP (jika ada).</li><li>Kode lisensi resmi (jika sudah membeli melalui Admin) — opsional, karena Mode Pratinjau tetap bisa dipakai untuk mencoba alur kerja.</li>
+        </ul>
+      </section>
 
-        <div class="visual-step-flow">
-          <div class="vstep-card active-step">
-            <div class="vstep-header">
-              <h4>1. Klik Tombol Biru Tua `📘 Modul Ajar (RPP)`</h4>
-              <span class="vstep-time">Pegangan Mengajar Guru</span>
-            </div>
-            <p>
-              Modul ajar 1 bab lengkap akan langsung terbuka di layar (Tujuan, Profil Pelajar Pancasila, Pertemuan 1–3, Refleksi, Asesmen Formatif, dan Glosarium).
-            </p>
-            <ul style="margin-left: 20px; line-height: 1.8; color: #475569; font-size: 14.5px;">
-              <li><strong>Pilih Model Belajar:</strong> Bapak/Ibu bisa memilih model pembelajaran sesuai kelas: <em>Problem Based Learning (PBL)</em>, <em>Project Based (PjBL)</em>, <em>Inkuiri</em>, <em>Diferensiasi</em>, atau <em>Kontekstual</em>.</li>
-              <li><strong>Bisa Diedit Langsung di Layar:</strong> Klik tulisan mana saja di layar jika ingin menambah atau mengubah kalimatnya.</li>
-              <li><strong>Unduh Word (.docx):</strong> Klik tombol biru di kanan atas untuk menyimpan ke laptop dalam format Microsoft Word yang rapi dan siap dicetak.</li>
-            </ul>
-          </div>
+      
 
-          <div class="vstep-card">
-            <div class="vstep-header">
-              <h4>2. Klik Tombol Hijau `📄 LKPD Siswa`</h4>
-              <span class="vstep-time">Lembar Tugas Murid di Kelas</span>
-            </div>
-            <p>
-              Membuka Lembar Kerja Peserta Didik siap pakai yang sudah memuat stimulus cerita kasus, petunjuk tugas kelompok/mandiri, dan rubrik penilaian guru. Tinggal klik <strong>"Cetak PDF"</strong> atau <strong>"Unduh Word"</strong> untuk difotokopi dan dibagikan ke murid.
-            </p>
-          </div>
-        </div>
+      <section>
+        <h3>4. Langkah-langkah</h3>
+        <ol class="step-list">
+          <li class="step-card">
+                <span class="step-num">1</span>
+                <div>
+                  <div class="step-action">Kenali menu navigasi utama di sebelah kiri (atau tombol garis tiga di pojok kiri atas HP)</div>
+                  <div class="step-detail">Menu kiri terbagi rapi menjadi 4 kelompok: &quot;Perangkat Semester&quot; (Peta TP &amp; Modul Ajar, Alur Tujuan (ATP), Program Tahunan, Program Semester, Modul Projek P5), &quot;Kelas Harian &amp; Rapor&quot; (Presensi Siswa, Jurnal Mengajar, Buku Nilai Asesmen, Auto-Deskripsi e-Rapor), &quot;Supervisi &amp; Ekspor&quot; (Paket Siap Supervisi), dan &quot;Evaluasi &amp; Arsip&quot; (Naskah Ujian STS &amp; SAS, Bank Soal &amp; Arsip, Buat Soal Evaluasi AI, Buat Rangkuman AI).</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">2</span>
+                <div>
+                  <div class="step-action">Kenali 5 penanda dan tombol di bilah atas (Header)</div>
+                  <div class="step-detail">Di bagian kanan atas terdapat: (1) Indikator penyimpanan (&quot;Tersimpan lokal&quot; atau &quot;Lokal &amp; cloud&quot;), (2) tombol &quot;Profil sekolah&quot; (ikon gedung/sekolah), (3) tombol &quot;Lisensi&quot; / &quot;Lisensi aktif&quot; (ikon kunci), (4) tombol &quot;Panduan&quot; (ikon buku, tempat buku panduan ini berada), dan (5) tombol &quot;Bantuan&quot; (ikon tanda tanya untuk FAQ dan mengirim laporan kendala).</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">3</span>
+                <div>
+                  <div class="step-action">Klik tombol &quot;Profil sekolah&quot; di kanan atas untuk mengisi kop surat &amp; pengesahan</div>
+                  <div class="step-detail">Isi &quot;Instansi Dinas / Yayasan&quot;, &quot;Nama Sekolah / Madrasah&quot;, &quot;Alamat Lengkap Sekolah&quot;, &quot;Kota / Kabupaten&quot;, &quot;Nama Lengkap Bapak/Ibu Guru&quot;, dan &quot;Nama Kepala Sekolah / Madrasah&quot; beserta NIP bila ada.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">4</span>
+                <div>
+                  <div class="step-action">Centang opsi kop resmi &amp; tanda tangan bila diperlukan, lalu klik &quot;Simpan Data Kelas&quot;</div>
+                  <div class="step-detail">Pastikan kotak centang kop resmi sekolah dan kolom tanda tangan pengesahan sesuai aturan sekolah Bapak/Ibu sebelum menekan tombol biru &quot;Simpan Data Kelas&quot;.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">5</span>
+                <div>
+                  <div class="step-action">Cek status lisensi melalui tombol &quot;Lisensi&quot; di kanan atas atau &quot;Aktivasi lisensi&quot; di menu kiri bawah</div>
+                  <div class="step-detail">Tanpa kode lisensi, aplikasi berjalan pada &quot;Mode Pratinjau&quot; (ekspor Word dan arsip ZIP terkunci). Jika Bapak/Ibu sudah memiliki kode lisensi dari Admin, masukkan kode pada kolom aktivasi lalu klik &quot;Aktivasi &amp; Sinkronkan&quot;. Jika belum membeli, pilih salah satu dari dua paket resmi dan klik tombol beli untuk menghubungi Admin via WhatsApp.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">6</span>
+                <div>
+                  <div class="step-action">Mulai workspace melalui layar &quot;Pengaturan ruang kerja&quot; dan klik &quot;Buka ruang kerja&quot;</div>
+                  <div class="step-detail">Setelah Jenjang, Kelas, Mata Pelajaran, Semester, dan Rombel dipilih pada layar persiapan awal, klik tombol biru &quot;Buka ruang kerja&quot; untuk masuk ke daftar bab dan tujuan pembelajaran.</div>
+                </div>
+              </li>
+        </ol>
+      </section>
 
-        <div class="callout callout-tip">
-          <div class="callout-icon">🤝</div>
-          <div>
-            <strong>Fitur Baru — Bank Referensi Komunitas:</strong><br>
-            Bapak/Ibu juga bisa melihat dan meniru draf modul ajar berkualitas dari sesama rekan guru di seluruh Indonesia secara instan (0 detik). Identitas sekolah dan NIP guru terlindungi aman tanpa kebocoran data.
-          </div>
-        </div>
-      </article>
+      
+      
 
-      <!-- Fase 3 -->
-      <article id="fase3" class="guide-section">
-        <div class="section-head">
-          <div class="section-badge-icon badge-icon-3">3</div>
-          <div>
-            <h3>Fase 3: Setelah Bel Kelas Berbunyi (Rutinitas Harian)</h3>
-            <p class="subtitle">Hanya butuh 1 menit untuk menyelesaikan administrasi kelas sebelum pulang.</p>
-          </div>
-        </div>
-
-        <p>
-          Setelah selesai mengajar di kelas, buka bagian <strong>"KELAS HARIAN & RAPOR"</strong> di menu sebelah kiri:
-        </p>
-
-        <div class="visual-step-flow">
-          <div class="vstep-card">
-            <div class="vstep-header">
-              <h4>1. Menu "Presensi Siswa"</h4>
-              <span class="vstep-time">Absensi Kelas</span>
-            </div>
-            <p>
-              Tersedia tabel absensi untuk 16 kali pertemuan satu semester. Cukup klik status murid (Hadir, Sakit, Izin, Alpa). Persentase kehadiran kelas otomatis dihitung oleh sistem.
-            </p>
-          </div>
-
-          <div class="vstep-card">
-            <div class="vstep-header">
-              <h4>2. Menu "Jurnal Mengajar Guru"</h4>
-              <span class="vstep-time">Agenda Pembelajaran</span>
-            </div>
-            <p>
-              Mencatat materi yang sudah Bapak/Ibu ajarkan hari ini. Materi TP langsung tersambung otomatis sehingga Bapak/Ibu tidak perlu mengetik ulang uraian materi yang panjang.
-            </p>
-          </div>
-        </div>
-      </article>
-
-      <!-- Fase 4 -->
-      <article id="fase4" class="guide-section">
-        <div class="section-head">
-          <div class="section-badge-icon badge-icon-4">4</div>
-          <div>
-            <h3>Fase 4: Musim Ulangan Harian & Ujian Semester</h3>
-            <p class="subtitle">Penyusunan naskah soal dan pengolahan nilai otomatis tanpa rumus Excel.</p>
-          </div>
-        </div>
-
-        <p>
-          Ketika tiba saatnya ulangan harian atau ujian semester:
-        </p>
-
-        <div class="visual-step-flow">
-          <div class="vstep-card">
-            <div class="vstep-header">
-              <h4>1. Bikin Soal Evaluasi Otomatis (Tombol Biru Muda)</h4>
-              <span class="vstep-time">Soal Evaluasi AI</span>
-            </div>
-            <p>
-              Di kartu bab pada menu Peta TP, klik tombol <strong>"Buat Soal Evaluasi"</strong>. AI akan otomatis merangkai 5–10 butir soal (Pilihan Ganda & Uraian HOTS), kisi-kisi soal, dan kunci jawaban guru.
-            </p>
-          </div>
-
-          <div class="vstep-card">
-            <div class="vstep-header">
-              <h4>2. Menu "Buku Nilai Asesmen"</h4>
-              <span class="vstep-time">Olah Nilai Otomatis</span>
-            </div>
-            <p>
-              Masukkan nilai tugas harian (Formatif) serta nilai STS dan SAS. Sistem secara otomatis menghitung <strong>Nilai Akhir</strong> (pembobotan 50% Formatif, 25% STS, 25% SAS) serta memunculkan predikat huruf (A, B, C) tanpa rumus rumit.
-            </p>
-          </div>
-        </div>
-      </article>
-
-      <!-- Fase 5 -->
-      <article id="fase5" class="guide-section">
-        <div class="section-head">
-          <div class="section-badge-icon badge-icon-5">5</div>
-          <div>
-            <h3>Fase 5: Momen Pemeriksaan Supervisi & Pembagian Rapor</h3>
-            <p class="subtitle">Dua fitur yang paling banyak menyelamatkan waktu guru di akhir semester.</p>
-          </div>
-        </div>
-
-        <div class="visual-step-flow">
-          <div class="vstep-card active-step">
-            <div class="vstep-header">
-              <h4>🛡️ Menu "Paket Siap Supervisi" (1-Klik Master ZIP)</h4>
-              <span class="vstep-time">Untuk Kepala Sekolah / Pengawas</span>
-            </div>
-            <p>
-              Saat ada jadwal supervisi, Bapak/Ibu tidak perlu lembur mencetak berkas satu per satu. Cukup buka menu <strong>"Paket Siap Supervisi"</strong> di menu kiri, lalu klik tombol hijau besar <strong>"Unduh Paket Supervisi Lengkap (.ZIP)"</strong>.
-            </p>
-            <p style="margin-bottom: 0;">
-              Satu paket file ZIP rapi akan terunduh ke laptop Bapak/Ibu, berisi: <em>ATP Word resmi, Program Tahunan (Prota), Program Semester (Promes), seluruh Modul Ajar bab 1–selesai, seluruh LKPD, Rekap Presensi, dan Jurnal Mengajar</em>. Tinggal ekstrak dan cetak!
-            </p>
-          </div>
-
-          <div class="vstep-card">
-            <div class="vstep-header">
-              <h4>✨ Menu "Auto-Deskripsi e-Rapor"</h4>
-              <span class="vstep-time">Untuk Pengisian Rapor Resmi</span>
-            </div>
-            <p>
-              Menulis deskripsi narasi rapor untuk 30 murid biasanya memakan waktu berhari-hari. Di menu ini, sistem membaca nilai tertinggi dan terendah masing-masing siswa, lalu otomatis merangkai kalimat narasi capaian kompetensi yang siap disalin (copy-paste) ke aplikasi e-Rapor kementerian!
-            </p>
-          </div>
-        </div>
-      </article>
-
-      <!-- Real Scenario Walkthrough -->
-      <section id="skenario" class="scenario-box">
-        <h4>📖 Contoh Nyata: 1 Hari Bersama AsesMerdeka</h4>
-        <div class="scenario-timeline">
-          <div class="scenario-step">
-            <span class="scenario-time">Minggu 20:00</span>
-            <div>Buka AsesMerdeka di laptop. Masuk menu <strong>Peta TP</strong>, klik <strong>Modul Ajar Bab 2</strong>. Pilih model PBL, klik <strong>Unduh Word</strong>. Klik tombol <strong>LKPD</strong> lalu cetak untuk tugas besok. (Selesai dalam 3 menit).</div>
-          </div>
-          <div class="scenario-step">
-            <span class="scenario-time">Senin 08:00</span>
-            <div>Masuk kelas dengan tenang membawa modul ajar dan membagikan lembar LKPD ke meja murid.</div>
-          </div>
-          <div class="scenario-step">
-            <span class="scenario-time">Senin 11:30</span>
-            <div>Selesai jam mengajar, buka HP atau laptop. Klik menu <strong>Presensi</strong> untuk centang kehadiran murid, lalu klik simpan <strong>Jurnal Mengajar</strong>. (Selesai dalam 1 menit).</div>
-          </div>
-          <div class="scenario-step">
-            <span class="scenario-time">Jumat 14:00</span>
-            <div>Kepala sekolah mengumumkan ada supervisi hari Senin. Buka menu <strong>Paket Siap Supervisi</strong>, klik 1 tombol unduh ZIP. Semua dokumen semesteran sudah rapi di map. Bebas stres!</div>
-          </div>
+      <section>
+        <h3 class="heading-success">5. Hasil yang diharapkan</h3>
+        <div class="result-box">
+          <div class="result-row">✓ Nama sekolah Bapak/Ibu tampil pada tombol &quot;Profil sekolah&quot; di bilah atas.</div><div class="result-row">✓ Setiap kali membuat atau mengunduh dokumen Word (.docx), kop surat dan blok tanda tangan Guru + Kepala Sekolah sudah terisi otomatis.</div><div class="result-row">✓ Status penyimpanan tampil jelas di bilah atas (&quot;Tersimpan lokal&quot; pada perangkat, atau &quot;Lokal &amp; cloud&quot; bila lisensi aktif dan sinkronisasi server berjalan).</div>
         </div>
       </section>
 
-      <!-- FAQ Section -->
-      <article id="faq" class="guide-section">
-        <div class="section-head">
-          <div class="section-badge-icon badge-icon-1">❓</div>
-          <div>
-            <h3>Tanya Jawab yang Sering Ditanyakan (FAQ)</h3>
-            <p class="subtitle">Jawaban praktis atas pertanyaan seputar penggunaan aplikasi.</p>
-          </div>
+      <section>
+        <h3 class="heading-warning">6. Kesalahan umum</h3>
+        <div class="mistake-stack">
+          <div class="mistake-card">
+                <div class="mistake-title">Kendala: Mengira aplikasi harus selalu login dengan password email sebelum bisa mencoba fitur.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> AsesMerdeka langsung menyimpan pekerjaan secara otomatis di peramban (browser) perangkat yang sedang dibuka tanpa formulir pendaftaran akun yang rumit.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Langsung mencetak dokumen saat nama sekolah dan nama guru masih kosong atau bawaan contoh.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Klik tombol &quot;Profil sekolah&quot; di kanan atas terlebih dahulu, lengkapi identitas guru dan kepala sekolah, lalu klik &quot;Simpan Data Kelas&quot;.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Menutup tab browser lalu khawatir data hilang karena tidak menemukan tombol &quot;Save&quot; di setiap kotak.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Periksa penanda &quot;Tersimpan lokal&quot; di bilah atas dan tombol &quot;Unduh Backup Data (.json)&quot; di &quot;Profil sekolah&quot; untuk cadangan berkala.</div>
+              </div>
         </div>
+      </section>
 
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">
-            <span>Apakah ketikan saya akan hilang jika laptop mati atau browser ditutup?</span>
-            <span>➕</span>
-          </div>
-          <div class="faq-answer">
-            <strong>Tidak akan hilang.</strong> Aplikasi AsesMerdeka otomatis menyimpan data ke memori browser secara instan. Jika terhubung ke akun lisensi, data juga disinkronkan aman ke Cloud. Begitu aplikasi dibuka kembali, semua tulisan Bapak/Ibu tetap ada persis seperti semula.
-          </div>
+      <section>
+        <h3>7. Langkah selanjutnya</h3>
+        <div class="next-box">
+          <p>Setelah Profil sekolah dan pemahaman tombol dasar beres, lanjutkan ke pengaturan Jenjang, Kelas, Mata Pelajaran, dan Semester aktif.</p>
+          <a href="#bagian-2" class="btn-next-inline no-print" onclick="selectChapter('bagian-2')">Lanjut ke BAGIAN 2 — PERSIAPAN AWAL SEMESTER →</a>
         </div>
+      </section>
 
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">
-            <span>Bagaimana cara memasukkan daftar nama murid kelas saya sendiri?</span>
-            <span>➕</span>
-          </div>
-          <div class="faq-answer">
-            Buka menu <strong>Presensi Siswa</strong> atau <strong>Buku Nilai</strong> di menu sebelah kiri. Klik tombol <strong>"Kelola Siswa"</strong> atau <strong>"Impor dari Excel"</strong>. Bapak/Ibu bisa langsung menempelkan (paste) daftar nama anak murid kelas Bapak/Ibu, dan seluruh data dummy bawaan akan otomatis tergantikan.
-          </div>
+      <div class="faq-section">
+        <h3>Tanya Jawab (FAQ) — Mulai Menggunakan AsesMerdeka</h3>
+        <div class="faq-card">
+              <div class="faq-q">Tanya: Apakah saya boleh mencoba aplikasi dulu sebelum membeli lisensi?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Boleh. Bapak/Ibu dapat menggunakan Mode Pratinjau untuk melihat alur kerja kelas, daftar CP/TP, serta tata letak aplikasi. Pengunduhan file Word (.docx), paket ZIP, dan pencetakan dokumen resmi aktif setelah Kode Lisensi diaktifkan.</div>
+            </div><div class="faq-card">
+              <div class="faq-q">Tanya: Apa beda tombol Panduan dan tombol Bantuan di bilah atas?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Tombol &quot;Panduan&quot; membuka Buku Panduan Praktis Guru ini agar Bapak/Ibu bisa membaca tutorial langkah demi langkah. Tombol &quot;Bantuan&quot; membuka jendela Pusat Bantuan &amp; Lapor Kendala untuk mengirim keluhan, masukan konten, atau error langsung ke pengembang.</div>
+            </div>
+      </div>
+    </div>
+
+    <nav class="chapter-nav no-print" aria-label="Navigasi antar bagian panduan">
+      <div></div>
+      <a href="#bagian-2" class="btn-nav btn-nav-next" onclick="selectChapter('bagian-2')">
+              <span>Bagian Selanjutnya →</span>
+              <strong>BAGIAN 2: Persiapan Awal Semester &amp; Kelas</strong>
+            </a>
+    </nav>
+  </article>
+
+  <article id="bagian-2" class="guide-article" data-chapter-id="bagian-2" data-keywords="jenjang kelas fase tahun ajaran semester mapel mata pelajaran rombel kemenag agama kepercayaan smk">
+    <div class="article-header">
+      <div class="article-badges">
+        <span class="badge-code">BAGIAN 2</span>
+        <span class="badge-cat">Persiapan Awal Semester</span>
+        <span class="badge-time">Awal tahun ajaran / ganti semester • ±2 menit</span>
+      </div>
+      <h2>BAGIAN 2 — PERSIAPAN AWAL SEMESTER</h2>
+      <p class="article-subtitle">Memilih jenjang pendidikan, tingkat kelas, tahun ajaran, semester, mata pelajaran, rombongan belajar, dan memahami hubungan fase.</p>
+      <div class="ui-location-hint"><strong>Letak di Aplikasi:</strong> Layar &quot;Pengaturan ruang kerja&quot;, tombol &quot;Ganti&quot; di menu kiri atas, atau tautan &quot;Ganti kelas/mapel&quot; di footer.</div>
+    </div>
+
+    
+
+    <div class="section-stack">
+      <section>
+        <h3>1. Tujuan</h3>
+        <p>Memastikan ruang kerja AsesMerdeka terpasang tepat sesuai Jenjang, Kelas, Fase Kurikulum Merdeka, Tahun Ajaran, Semester, Mata Pelajaran, dan Rombongan Belajar (Rombel) yang Bapak/Ibu ampu.</p>
+      </section>
+
+      <section>
+        <h3>2. Kapan digunakan?</h3>
+        <p>Setiap awal tahun ajaran baru, saat pergantian dari Semester 1 (Ganjil) ke Semester 2 (Genap), atau ketika Bapak/Ibu mengajar di lebih dari satu kelas/rombel atau mata pelajaran.</p>
+      </section>
+
+      <section>
+        <h3>3. Persiapan</h3>
+        <ul class="prep-list">
+          <li>Daftar kelas dan rombongan belajar yang diampu (misal Kelas IV A dan IV B, atau VIII A s.d. VIII C).</li><li>Kepastian Semester aktif saat ini (&quot;1 (Ganjil)&quot; atau &quot;2 (Genap)&quot;) serta Tahun Ajaran berjalan (misal &quot;2026/2027&quot;).</li><li>Nama mata pelajaran resmi yang diampu (termasuk mapel Kemenag MI/MTs/MA, Pendidikan Agama, Pendidikan Kepercayaan, atau Konsentrasi Keahlian SMK).</li>
+        </ul>
+      </section>
+
+      
+
+      <section>
+        <h3>4. Langkah-langkah</h3>
+        <ol class="step-list">
+          <li class="step-card">
+                <span class="step-num">1</span>
+                <div>
+                  <div class="step-action">Buka pengaturan kelas (&quot;Pengaturan ruang kerja&quot; atau klik &quot;Ganti&quot; di kotak kelas pada menu kiri)</div>
+                  <div class="step-detail">Di sebelah kiri atas (tepat di bawah logo AsesMerdeka) ada kotak ringkasan kelas aktif dengan tombol &quot;Ganti&quot;. Mengklik tombol ini membuka pilihan Jenjang, Kelas, Rombel, dan Mata Pelajaran kapan saja.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">2</span>
+                <div>
+                  <div class="step-action">Langkah 1 — Pilih Jenjang Pendidikan (&quot;SD/MI&quot;, &quot;SMP/MTs&quot;, &quot;SMA/MA&quot;, atau &quot;SMK&quot;)</div>
+                  <div class="step-detail">Mengubah jenjang otomatis menyesuaikan pilihan tingkat kelas yang valid dan memetakan Fase Kurikulum Merdeka secara tepat.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">3</span>
+                <div>
+                  <div class="step-action">Langkah 2 — Pilih Tingkat Kelas, Tahun Ajaran, dan Semester (&quot;1 (Ganjil)&quot; atau &quot;2 (Genap)&quot;)</div>
+                  <div class="step-detail">Pastikan Semester sesuai dengan dokumen yang sedang disusun. Perubahan Semester 1 dan Semester 2 memisahkan data Prota/Promes/Presensi/Nilai secara rapi per ruang lingkup semester tanpa menimpa semester lainnya.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">4</span>
+                <div>
+                  <div class="step-action">Langkah 3 — Pilih Mata Pelajaran yang diampu</div>
+                  <div class="step-detail">Jika mengajar di madrasah, klik tautan &quot;Tampilkan mapel Kemenag (MI/MTs/MA)&quot;. Semua mata pelajaran termasuk Pendidikan Agama dan Pendidikan Kepercayaan terhadap Tuhan Yang Maha Esa tersedia dengan informasi regulasi BSKAP-nya. Untuk jenjang SMK, Seni Musik umum dipisahkan dengan tegas dari Konsentrasi Keahlian SMK. Jika mapel sekolah/muatan lokal belum ada di daftar, klik &quot;Tulis nama mapel / konsentrasi kustom&quot; lalu klik &quot;Terapkan Mapel&quot;.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">5</span>
+                <div>
+                  <div class="step-action">Langkah 4 — Atur dan pilih Rombongan Belajar (Rombel)</div>
+                  <div class="step-detail">Klik pil rombel yang tersedia atau tambahkan rombel paralel baru (misal A, B, C atau nama rombel khusus sekolah Anda). Setiap rombel menyimpan daftar siswa, presensi, jurnal, dan nilai tersendiri agar tidak tertukar.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">6</span>
+                <div>
+                  <div class="step-action">Periksa kotak &quot;Ringkasan ruang kerja&quot;, lalu klik &quot;Buka ruang kerja&quot;</div>
+                  <div class="step-detail">Pastikan Jenjang, Kelas, Semester, Mapel, dan Rombel aktif pada kotak ringkasan sudah benar sebelum menekan &quot;Buka ruang kerja&quot;.</div>
+                </div>
+              </li>
+        </ol>
+      </section>
+
+      <div class="table-box">
+        <h4>Hubungan Kelas, Fase, Mata Pelajaran, dan Semester di AsesMerdeka</h4>
+        <p class="table-caption">Memahami aturan pemetaan otomatis agar perangkat tidak salah kamar.</p>
+        <div class="table-scroll">
+          <table class="guide-table">
+            <thead>
+              <tr><th>Komponen</th><th>Cakupan Waktu / Tingkat</th><th>Pengaruhnya di Aplikasi</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                  <td><strong>Fase (A s.d. F)</strong></td>
+                  <td>A: Kls 1-2 • B: Kls 3-4 • C: Kls 5-6 • D: Kls 7-9 • E: Kls 10 • F: Kls 11-12</td>
+                  <td>CP dan ATP disusun dalam lingkup Fase lintas kelas &amp; semester dalam fase yang sama.</td>
+                </tr><tr>
+                  <td><strong>Kelas &amp; Mapel</strong></td>
+                  <td>Menentukan konteks kompetensi &amp; bank topik yang dibuka.</td>
+                  <td>Memilih &quot;Seni Musik&quot; Kelas 4 membuka materi Fase B berbeda dengan &quot;Konsentrasi Keahlian&quot; SMK.</td>
+                </tr><tr>
+                  <td><strong>Semester (1 Ganjil / 2 Genap)</strong></td>
+                  <td>Memisahkan Promes, Presensi, Jurnal, Buku Nilai, dan Rapor tiap semester.</td>
+                  <td>Data nilai Semester 1 tidak akan tertimpa ketika Bapak/Ibu pindah ke Semester 2.</td>
+                </tr><tr>
+                  <td><strong>Rombel (A, B, C...)</strong></td>
+                  <td>Memisahkan daftar murid, kehadiran, dan nilai antarkelas paralel.</td>
+                  <td>Kelas IV A dan IV B memiliki Buku Nilai dan Presensi masing-masing.</td>
+                </tr>
+            </tbody>
+          </table>
         </div>
+      </div>
+      
 
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">
-            <span>Bagaimana cara mencetak Modul Ajar dan LKPD ke kertas fisik?</span>
-            <span>➕</span>
-          </div>
-          <div class="faq-answer">
-            Ada dua cara mudah:<br>
-            <strong>Cara 1 (Paling Disukai):</strong> Klik tombol <strong>"Unduh Word (.docx)"</strong> di kanan atas dokumen. Buka berkasnya di Microsoft Word laptop Bapak/Ibu, lalu klik File &gt; Print seperti biasa.<br>
-            <strong>Cara 2:</strong> Klik tombol <strong>"Cetak PDF"</strong> langsung di peramban web untuk mencetak seketika tanpa membuka Word.
-          </div>
+      <section>
+        <h3 class="heading-success">5. Hasil yang diharapkan</h3>
+        <div class="result-box">
+          <div class="result-row">✓ Kotak kelas di menu kiri dan tajuk atas menampilkan Kelas/Rombel, Mata Pelajaran, dan Semester aktif yang benar.</div><div class="result-row">✓ Pada bilah atas ruang kerja, tertera hubungan jenjang-kelas-fase secara otomatis (misal Kelas 4 -&gt; Fase B, Kelas 8 -&gt; Fase D).</div><div class="result-row">✓ Jika mata pelajaran yang dipilih belum memiliki bank topik bawaan resmi, aplikasi menampilkannya secara jujur (bukan materi palsu) dan memberi akses langsung untuk menyalin/input CP dan membuat TP mandiri.</div>
         </div>
+      </section>
 
-        <div class="faq-item">
-          <div class="faq-question" onclick="toggleFaq(this)">
-            <span>Bisa dipakai di HP dan Laptop sekaligus?</span>
-            <span>➕</span>
-          </div>
-          <div class="faq-answer">
-            <strong>Bisa sekali!</strong> Satu lisensi Guru Mandiri mendukung 2 perangkat aktif (1 Laptop + 1 HP). Cukup masukkan kode lisensi yang sama di HP dan klik "Sinkronkan dari Cloud" agar riwayat nilai dan modul ajar Bapak/Ibu saling tersambung.
-          </div>
+      <section>
+        <h3 class="heading-warning">6. Kesalahan umum</h3>
+        <div class="mistake-stack">
+          <div class="mistake-card">
+                <div class="mistake-title">Kendala: Mengisi data nilai atau presensi sebelum mengecek apakah Semester masih di &quot;1 (Ganjil)&quot; padahal sekarang Semester 2.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Selalu periksa penanda Semester di bagian atas layar sebelum mengisi absensi, jurnal, atau nilai.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Mengira rombel A dan rombel B memakai daftar siswa yang sama padahal kelas berbeda.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Gunakan tombol pemilih &quot;Rombel aktif&quot; di bagian atas ruang kerja sebelum mengimpor Excel daftar nama siswa masing-masing rombel.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Mengira tidak ada daftar topik berarti mata pelajaran tidak didukung aplikasi.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Semua mata pelajaran dapat dipilih. Apabila bank topik resmi belum tersedia untuk mapel tertentu (misalnya beberapa mapel Agama, Kepercayaan, atau Konsentrasi Keahlian SMK), guru dapat langsung membuka Panel CP &amp; Analisis CP untuk menurunkan draf TP resmi.</div>
+              </div>
         </div>
-      </article>
+      </section>
 
-    </main>
+      <section>
+        <h3>7. Langkah selanjutnya</h3>
+        <div class="next-box">
+          <p>Setelah kelas, semester, mapel, dan rombel siap, langkah berikutnya adalah memeriksa Capaian Pembelajaran dan menyusun urutan perencanaan semester.</p>
+          <a href="#bagian-3" class="btn-next-inline no-print" onclick="selectChapter('bagian-3')">Lanjut ke BAGIAN 3 — MENYIAPKAN KURIKULUM DAN PERENCANAAN →</a>
+        </div>
+      </section>
+
+      <div class="faq-section">
+        <h3>Tanya Jawab (FAQ) — Persiapan Awal Semester &amp; Kelas</h3>
+        <div class="faq-card">
+              <div class="faq-q">Tanya: Bagaimana jika mata pelajaran muatan lokal atau kejuruan SMK saya tidak ada di daftar pilihan?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Di bawah pilihan Mata Pelajaran, klik tautan &quot;Tulis nama mapel / konsentrasi kustom&quot;, ketik nama mapel atau konsentrasi keahlian sekolah Anda, lalu klik &quot;Terapkan Mapel&quot;.</div>
+            </div><div class="faq-card">
+              <div class="faq-q">Tanya: Mengapa beberapa mata pelajaran muncul keterangan &quot;Bank topik resmi belum tersedia&quot; atau &quot;Perlu input guru&quot;?</div>
+              <div class="faq-a"><strong>Jawab:</strong> AsesMerdeka berprinsip tidak mengarang materi yang tidak sesuai kurikulum. Jika kurasi topik resmi BSKAP untuk mapel/fase tersebut belum dimasukkan, aplikasi menampilkan status jujur agar guru menyalin teks CP resmi lewat Panel CP dan menurunkan TP secara tepat.</div>
+            </div>
+      </div>
+    </div>
+
+    <nav class="chapter-nav no-print" aria-label="Navigasi antar bagian panduan">
+      <a href="#bagian-1" class="btn-nav btn-nav-prev" onclick="selectChapter('bagian-1')">
+              <span>← Bagian Sebelumnya</span>
+              <strong>BAGIAN 1: Mulai Menggunakan AsesMerdeka</strong>
+            </a>
+      <a href="#bagian-3" class="btn-nav btn-nav-next" onclick="selectChapter('bagian-3')">
+              <span>Bagian Selanjutnya →</span>
+              <strong>BAGIAN 3: Menyiapkan Kurikulum (CP → TP → ATP → Prota/Promes)</strong>
+            </a>
+    </nav>
+  </article>
+
+  <article id="bagian-3" class="guide-article" data-chapter-id="bagian-3" data-keywords="cp capaian pembelajaran analisis cp tp tujuan pembelajaran atp prota promes bank topik verifikasi peninjauan">
+    <div class="article-header">
+      <div class="article-badges">
+        <span class="badge-code">BAGIAN 3</span>
+        <span class="badge-cat">Kurikulum &amp; Perencanaan</span>
+        <span class="badge-time">Awal semester • ±5–10 menit</span>
+      </div>
+      <h2>BAGIAN 3 — MENYIAPKAN KURIKULUM DAN PERENCANAAN</h2>
+      <p class="article-subtitle">Urutan kerja CP → Analisis CP → TP → ATP → Prota → Promes, status verifikasi topik, serta persetujuan ATP Fase.</p>
+      <div class="ui-location-hint"><strong>Letak di Aplikasi:</strong> Tab &quot;Perangkat mengajar&quot; -&gt; sub-tab &quot;Peta TP &amp; modul&quot;, &quot;ATP&quot;, &quot;Program tahunan&quot;, dan &quot;Program semester&quot;.</div>
+    </div>
+
+    
+
+    <div class="section-stack">
+      <section>
+        <h3>1. Tujuan</h3>
+        <p>Membantu Bapak/Ibu menyusun perencanaan semester secara urut dari hulu ke hilir agar Tujuan Pembelajaran (TP), Alur Tujuan Pembelajaran (ATP), Program Tahunan (Prota), dan Program Semester (Promes) saling terhubung tanpa data bentrok.</p>
+      </section>
+
+      <section>
+        <h3>2. Kapan digunakan?</h3>
+        <p>Pada awal semester saat menyusun perangkat perencanaan semester sebelum masuk kelas dan sebelum menyusun Modul Ajar atau mengisi Jurnal Mengajar.</p>
+      </section>
+
+      <section>
+        <h3>3. Persiapan</h3>
+        <ul class="prep-list">
+          <li>Dokumen Capaian Pembelajaran (CP) resmi terbaru untuk fase dan mata pelajaran Bapak/Ibu (atau salinan CP dari panduan BSKAP).</li><li>Kalender pendidikan sekolah / perkiraan minggu efektif dan alokasi JP per minggu untuk mapel Bapak/Ibu.</li>
+        </ul>
+      </section>
+
+      <div class="callout callout-warning">
+        <div class="callout-title">Catatan Penting: Kejujuran Status Bank Topik &amp; CP</div>
+        <p>Hanya topik yang jelas sumber dokumen BSKAP-nya diberi label terverifikasi dari dokumen resmi. Topik &quot;Kurasi Internal&quot; ditampilkan secara terbuka sebagai bahan referensi awal dengan status pedagogis &quot;Belum Ditinjau&quot; hingga Bapak/Ibu meninjau atau menyesuaikannya sendiri.</p>
+      </div>
+
+      <section>
+        <h3>4. Langkah-langkah</h3>
+        <ol class="step-list">
+          <li class="step-card">
+                <span class="step-num">1</span>
+                <div>
+                  <div class="step-action">1. Periksa atau masukkan CP melalui tombol &quot;Kelola Sumber CP &amp; Analisis CP&quot;</div>
+                  <div class="step-detail">Di halaman &quot;Peta TP &amp; modul&quot;, tepat di bawah judul terdapat tombol biru &quot;Kelola Sumber CP &amp; Analisis CP&quot;. Klik tombol ini untuk melihat referensi CP yang tersedia, menempel teks CP resmi dari sekolah/BSKAP (&quot;+ Input / Tempel CP Resmi&quot;), dan menjalankan &quot;Analisis CP -&gt; Kandidat TP&quot; untuk memecah CP menjadi butir Tujuan Pembelajaran.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">2</span>
+                <div>
+                  <div class="step-action">2. Periksa Bank Topik &amp; status verifikasi pada tombol &quot;Lihat Bank Topik &amp; Progresi Semester&quot;</div>
+                  <div class="step-detail">Klik &quot;Lihat Bank Topik &amp; Progresi Semester&quot; untuk meninjau topik Semester 1 dan Semester 2. Perhatikan dua status yang terpisah: (a) Status Verifikasi Sumber (&quot;Terverifikasi dari Dokumen Resmi&quot;, &quot;Berdasarkan Contoh Panduan Resmi&quot;, &quot;Kurasi Internal — Perlu Review Guru&quot;, atau &quot;Belum Tersedia&quot;), dan (b) Status Tinjauan Pedagogis (&quot;Belum Ditinjau&quot; atau &quot;Sudah Ditinjau Guru&quot;). Jika ada topik yang perlu diperbaiki, klik tombol koreksi pada topik untuk menyimpan penyesuaian lokal sekolah.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">3</span>
+                <div>
+                  <div class="step-action">3. Lengkapi atau sesuaikan daftar TP di &quot;Peta TP &amp; modul&quot;</div>
+                  <div class="step-detail">Setiap kartu TP memiliki tombol &quot;Edit&quot;, &quot;Hapus&quot;, urutan panah naik/turun, status tinjauan guru (&quot;Perlu Review Guru&quot; -&gt; &quot;Sudah Ditinjau&quot; -&gt; &quot;Disetujui Guru&quot;), serta tombol &quot;+ Tambah Materi&quot;. Pastikan alokasi JP tiap TP sudah masuk akal.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">4</span>
+                <div>
+                  <div class="step-action">4. Buka sub-tab &quot;ATP&quot; untuk menyusun Alur Tujuan Pembelajaran tingkat Fase</div>
+                  <div class="step-detail">Di tab &quot;ATP&quot;, periksa urutan seluruh TP dalam satu fase, atur prasyarat antar-TP bila ada, cek grafik keterkaitan urutan, atur alokasi kelas/semester (&quot;Pemetaan Kelas/Tahun/Semester&quot;), lalu klik &quot;Setujui ATP Fase&quot;. Jika di kemudian hari Anda mengubah urutan atau kalimat substansi TP secara signifikan, status persetujuan otomatis mengingatkan &quot;Perlu Ditinjau Ulang&quot; agar guru meninjau ulang ATP.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">5</span>
+                <div>
+                  <div class="step-action">5. Buka sub-tab &quot;Program tahunan&quot; dan &quot;Program semester&quot;</div>
+                  <div class="step-detail">Prota otomatis merangkum distribusi TP &amp; JP untuk Semester 1 dan Semester 2 sepanjang tahun ajaran, sedangkan Promes memetakan minggu efektif dan pekan non-efektif (libur, STS, SAS). Sesuaikan pengaturan minggu efektif bila kalender daerah Bapak/Ibu berbeda, lalu ekspor Word (.docx) jika diperlukan.</div>
+                </div>
+              </li>
+        </ol>
+      </section>
+
+      <div class="table-box">
+        <h4>Perbedaan Sederhana: CP, Analisis CP, TP, ATP, Prota, dan Promes</h4>
+        <p class="table-caption">Contoh alur sederhana misalnya untuk mata pelajaran Seni Musik SD Fase B (Kelas 4).</p>
+        <div class="table-scroll">
+          <table class="guide-table">
+            <thead>
+              <tr><th>Istilah</th><th>Penjelasan Sederhana</th><th>Contoh Sederhana</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                  <td><strong>CP (Capaian Pembelajaran)</strong></td>
+                  <td>Target akhir dari pemerintah yang harus dicapai murid pada akhir satu Fase (2 tahun).</td>
+                  <td>Di akhir Fase B (Kelas 3-4), siswa mampu mengenali, meniru, dan mempraktikkan pola irama sederhana.</td>
+                </tr><tr>
+                  <td><strong>Analisis CP</strong></td>
+                  <td>Proses membedah kalimat CP menjadi Kompetensi (kata kerja) + Lingkup Materi.</td>
+                  <td>Kompetensi: mengenali &amp; meniru • Lingkup Materi: pola irama tepuk sederhana 4 ketuk.</td>
+                </tr><tr>
+                  <td><strong>TP (Tujuan Pembelajaran)</strong></td>
+                  <td>Target belajar konkret untuk 1 bab/topik pelajaran hasil dari Analisis CP.</td>
+                  <td>TP 4.1: Siswa mampu menepuk dan membaca notasi pola irama birama 4/4 secara stabil.</td>
+                </tr><tr>
+                  <td><strong>ATP (Alur Tujuan Pembelajaran)</strong></td>
+                  <td>Urutan logis seluruh TP dari awal fase hingga akhir fase (dari mudah ke kompleks).</td>
+                  <td>Mengenal bunyi/irama dulu (TP 4.1) -&gt; mengenal tinggi-rendah nada (TP 4.2) -&gt; bermain musik ritmis bersama.</td>
+                </tr><tr>
+                  <td><strong>Prota (Program Tahunan)</strong></td>
+                  <td>Pembagian jumlah Jam Pelajaran (JP) per TP untuk Semester 1 dan Semester 2 selama 1 tahun.</td>
+                  <td>Semester 1 total 36 JP (4 TP), Semester 2 total 36 JP (4 TP).</td>
+                </tr><tr>
+                  <td><strong>Promes (Program Semester)</strong></td>
+                  <td>Penjadwalan minggu ke berapa setiap TP diajarkan dalam kalender semester aktif.</td>
+                  <td>TP 4.1 diajarkan di Juli Minggu 3–4 (4 JP) dan Agustus Minggu 1 (2 JP).</td>
+                </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+
+      <section>
+        <h3 class="heading-success">5. Hasil yang diharapkan</h3>
+        <div class="result-box">
+          <div class="result-row">✓ Daftar TP aktif tersimpan dengan kode unik yang terhubung langsung ke Jurnal, Modul Ajar, Buku Nilai, ATP, Prota, dan Promes.</div><div class="result-row">✓ ATP berstatus &quot;Disetujui Guru&quot; dengan total JP Semester 1 dan Semester 2 yang konsisten.</div><div class="result-row">✓ Tabel Prota dan matriks Promes langsung terisi otomatis dari daftar TP tersebut.</div>
+        </div>
+      </section>
+
+      <section>
+        <h3 class="heading-warning">6. Kesalahan umum</h3>
+        <div class="mistake-stack">
+          <div class="mistake-card">
+                <div class="mistake-title">Kendala: Langsung mengisi Promes atau Jurnal sebelum daftar TP &amp; alokasi JP-nya beres.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Susun dan rapikan daftar TP di &quot;Peta TP &amp; modul&quot; serta urutannya di &quot;ATP&quot; lebih dahulu agar minggu di Promes dan materi di Jurnal langsung tepat.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Mengira semua bank topik bawaan aplikasi sudah divalidasi oleh ahli mapel eksternal.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Selalu periksa lencana status sumber dan tinjauan pedagogis pada topik. Aplikasi tidak mengeklaim tinjauan ahli jika belum tervalidasi; Bapak/Ibu dapat langsung menggunakan fitur koreksi topik untuk menyesuaikannya dengan kondisi sekolah.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Bingung mengapa persetujuan ATP berubah menjadi &quot;Perlu Ditinjau Ulang&quot;.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Itu adalah fitur pengaman: ketika substansi/kalimat TP atau urutan di ATP diubah setelah disetujui, aplikasi memberi tahu agar Bapak/Ibu mengklik &quot;Setujui ATP Fase&quot; ulang supaya dokumen supervisi tetap konsisten.</div>
+              </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>7. Langkah selanjutnya</h3>
+        <div class="next-box">
+          <p>Dengan CP, TP, ATP, Prota, dan Promes yang sudah tertata, Bapak/Ibu siap menyusun Modul Ajar, LKPD, Rangkuman, dan Soal Evaluasi sebelum masuk kelas.</p>
+          <a href="#bagian-4" class="btn-next-inline no-print" onclick="selectChapter('bagian-4')">Lanjut ke BAGIAN 4 — PERSIAPAN SEBELUM MENGAJAR →</a>
+        </div>
+      </section>
+
+      <div class="faq-section">
+        <h3>Tanya Jawab (FAQ) — Menyiapkan Kurikulum (CP → TP → ATP → Prota/Promes)</h3>
+        <div class="faq-card">
+              <div class="faq-q">Tanya: Apakah saya boleh mengubah atau menghapus TP bawaan aplikasi?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Ya. Di setiap kartu TP terdapat tombol &quot;Edit&quot; dan &quot;Hapus&quot;. Jika suatu saat ingin mengembalikan ke daftar bawaan standar, gunakan tombol &quot;Standar Kurikulum Merdeka&quot; di kanan atas Peta TP.</div>
+            </div>
+      </div>
+    </div>
+
+    <nav class="chapter-nav no-print" aria-label="Navigasi antar bagian panduan">
+      <a href="#bagian-2" class="btn-nav btn-nav-prev" onclick="selectChapter('bagian-2')">
+              <span>← Bagian Sebelumnya</span>
+              <strong>BAGIAN 2: Persiapan Awal Semester &amp; Kelas</strong>
+            </a>
+      <a href="#bagian-4" class="btn-nav btn-nav-next" onclick="selectChapter('bagian-4')">
+              <span>Bagian Selanjutnya →</span>
+              <strong>BAGIAN 4: Modul Ajar, Materi, LKPD, Soal Evaluasi &amp; Ujian</strong>
+            </a>
+    </nav>
+  </article>
+
+  <article id="bagian-4" class="guide-article" data-chapter-id="bagian-4" data-keywords="modul ajar rpp materi rangkuman lkpd generator soal sts sas bank soal p5 word docx cetak">
+    <div class="article-header">
+      <div class="article-badges">
+        <span class="badge-code">BAGIAN 4</span>
+        <span class="badge-cat">Persiapan Mengajar</span>
+        <span class="badge-time">Malam / H-1 sebelum masuk kelas • ±2–5 menit</span>
+      </div>
+      <h2>BAGIAN 4 — PERSIAPAN SEBELUM MENGAJAR</h2>
+      <p class="article-subtitle">Membuat Modul Ajar (RPP), Rangkuman Materi, LKPD Siswa, Soal Evaluasi AI, Naskah Ujian STS/SAS, P5, serta ekspor Word &amp; cetak PDF.</p>
+      <div class="ui-location-hint"><strong>Letak di Aplikasi:</strong> Tombol aksi di bawah tiap kartu bab pada &quot;Peta TP &amp; Modul Ajar&quot;, serta kelompok menu kiri &quot;Evaluasi &amp; Arsip&quot;.</div>
+    </div>
+
+    <div class="ui-pills-box">
+        <div class="ui-pills-title">Tombol Asli di Layar Aplikasi:</div>
+        <div class="ui-pills-grid">
+          <div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Modul Ajar</span>
+                <span class="ui-pill-note">Buka &amp; edit RPP per TP</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">LKPD Siswa</span>
+                <span class="ui-pill-note">Lembar aktivitas &amp; tugas murid</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-primary">Buat Soal Evaluasi</span>
+                <span class="ui-pill-note">Susun soal HOTS, kisi-kisi, &amp; kunci</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Rangkuman</span>
+                <span class="ui-pill-note">Ringkasan materi siap cetak untuk murid</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-primary">Unduh Word (.docx)</span>
+                <span class="ui-pill-note">Simpan berkas Word resmi ber-kop sekolah</span>
+              </div>
+        </div>
+      </div>
+
+    <div class="section-stack">
+      <section>
+        <h3>1. Tujuan</h3>
+        <p>Mempercepat penyusunan perangkat tatap muka kelas (Modul Ajar/RPP, LKPD, bahan bacaan ringkas, dan soal evaluasi/ujian) langsung dari TP aktif tanpa mengetik ulang identitas sekolah.</p>
+      </section>
+
+      <section>
+        <h3>2. Kapan digunakan?</h3>
+        <p>Harian/mingguan sebelum masuk kelas untuk mengajar bab tertentu, saat membutuhkan lembar latihan siswa untuk difotokopi, atau menjelang ulangan harian, STS (Sumatif Tengah Semester), dan SAS (Sumatif Akhir Semester).</p>
+      </section>
+
+      <section>
+        <h3>3. Persiapan</h3>
+        <ul class="prep-list">
+          <li>Identitas sekolah dan guru di &quot;Profil sekolah&quot; sudah diisi agar kop surat dan tanda tangan muncul rapi.</li><li>TP dan materi pokok pada menu &quot;Peta TP &amp; Modul Ajar&quot; sudah sesuai dengan bab yang akan diajarkan besok.</li>
+        </ul>
+      </section>
+
+      
+
+      <section>
+        <h3>4. Langkah-langkah</h3>
+        <ol class="step-list">
+          <li class="step-card">
+                <span class="step-num">1</span>
+                <div>
+                  <div class="step-action">Untuk pegangan RPP guru: klik tombol &quot;Modul Ajar&quot; di bawah kartu bab yang akan diajarkan</div>
+                  <div class="step-detail">Di halaman Modul Ajar, pilih model pembelajaran (PBL, PjBL, Inkuiri, Diferensiasi, dll.), tambahkan konteks lokal bila diinginkan, lalu klik tulisan mana saja di dokumen untuk mengedit langsung. Gunakan &quot;✨ Buat / Regenerasi AI&quot; jika ingin draf disusun lebih kontekstual oleh AI.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">2</span>
+                <div>
+                  <div class="step-action">Untuk bahan belajar/rangkuman siswa: klik tombol &quot;Rangkuman&quot; (atau &quot;Atur Rangkuman&quot;) di kartu TP</div>
+                  <div class="step-detail">Alternatif lainnya, gunakan menu kiri &quot;Buat Rangkuman AI&quot; untuk memilih gaya bahasa bacaan (SD/SMP ceria, infografis poin kunci, atau analitis SMA/SMK) dan mengunduh ringkasan siap cetak.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">3</span>
+                <div>
+                  <div class="step-action">Untuk lembar kerja tugas murid: klik tombol &quot;LKPD Siswa&quot; di bawah kartu bab</div>
+                  <div class="step-detail">Pilih jenis aktivitas LKPD (studi kasus, eksperimen, proyek, atau latihan terbimbing), periksa langkah kerja dan rubrik penilaiannya, lalu edit teks bila perlu. Tersimpan otomatis ke perangkat.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">4</span>
+                <div>
+                  <div class="step-action">Untuk ulangan harian / kuis bab: klik &quot;Buat Soal Evaluasi&quot; (atau &quot;Atur Soal&quot;) di kartu TP</div>
+                  <div class="step-detail">Untuk pengaturan jumlah PG, PGK, Uraian, level kognitif, dan kisi-kisi yang rinci, gunakan &quot;Atur Soal&quot; atau menu kiri &quot;Buat Soal Evaluasi AI&quot;. Setelah jadi, dokumen tampil dengan 3 tampilan yang dapat ditukar: Lembar Soal, Kisi-Kisi &amp; Kartu Soal, serta Panduan &amp; Rubrik Guru. Semua hasil tersimpan di menu &quot;Bank Soal &amp; Arsip&quot;.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">5</span>
+                <div>
+                  <div class="step-action">Untuk ujian tengah/akhir semester: buka menu kiri &quot;Naskah Ujian STS &amp; SAS&quot;</div>
+                  <div class="step-detail">Pilih tipe ujian (&quot;STS&quot; atau &quot;SAS&quot;), atur jumlah soal per tipe (PG, PGK, Uraian), pilih sumber TP atau Bank Soal yang sudah dibuat, klik susun naskah, lalu cek tab Soal, LJK, Kunci Jawaban, dan Matriks Kisi-Kisi.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">6</span>
+                <div>
+                  <div class="step-action">Simpan ke komputer atau cetak fisik melalui tombol &quot;Unduh Word (.docx)&quot; atau &quot;Cetak / PDF&quot;</div>
+                  <div class="step-detail">Di kanan atas setiap penampil dokumen (Modul Ajar, LKPD, Soal Evaluasi, Rangkuman, Ujian STS/SAS, dan Modul Projek P5), terdapat tombol biru &quot;Unduh Word (.docx)&quot; agar bisa dibuka dan disesuaikan lagi di Microsoft Word, serta tombol &quot;Cetak / PDF&quot; untuk mencetak atau menyimpan PDF.</div>
+                </div>
+              </li>
+        </ol>
+      </section>
+
+      
+      
+
+      <section>
+        <h3 class="heading-success">5. Hasil yang diharapkan</h3>
+        <div class="result-box">
+          <div class="result-row">✓ Dokumen Modul Ajar, LKPD, Rangkuman, dan Soal Evaluasi langsung mencantumkan nama sekolah, kelas, semester, tujuan pembelajaran (TP), dan tanda tangan secara otomatis.</div><div class="result-row">✓ Hasil suntingan guru pada Modul Ajar dan LKPD tersimpan otomatis ke penyimpanan lokal (ditandai status &quot;Tersimpan&quot;) dan file Word (.docx) berhasil diunduh saat lisensi aktif.</div>
+        </div>
+      </section>
+
+      <section>
+        <h3 class="heading-warning">6. Kesalahan umum</h3>
+        <div class="mistake-stack">
+          <div class="mistake-card">
+                <div class="mistake-title">Kendala: Mengklik tombol unduh Word (.docx) atau cetak pada Mode Pratinjau lalu mengira tombol error.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Mode Pratinjau memang mengunci ekspor dokumen Word, ZIP, dan cetak. Aktifkan Kode Lisensi di tombol &quot;Lisensi&quot; untuk membuka semua ekspor dan pencetakan tanpa batas.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Mencari ulang soal yang minggu lalu dibuat karena lupa di mana tempat penyimpanannya.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Buka menu kiri &quot;Bank Soal &amp; Arsip&quot;; seluruh asesmen yang pernah dibuat tersimpan di sana dan bisa dibuka ulang atau dihapus bila tidak dipakai.</div>
+              </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>7. Langkah selanjutnya</h3>
+        <div class="next-box">
+          <p>Setelah perangkat tatap muka siap dan kelas sudah dilaksanakan, buka menu harian untuk mengisi Presensi Siswa dan Jurnal Mengajar.</p>
+          <a href="#bagian-5" class="btn-next-inline no-print" onclick="selectChapter('bagian-5')">Lanjut ke BAGIAN 5 — KEGIATAN HARIAN GURU →</a>
+        </div>
+      </section>
+
+      <div class="faq-section">
+        <h3>Tanya Jawab (FAQ) — Modul Ajar, Materi, LKPD, Soal Evaluasi &amp; Ujian</h3>
+        <div class="faq-card">
+              <div class="faq-q">Tanya: Apakah AsesMerdeka juga menyediakan Modul Projek P5?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Ya. Di menu navigasi kiri bagian &quot;Perangkat Semester&quot;, pilih menu &quot;Modul Projek P5&quot; untuk menyusun draf tema, dimensi Profil Pelajar Pancasila, alur aktivitas projek, dan mengekspor berkas Word-nya.</div>
+            </div><div class="faq-card">
+              <div class="faq-q">Tanya: Bagaimana jika koneksi internet sedang lambat saat memakai tombol AI?</div>
+              <div class="faq-a"><strong>Jawab:</strong> AsesMerdeka menyediakan opsi template adaptif / draf cadangan offline terstruktur sehingga guru tetap memiliki kerangka Modul Ajar, LKPD, dan Soal yang rapi untuk diedit manual meski internet bermasalah.</div>
+            </div>
+      </div>
+    </div>
+
+    <nav class="chapter-nav no-print" aria-label="Navigasi antar bagian panduan">
+      <a href="#bagian-3" class="btn-nav btn-nav-prev" onclick="selectChapter('bagian-3')">
+              <span>← Bagian Sebelumnya</span>
+              <strong>BAGIAN 3: Menyiapkan Kurikulum (CP → TP → ATP → Prota/Promes)</strong>
+            </a>
+      <a href="#bagian-5" class="btn-nav btn-nav-next" onclick="selectChapter('bagian-5')">
+              <span>Bagian Selanjutnya →</span>
+              <strong>BAGIAN 5: Ruang Kerja Harian: Presensi &amp; Jurnal Mengajar</strong>
+            </a>
+    </nav>
+  </article>
+
+  <article id="bagian-5" class="guide-article" data-chapter-id="bagian-5" data-keywords="presensi absensi siswa impor excel jurnal mengajar agenda harian simulasi">
+    <div class="article-header">
+      <div class="article-badges">
+        <span class="badge-code">BAGIAN 5</span>
+        <span class="badge-cat">Kegiatan Harian Guru</span>
+        <span class="badge-time">Setiap selesai jam mengajar • ±1–2 menit</span>
+      </div>
+      <h2>BAGIAN 5 — KEGIATAN HARIAN GURU</h2>
+      <p class="article-subtitle">Mengelola daftar siswa asli, mencatat Presensi Siswa (H/S/I/A), menulis Jurnal Mengajar harian, dan memastikan pekerjaan tersimpan.</p>
+      <div class="ui-location-hint"><strong>Letak di Aplikasi:</strong> Menu kiri &quot;Kelas Harian &amp; Rapor&quot; -&gt; &quot;Presensi Siswa&quot; &amp; &quot;Jurnal Mengajar&quot;, atau tab &quot;Kelas harian &amp; rapor&quot; di area utama.</div>
+    </div>
+
+    
+
+    <div class="section-stack">
+      <section>
+        <h3>1. Tujuan</h3>
+        <p>Memudahkan Bapak/Ibu mengelola absensi siswa tiap pertemuan dan mengisi jurnal agenda mengajar harian tanpa mengetik ulang topik/TP maupun menghitung rekap H/S/I/A secara manual.</p>
+      </section>
+
+      <section>
+        <h3>2. Kapan digunakan?</h3>
+        <p>Di awal semester (saat memasukkan nama siswa asli dari Excel/Dapodik ke kelas baru), serta rutin setelah selesai mengajar di kelas untuk mencatat kehadiran dan ringkasan kegiatan pembelajaran hari itu.</p>
+      </section>
+
+      <section>
+        <h3>3. Persiapan</h3>
+        <ul class="prep-list">
+          <li>Daftar nama siswa asli (bisa disalin langsung kolom nama/NIS/jenis kelamin dari Excel/Dapodik).</li><li>Pastikan &quot;Rombel aktif&quot; dan &quot;Semester&quot; di bagian atas sudah sesuai kelas yang baru selesai diajar.</li>
+        </ul>
+      </section>
+
+      <div class="callout callout-info">
+        <div class="callout-title">Catatan Penting: Cara Membedakan Data Asli dan Contoh Simulasi</div>
+        <p>Jika Bapak/Ibu hanya ingin melihat contoh tampilan aplikasi, klik tombol &quot;Pratinjau Data Demo&quot;. Data asli kelas Bapak/Ibu tetap terpisah aman dan tidak akan tertimpa oleh data contoh simulasi.</p>
+      </div>
+
+      <section>
+        <h3>4. Langkah-langkah</h3>
+        <ol class="step-list">
+          <li class="step-card">
+                <span class="step-num">1</span>
+                <div>
+                  <div class="step-action">Buka menu &quot;Presensi Siswa&quot; di menu sebelah kiri (atau sub-tab &quot;Presensi siswa&quot;)</div>
+                  <div class="step-detail">Jika kelas masih menampilkan pemberitahuan kuning &quot;Data Simulasi / Contoh&quot;, klik &quot;Impor Excel&quot; (atau klik tombol mulai kelas kosong / &quot;+ Tambah Siswa&quot;) untuk mengganti seluruh nama contoh dengan nama siswa kelas Bapak/Ibu yang sesungguhnya.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">2</span>
+                <div>
+                  <div class="step-action">Catat kehadiran murid per pertemuan dengan status Hadir (H), Sakit (S), Izin (I), atau Alfa (A)</div>
+                  <div class="step-detail">Di layar HP tersedia Mode Fokus per pertemuan serta tombol cepat &quot;Tandai Semua Hadir&quot;, lalu cukup ketuk siswa yang Sakit, Izin, atau Alfa. Persentase kehadiran per siswa dan total kelas dihitung otomatis.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">3</span>
+                <div>
+                  <div class="step-action">Buka menu &quot;Jurnal Mengajar&quot; untuk mencatat agenda pembelajaran hari ini</div>
+                  <div class="step-detail">Klik &quot;+ Tambah Agenda&quot; (atau edit baris agenda pertemuan). Pilih tanggal, jam pelajaran, jumlah JP, serta pilih Kode TP dari daftar TP aktif — materi pokok dan keterkaitan TP langsung terhubung otomatis tanpa ketik ulang.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">4</span>
+                <div>
+                  <div class="step-action">Tambahkan uraian kegiatan, catatan siswa tidak hadir (dapat disinkronkan dari Presensi), serta refleksi</div>
+                  <div class="step-detail">Pilih status keterlaksanaan (&quot;Terlaksana&quot;, &quot;Perlu Tindak Lanjut&quot;, atau &quot;Ditunda / Jadwal Ulang&quot;) lalu klik simpan pada formulir agenda.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">5</span>
+                <div>
+                  <div class="step-action">Pastikan data tersimpan di perangkat atau tersinkron ke Cloud</div>
+                  <div class="step-detail">Setiap perubahan presensi dan jurnal otomatis disimpan ke penyimpanan lokal peramban dalam sekejap dan langsung masuk dalam dokumen Supervisi maupun e-Rapor. Jika lisensi aktif dan Cloud terhubung, periksa status di bilah atas hingga menunjukkan &quot;Lokal &amp; cloud&quot;.</div>
+                </div>
+              </li>
+        </ol>
+      </section>
+
+      
+      
+
+      <section>
+        <h3 class="heading-success">5. Hasil yang diharapkan</h3>
+        <div class="result-box">
+          <div class="result-row">✓ Daftar siswa asli Bapak/Ibu tersimpan di menu Presensi sekaligus langsung muncul di Buku Nilai dan Auto-Deskripsi e-Rapor untuk rombel tersebut.</div><div class="result-row">✓ Rekap total Hadir (H), Sakit (S), Izin (I), Alfa (A) dan total JP terlaksana pada Jurnal tampil akurat.</div><div class="result-row">✓ Tersedia juga tombol &quot;Unduh Presensi (.docx)&quot; dan &quot;Unduh Jurnal (.docx)&quot; bila ingin dicetak terpisah.</div>
+        </div>
+      </section>
+
+      <section>
+        <h3 class="heading-warning">6. Kesalahan umum</h3>
+        <div class="mistake-stack">
+          <div class="mistake-card">
+                <div class="mistake-title">Kendala: Mengisi nilai/absen di rombel A padahal maksudnya rombel B karena lupa mengganti Rombel aktif.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Selalu cek teks &quot;Rombel aktif&quot; di bagian atas layar sebelum mengetuk tombol kehadiran atau menambah jurnal.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Mengira data contoh siswa (simulasi) adalah data sekolah sungguhan lalu langsung mengekspor ke Word.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> AsesMerdeka memberi spanduk penanda jelas jika kelas masih menggunakan data simulasi dan menanyakan konfirmasi saat ekspor. Impor daftar siswa asli dari menu &quot;Impor Excel&quot; atau mulai kelas kosong agar berkas resmi bersih 100% berisi siswa Anda.</div>
+              </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>7. Langkah selanjutnya</h3>
+        <div class="next-box">
+          <p>Setelah daftar siswa, absensi, dan jurnal kelas berjalan, Bapak/Ibu siap mencatat nilai formatif, STS, dan SAS di Buku Nilai.</p>
+          <a href="#bagian-6" class="btn-next-inline no-print" onclick="selectChapter('bagian-6')">Lanjut ke BAGIAN 6 — PENILAIAN DAN RAPOR →</a>
+        </div>
+      </section>
+
+      <div class="faq-section">
+        <h3>Tanya Jawab (FAQ) — Ruang Kerja Harian: Presensi &amp; Jurnal Mengajar</h3>
+        <div class="faq-card">
+              <div class="faq-q">Tanya: Bagaimana jika ada murid baru masuk atau pindah kelas di tengah semester?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Di menu Presensi Siswa tersedia tombol &quot;+ Tambah Siswa&quot; untuk menambah murid baru, tombol edit di baris siswa, serta fitur pemindahan/arsip siswa antar-rombel agar catatan semester tidak berantakan.</div>
+            </div><div class="faq-card">
+              <div class="faq-q">Tanya: Apakah saya harus memasukkan nama siswa ulang di Buku Nilai dan e-Rapor?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Tidak perlu. Daftar siswa yang Anda impor atau tambahkan di Presensi Siswa otomatis digunakan bersama di Buku Nilai Asesmen dan Auto-Deskripsi e-Rapor pada kelas/rombel tersebut.</div>
+            </div>
+      </div>
+    </div>
+
+    <nav class="chapter-nav no-print" aria-label="Navigasi antar bagian panduan">
+      <a href="#bagian-4" class="btn-nav btn-nav-prev" onclick="selectChapter('bagian-4')">
+              <span>← Bagian Sebelumnya</span>
+              <strong>BAGIAN 4: Modul Ajar, Materi, LKPD, Soal Evaluasi &amp; Ujian</strong>
+            </a>
+      <a href="#bagian-6" class="btn-nav btn-nav-next" onclick="selectChapter('bagian-6')">
+              <span>Bagian Selanjutnya →</span>
+              <strong>BAGIAN 6: Buku Nilai, KKTP, Bukti Asesmen &amp; e-Rapor</strong>
+            </a>
+    </nav>
+  </article>
+
+  <article id="bagian-6" class="guide-article" data-chapter-id="bagian-6" data-keywords="nilai buku nilai kktp belum dinilai perlu bimbingan bukti asesmen analisis ketercapaian rapor e-rapor formatif sts sas">
+    <div class="article-header">
+      <div class="article-badges">
+        <span class="badge-code">BAGIAN 6</span>
+        <span class="badge-cat">Penilaian &amp; Rapor</span>
+        <span class="badge-time">Saat ulangan &amp; akhir semester • ±5 menit</span>
+      </div>
+      <h2>BAGIAN 6 — PENILAIAN DAN RAPOR</h2>
+      <p class="article-subtitle">Mengisi nilai Formatif/STS/SAS, mengatur bobot &amp; KKTP, membedakan &quot;Belum Dinilai&quot; vs &quot;Perlu Bimbingan&quot;, mengelola Bukti Asesmen Sub-TP, Analisis Ketercapaian, dan Auto-Deskripsi e-Rapor.</p>
+      <div class="ui-location-hint"><strong>Letak di Aplikasi:</strong> Menu kiri &quot;Kelas Harian &amp; Rapor&quot; -&gt; &quot;Buku Nilai Asesmen&quot; &amp; &quot;Auto-Deskripsi e-Rapor&quot;.</div>
+    </div>
+
+    <div class="ui-pills-box">
+        <div class="ui-pills-title">Tombol Asli di Layar Aplikasi:</div>
+        <div class="ui-pills-grid">
+          <div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Atur Bobot &amp; KKTP</span>
+                <span class="ui-pill-note">Ubah persentase bobot &amp; batas KKTP kelas</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-primary">Analisis TP</span>
+                <span class="ui-pill-note">Lihat persentase tuntas per TP &amp; Sub-TP</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Impor Excel</span>
+                <span class="ui-pill-note">Masukkan daftar nama siswa kelas asli</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Auto-Deskripsi e-Rapor</span>
+                <span class="ui-pill-note">Salin kalimat rapor per siswa atau finalisasi</span>
+              </div>
+        </div>
+      </div>
+
+    <div class="section-stack">
+      <section>
+        <h3>1. Tujuan</h3>
+        <p>Membantu guru mengolah nilai harian (Formatif per TP), STS, dan SAS menjadi Nilai Akhir dan predikat KKTP yang objektif, mengelola bukti asesmen tingkat Sub-TP, membaca analisis ketercapaian kelas, serta menghasilkan kalimat deskripsi e-Rapor tanpa mengarang status siswa yang belum dinilai.</p>
+      </section>
+
+      <section>
+        <h3>2. Kapan digunakan?</h3>
+        <p>Setiap selesai ulangan/tugas per TP, setelah UTS/STS dan UAS/SAS, saat menentukan tindak lanjut remedial atau pengayaan, dan menjelang pengisian e-Rapor akhir semester.</p>
+      </section>
+
+      <section>
+        <h3>3. Persiapan</h3>
+        <ul class="prep-list">
+          <li>Daftar nama siswa kelas Bapak/Ibu sudah terisi (dari menu Presensi atau tombol &quot;Impor Excel&quot;).</li><li>Daftar Tujuan Pembelajaran (TP) aktif untuk mata pelajaran dan semester tersebut sudah sesuai.</li><li>Ketentuan bobot nilai sekolah (standar aplikasi 50% Formatif, 25% STS, 25% SAS — dapat diubah) dan batas minimal tuntas KKTP (misal 71 atau 75).</li>
+        </ul>
+      </section>
+
+      
+
+      <section>
+        <h3>4. Langkah-langkah</h3>
+        <ol class="step-list">
+          <li class="step-card">
+                <span class="step-num">1</span>
+                <div>
+                  <div class="step-action">Buka &quot;Buku Nilai Asesmen&quot; lalu klik &quot;Atur Bobot &amp; KKTP&quot; jika kebijakan sekolah berbeda</div>
+                  <div class="step-detail">Sesuaikan persentase Formatif (%), STS (%), SAS (%), serta Praktik/Proyek (%) hingga total berjumlah tepat 100%. Atur angka &quot;KKTP Min. Tuntas&quot; (misal 75) dan &quot;Ambang Klasikal (%)&quot; untuk saran penguatan kelas, lalu klik &quot;Simpan Bobot &amp; KKTP&quot;.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">2</span>
+                <div>
+                  <div class="step-action">Masukkan nilai Formatif pada kolom tiap kode TP, lalu masukkan nilai STS dan SAS</div>
+                  <div class="step-detail">Biarkan kolom nilai kosong (&quot;-&quot;) jika murid belum mengikuti penilaian. Jangan menuliskan angka 0 hanya karena tugas belum dinilai, kecuali memang nilainya nol murni — agar aplikasi membedakan antara &quot;Belum Dinilai&quot; dan &quot;Perlu Bimbingan&quot;.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">3</span>
+                <div>
+                  <div class="step-action">Catat bukti rincian per indikator Sub-TP lewat tombol &quot;Bukti&quot; / &quot;Bukti Asesmen&quot; pada siswa (jika tersedia Sub-TP)</div>
+                  <div class="step-detail">Di baris siswa tersedia akses modal Bukti Asesmen Sub-TP untuk mencatat ketercapaian tiap indikator Sub-TP, jenis bukti (tertulis/observasi/kinerja), dan catatan guru bila diperlukan.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">4</span>
+                <div>
+                  <div class="step-action">Klik tombol &quot;Analisis TP&quot; untuk membaca ringkasan ketercapaian dan rekomendasi tindak lanjut</div>
+                  <div class="step-detail">Panel &quot;Ringkasan Ketercapaian Per TP &amp; Rekomendasi Tindak Lanjut&quot; menampilkan berapa murid yang Tercapai, Perlu Bimbingan, Belum Dinilai, serta persentase ketuntasan yang dihitung hanya dari murid yang sudah memiliki bukti penilaian valid.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">5</span>
+                <div>
+                  <div class="step-action">Buka menu &quot;Auto-Deskripsi e-Rapor&quot; untuk menyusun dan memfinalisasi narasi rapor</div>
+                  <div class="step-detail">Periksa nilai akhir, predikat KKTP, capaian tertinggi, serta bagian yang perlu bimbingan untuk setiap siswa. Klik ikon salin (&quot;Salin&quot;) di kartu siswa untuk menempel langsung ke aplikasi e-Rapor sekolah/kementerian, atau ubah status rapor dari &quot;Draf&quot; ke &quot;Final&quot; setelah lengkap. Anda juga dapat mengunduh rekapnya lewat &quot;Unduh Nilai (.docx)&quot; atau unduh rekap e-Rapor Word.</div>
+                </div>
+              </li>
+        </ol>
+      </section>
+
+      
+      <div class="sim-box">
+        <div class="sim-head">
+          <span class="sim-badge">[CONTOH DATA SIMULASI — Bukan Data Siswa Nyata]</span>
+          <h4>Contoh Sederhana Perbedaan &quot;Belum Dinilai&quot; vs &quot;Perlu Bimbingan&quot; &amp; Predikat KKTP</h4>
+        </div>
+        <p class="table-caption">Misal KKTP Min. Tuntas = 75, dengan bobot Formatif 50% + STS 25% + SAS 25%. Data di bawah hanya contoh simulasi cara baca sistem:</p>
+        <div class="table-scroll">
+          <table class="guide-table">
+            <thead>
+              <tr><th>Siswa (Contoh)</th><th>Formatif</th><th>STS</th><th>SAS</th><th>Nilai Akhir</th><th>Status di AsesMerdeka</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Siswa Contoh 1</td><td>85, 88</td><td>84</td><td>86</td><td>85.8 (86)</td><td>Cakap / Sangat Baik (Tuntas ≥ 75)</td></tr><tr><td>Siswa Contoh 2</td><td>64, 68</td><td>65</td><td>66</td><td>65.8 (66)</td><td>Perlu Bimbingan (Sudah dinilai, &lt; 75)</td></tr><tr><td>Siswa Contoh 3</td><td>Kosong (-)</td><td>Kosong (-)</td><td>Kosong (-)</td><td>—</td><td>Belum Dinilai (Tidak dianggap gagal / tidak dihitung gagal)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <section>
+        <h3 class="heading-success">5. Hasil yang diharapkan</h3>
+        <div class="result-box">
+          <div class="result-row">✓ Nilai Akhir terhitung otomatis sesuai bobot aktif (hanya menampilkan nilai bila komponen penilaian sudah diisi; siswa yang masih kosong ditandai jujur &quot;Belum Dinilai&quot;).</div><div class="result-row">✓ Murid dengan nilai di bawah batas &quot;KKTP Min. Tuntas&quot; ditandai &quot;Perlu Bimbingan&quot; dan muncul tepat pada deskripsi capaian yang perlu penguatan di e-Rapor.</div><div class="result-row">✓ Panel &quot;Analisis TP&quot; menunjukkan TP mana yang perlu bimbingan individu, kelompok kecil, atau penguatan klasikal.</div>
+        </div>
+      </section>
+
+      <section>
+        <h3 class="heading-warning">6. Kesalahan umum</h3>
+        <div class="mistake-stack">
+          <div class="mistake-card">
+                <div class="mistake-title">Kendala: Bingung membedakan status &quot;Belum Dinilai&quot; dengan &quot;Perlu Bimbingan&quot;.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> &quot;Belum Dinilai&quot; artinya kolom nilai siswa memang masih kosong/belum lengkap diinput sehingga belum masuk perhitungan ketuntasan. &quot;Perlu Bimbingan&quot; artinya nilai siswa SUDAH diisi, tetapi angkanya masih di bawah ambang batas KKTP Min. Tuntas.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Mengubah persentase bobot nilai tetapi totalnya bukan 100%.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Pastikan penjumlahan Formatif + STS + SAS + Praktik sama dengan 100% agar tombol &quot;Simpan Bobot &amp; KKTP&quot; menjadi aktif.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Memaksakan finalisasi e-Rapor saat nilai STS/SAS atau Formatif siswa masih kosong.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Sistem menahan status final jika ada komponen nilai wajib yang masih kosong (&quot;Belum Lengkap&quot;), dan menyebutkan komponen mana yang belum diisi.</div>
+              </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>7. Langkah selanjutnya</h3>
+        <div class="next-box">
+          <p>Setelah nilai dan deskripsi rapor terolah rapi, Bapak/Ibu dapat mengemas seluruh berkas perencanaan, harian, dan penilaian dalam menu Paket Siap Supervisi.</p>
+          <a href="#bagian-7" class="btn-next-inline no-print" onclick="selectChapter('bagian-7')">Lanjut ke BAGIAN 7 — SUPERVISI DAN ADMINISTRASI →</a>
+        </div>
+      </section>
+
+      <div class="faq-section">
+        <h3>Tanya Jawab (FAQ) — Buku Nilai, KKTP, Bukti Asesmen &amp; e-Rapor</h3>
+        <div class="faq-card">
+              <div class="faq-q">Tanya: Apakah nilai kosong otomatis dianggap 0 dalam rata-rata kelas?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Tidak. Siswa yang kolom nilainya masih kosong ditandai sebagai &quot;Belum Dinilai&quot; dan tidak dihitung sebagai siswa gagal atau dipaksa menjadi angka nol, sehingga persentase ketuntasan di Analisis TP tetap jujur sesuai siswa yang sudah dinilai.</div>
+            </div><div class="faq-card">
+              <div class="faq-q">Tanya: Bisakah kalimat deskripsi e-Rapor diedit manual jika guru ingin menambahkan catatan khusus?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Bisa. Setelah mengklik tombol salin ke e-Rapor, atau sebelum difinalisasi, Bapak/Ibu tetap memegang kendali penuh atas catatan rapor resmi sekolah.</div>
+            </div>
+      </div>
+    </div>
+
+    <nav class="chapter-nav no-print" aria-label="Navigasi antar bagian panduan">
+      <a href="#bagian-5" class="btn-nav btn-nav-prev" onclick="selectChapter('bagian-5')">
+              <span>← Bagian Sebelumnya</span>
+              <strong>BAGIAN 5: Ruang Kerja Harian: Presensi &amp; Jurnal Mengajar</strong>
+            </a>
+      <a href="#bagian-7" class="btn-nav btn-nav-next" onclick="selectChapter('bagian-7')">
+              <span>Bagian Selanjutnya →</span>
+              <strong>BAGIAN 7: Paket Siap Supervisi &amp; Ekspor Dokumen (.docx / .zip)</strong>
+            </a>
+    </nav>
+  </article>
+
+  <article id="bagian-7" class="guide-article" data-chapter-id="bagian-7" data-keywords="supervisi paket siap supervisi master bundel zip docx word cetak kepala sekolah pengawas">
+    <div class="article-header">
+      <div class="article-badges">
+        <span class="badge-code">BAGIAN 7</span>
+        <span class="badge-cat">Supervisi &amp; Administrasi</span>
+        <span class="badge-time">Menjelang supervisi / akhir semester • ±1 menit</span>
+      </div>
+      <h2>BAGIAN 7 — SUPERVISI DAN ADMINISTRASI</h2>
+      <p class="article-subtitle">Menyiapkan seluruh berkas pemeriksaan Kepala Sekolah/Pengawas (01–09), Unduh Master Bundel (.docx), Unduh Arsip (.zip), dan cetak.</p>
+      <div class="ui-location-hint"><strong>Letak di Aplikasi:</strong> Menu kiri &quot;Supervisi &amp; Ekspor&quot; -&gt; &quot;Paket Siap Supervisi&quot; (atau tab &quot;Paket supervisi&quot;).</div>
+    </div>
+
+    <div class="ui-pills-box">
+        <div class="ui-pills-title">Tombol Asli di Layar Aplikasi:</div>
+        <div class="ui-pills-grid">
+          <div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-primary">Unduh master bundel (.docx)</span>
+                <span class="ui-pill-note">1 file Word utuh berisi dokumen 01–09</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Unduh arsip per file (.zip)</span>
+                <span class="ui-pill-note">1 file ZIP berisi 9 file Word terpisah</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Pratinjau isi master bundel</span>
+                <span class="ui-pill-note">Periksa kesiapan tiap dokumen 01–09</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Cetak lembar daftar</span>
+                <span class="ui-pill-note">Cetak ringkasan status kesiapan supervisi</span>
+              </div>
+        </div>
+      </div>
+
+    <div class="section-stack">
+      <section>
+        <h3>1. Tujuan</h3>
+        <p>Mengumpulkan seluruh administrasi guru dalam satu tempat agar Bapak/Ibu tidak perlu menyusun atau mengekspor file satu per satu saat jadwal supervisi akademik maupun pengarsipan akhir semester.</p>
+      </section>
+
+      <section>
+        <h3>2. Kapan digunakan?</h3>
+        <p>Saat ada pemeriksaan administrasi oleh Kepala Sekolah atau Pengawas Sekolah, saat akreditasi, maupun pada akhir semester untuk mengarsipkan perangkat lengkap di laptop/flashdisk.</p>
+      </section>
+
+      <section>
+        <h3>3. Persiapan</h3>
+        <ul class="prep-list">
+          <li>Lisensi Guru Mandiri atau Lisensi Kolektif Sekolah sudah diaktifkan (karena ekspor Word/ZIP dan cetak terkunci di Mode Pratinjau).</li><li>Identitas sekolah, guru, dan kepala sekolah di &quot;Profil sekolah&quot; sudah lengkap.</li><li>Data TP/ATP/Prota/Promes serta data siswa asli di Presensi dan Buku Nilai sudah diperiksa (bukan lagi data simulasi jika ingin diserahkan secara resmi).</li>
+        </ul>
+      </section>
+
+      
+
+      <section>
+        <h3>4. Langkah-langkah</h3>
+        <ol class="step-list">
+          <li class="step-card">
+                <span class="step-num">1</span>
+                <div>
+                  <div class="step-action">Buka menu &quot;Paket Siap Supervisi&quot; di menu navigasi sebelah kiri</div>
+                  <div class="step-detail">Di bagian atas panel tampil jumlah komponen siap (dari 9 berkas standar supervisi 01–09) dan ringkasan Telaah Pengawas.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">2</span>
+                <div>
+                  <div class="step-action">Periksa daftar 9 dokumen resmi (kode 01 sampai 09)</div>
+                  <div class="step-detail">Kesembilan berkas tersebut meliputi: 01. Identitas dan Perangkat Administrasi (Cover, Pengesahan, Instrumen Telaah Pengawas), 02. Referensi CP &amp; TP, 03. Alur Tujuan Pembelajaran (ATP), 04. Program Tahunan (Prota), 05. Program Semester (Promes), 06. Modul Ajar (&amp; lampiran LKPD), 07. Daftar Presensi Siswa, 08. Jurnal Mengajar Guru, dan 09. Buku Nilai &amp; e-Rapor.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">3</span>
+                <div>
+                  <div class="step-action">Jika ingin semua berkas tergabung dalam 1 file Word siap cetak, klik &quot;Unduh master bundel (.docx)&quot;</div>
+                  <div class="step-detail">Master Bundel menggabungkan dokumen 01 sampai 09 secara berurutan lengkap dengan kop surat sekolah ke dalam 1 berkas Microsoft Word (`.docx`).</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">4</span>
+                <div>
+                  <div class="step-action">Jika pengawas meminta berkas per folder/file terpisah, klik &quot;Unduh arsip per file (.zip)&quot;</div>
+                  <div class="step-detail">Aplikasi mengemas ke-9 dokumen `.docx` bernomor rapi (`01_...docx` s.d. `09_...docx`) dalam satu file `.zip`. Bapak/Ibu tinggal klik kanan &quot;Extract All&quot; di laptop.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">5</span>
+                <div>
+                  <div class="step-action">Atau unduh satuan berkas mana saja &amp; isi Instrumen Verifikasi Supervisi jika diperlukan</div>
+                  <div class="step-detail">Setiap kartu dokumen 01–09 juga memiliki tombol unduh `.docx` tersendiri. Di bagian bawah halaman tersedia pula &quot;Instrumen Verifikasi Supervisi&quot; bila Kepala Sekolah/Pengawas ingin langsung menilai kelengkapan komponen (Ada / Perlu perbaikan / Tidak ada).</div>
+                </div>
+              </li>
+        </ol>
+      </section>
+
+      
+      
+
+      <section>
+        <h3 class="heading-success">5. Hasil yang diharapkan</h3>
+        <div class="result-box">
+          <div class="result-row">✓ Berkas `.docx` atau `.zip` terunduh ke folder Download browser dan dapat dibuka rapi di Microsoft Word atau LibreOffice untuk dicetak ke kertas A4/F4.</div><div class="result-row">✓ Bila data kelas masih berstatus simulasi atau data lama yang belum dikonfirmasi, aplikasi memunculkan dialog konfirmasi jujur sebelum mengunduh agar dokumen simulasi tidak keliru diserahkan sebagai data resmi.</div>
+        </div>
+      </section>
+
+      <section>
+        <h3 class="heading-warning">6. Kesalahan umum</h3>
+        <div class="mistake-stack">
+          <div class="mistake-card">
+                <div class="mistake-title">Kendala: Mengunduh file ZIP lalu bingung kenapa belum berbentuk file Word langsung di browser.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> File `.zip` adalah map terkompresi yang berisi 9 file Word. Buka folder Downloads di Windows/laptop, klik kanan file `.zip` tersebut, lalu pilih &quot;Extract All...&quot; agar kesembilan file `.docx` muncul.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Menggunakan tombol &quot;Cetak / PDF&quot; tetapi ukuran kertas atau margin terpotong.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Untuk kontrol penuh ukuran kertas A4/F4 dan margin resmi sekolah, disarankan memilih &quot;Unduh master bundel (.docx)&quot; atau &quot;Unduh arsip per file (.zip)&quot; lalu mencetak langsung dari Microsoft Word.</div>
+              </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>7. Langkah selanjutnya</h3>
+        <div class="next-box">
+          <p>Terakhir, pelajari cara mengamankan pekerjaan Anda lewat Backup JSON / Cloud Sync dan cara menghubungi Pusat Bantuan jika menemukan kendala.</p>
+          <a href="#bagian-8" class="btn-next-inline no-print" onclick="selectChapter('bagian-8')">Lanjut ke BAGIAN 8 — PENYIMPANAN, BACKUP, LISENSI &amp; BANTUAN →</a>
+        </div>
+      </section>
+
+      <div class="faq-section">
+        <h3>Tanya Jawab (FAQ) — Paket Siap Supervisi &amp; Ekspor Dokumen (.docx / .zip)</h3>
+        <div class="faq-card">
+              <div class="faq-q">Tanya: Apakah berkas Word dari Paket Supervisi sama isinya dengan file yang diunduh dari masing-masing menu?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Ya. Paket Siap Supervisi menggunakan pembangun dokumen `.docx` dan data aktual kelas yang persis sama dengan menu ATP, Prota, Promes, Modul Ajar, Presensi, Jurnal, Buku Nilai, dan e-Rapor.</div>
+            </div>
+      </div>
+    </div>
+
+    <nav class="chapter-nav no-print" aria-label="Navigasi antar bagian panduan">
+      <a href="#bagian-6" class="btn-nav btn-nav-prev" onclick="selectChapter('bagian-6')">
+              <span>← Bagian Sebelumnya</span>
+              <strong>BAGIAN 6: Buku Nilai, KKTP, Bukti Asesmen &amp; e-Rapor</strong>
+            </a>
+      <a href="#bagian-8" class="btn-nav btn-nav-next" onclick="selectChapter('bagian-8')">
+              <span>Bagian Selanjutnya →</span>
+              <strong>BAGIAN 8: Penyimpanan Lokal, Cloud Sync, Backup &amp; Bantuan</strong>
+            </a>
+    </nav>
+  </article>
+
+  <article id="bagian-8" class="guide-article" data-chapter-id="bagian-8" data-keywords="penyimpanan lokal cloud sync backup restore json pulihkan lisensi faq bantuan lapor kendala pin guru">
+    <div class="article-header">
+      <div class="article-badges">
+        <span class="badge-code">BAGIAN 8</span>
+        <span class="badge-cat">Penyimpanan, Backup &amp; Bantuan</span>
+        <span class="badge-time">Kapan saja dibutuhkan • ±2 menit</span>
+      </div>
+      <h2>BAGIAN 8 — PENYIMPANAN, BACKUP, LISENSI &amp; BANTUAN</h2>
+      <p class="article-subtitle">Memahami perbedaan penyimpanan lokal vs Cloud Sync, mencadangkan &amp; memulihkan data (.json), aktivasi ulang lisensi, FAQ, dan Lapor Kendala.</p>
+      <div class="ui-location-hint"><strong>Letak di Aplikasi:</strong> Indikator status di bilah atas, menu &quot;Profil sekolah&quot;, modal &quot;Lisensi&quot;, dan tombol &quot;Bantuan&quot;.</div>
+    </div>
+
+    <div class="ui-pills-box">
+        <div class="ui-pills-title">Tombol Asli di Layar Aplikasi:</div>
+        <div class="ui-pills-grid">
+          <div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Unduh Backup Data (.json)</span>
+                <span class="ui-pill-note">Simpan seluruh data kerja ke file laptop/HP</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Pulihkan Data (.json)</span>
+                <span class="ui-pill-note">Kembalikan seluruh data kerja dari file backup</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-primary">Lisensi</span>
+                <span class="ui-pill-note">Sinkronisasi antar-2 perangkat &amp; resolusi konflik</span>
+              </div><div class="ui-pill-row">
+                <span class="ui-pill-btn ui-pill-outline">Bantuan</span>
+                <span class="ui-pill-note">Kirim laporan error / masukan ke pengembang</span>
+              </div>
+        </div>
+      </div>
+
+    <div class="section-stack">
+      <section>
+        <h3>1. Tujuan</h3>
+        <p>Memastikan Bapak/Ibu tahu cara menjaga keamanan pekerjaan agar tidak hilang saat ganti browser/laptop, memahami batas penyimpanan lokal vs Cloud Sync secara jujur, serta mampu memulihkan data atau melapor kendala ke pengembang.</p>
+      </section>
+
+      <section>
+        <h3>2. Kapan digunakan?</h3>
+        <p>Sebelum membersihkan cache/history browser, saat pindah kerja antara laptop sekolah dan HP/laptop rumah, saat memasukkan kode lisensi ke perangkat kedua, atau ketika menemukan error di layar.</p>
+      </section>
+
+      <section>
+        <h3>3. Persiapan</h3>
+        <ul class="prep-list">
+          <li>Akses ke perangkat tempat pekerjaan terakhir Anda disimpan.</li><li>Kode Lisensi asli Bapak/Ibu (dan Nama Singkat / PIN Pribadi Guru jika memakai Lisensi Kolektif Sekolah 25 Guru) bila ingin memakai Cloud Sync.</li>
+        </ul>
+      </section>
+
+      <div class="callout callout-info">
+        <div class="callout-title">Catatan Penting: Informasi Jujur Tentang Keamanan Cloud Sync &amp; Penyimpanan</div>
+        <p>Transpor Cloud Sync dilindungi koneksi terenkripsi HTTPS (TLS) dan otorisasi lisensi serta PIN Guru pada server, sedangkan penyimpanan lokal berada pada peramban perangkat Anda. Cloud Sync tidak memakai End-to-End Encryption (E2EE), sehingga pengelola server/database tetap dapat memproses struktur data sesuai layanan, dan Anda selalu disarankan menyimpan berkas Backup (.json) secara berkala di perangkat pribadi.</p>
+      </div>
+
+      <section>
+        <h3>4. Langkah-langkah</h3>
+        <ol class="step-list">
+          <li class="step-card">
+                <span class="step-num">1</span>
+                <div>
+                  <div class="step-action">1. Pahami penanda penyimpanan di bilah atas: Penyimpanan Lokal vs Cloud Sync</div>
+                  <div class="step-detail">Pada Mode Pratinjau, data disimpan hanya secara lokal di penyimpanan peramban (localStorage) perangkat tersebut (&quot;Tersimpan lokal&quot;) — sehingga bila Anda membersihkan data browser atau pindah ke komputer lain, data belum otomatis berpindah. Ketika lisensi PRO aktif dan server Cloud Sync tersedia, aplikasi menyinkronkan data workspace secara berkala ke server melalui koneksi HTTPS (&quot;Lokal &amp; cloud&quot;).</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">2</span>
+                <div>
+                  <div class="step-action">2. Buat cadangan manual ke berkas aman: buka &quot;Profil sekolah&quot; -&gt; klik &quot;Unduh Backup Data (.json)&quot;</div>
+                  <div class="step-detail">Di bagian bawah modal &quot;Profil sekolah&quot; terdapat kotak biru &quot;Cadangkan &amp; Pulihkan Data Semester&quot;. Klik &quot;Unduh Backup Data (.json)&quot; untuk menyimpan seluruh profil sekolah, TP, daftar siswa, presensi, jurnal, nilai, dan bank soal ke dalam satu berkas `.json` di laptop/HP Anda. Simpan berkas ini di Google Drive atau flashdisk.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">3</span>
+                <div>
+                  <div class="step-action">3. Memulihkan data dari berkas cadangan: klik &quot;Pulihkan Data (.json)&quot;</div>
+                  <div class="step-detail">Saat membuka AsesMerdeka di komputer baru atau setelah cache terhapus, buka &quot;Profil sekolah&quot; -&gt; klik &quot;Pulihkan Data (.json)&quot; -&gt; pilih berkas `.json` hasil cadangan Anda sebelumnya.</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">4</span>
+                <div>
+                  <div class="step-action">4. Memulihkan pekerjaan antar-perangkat via Cloud Sync (jika memiliki Lisensi aktif)</div>
+                  <div class="step-detail">Pada perangkat kedua (misal dari Laptop ke HP), klik &quot;Lisensi&quot;, masukkan Kode Lisensi yang sama (dan Nama/PIN Guru bila kode Sekolah agar data Anda tidak tertukar dengan guru lain satu sekolah), lalu klik &quot;Aktivasi &amp; Sinkronkan&quot;. Jika muncul peringatan &quot;Konflik Cloud&quot; karena dua perangkat punya perubahan berbeda, pilih versi yang ingin dipertahankan pada panel resolusi konflik (aplikasi juga menyimpan snapshot cadangan pra-konflik).</div>
+                </div>
+              </li><li class="step-card">
+                <span class="step-num">5</span>
+                <div>
+                  <div class="step-action">5. Cara melapor kendala teknis atau memberi masukan melalui tombol &quot;Bantuan&quot;</div>
+                  <div class="step-detail">Klik tombol &quot;Bantuan&quot; di bilah atas (ikon tanda tanya). Pilih kategori kendala, ketik keluhan Bapak/Ibu secara singkat, dan isi kontak WhatsApp/nama secara opsional bila bersedia dihubungi balik. Halaman aktif, jenjang, kelas, dan mapel otomatis terlampir agar tim cepat memahami kendalanya. Lalu klik &quot;Kirim Laporan Kendala&quot;.</div>
+                </div>
+              </li>
+        </ol>
+      </section>
+
+      
+      
+
+      <section>
+        <h3 class="heading-success">5. Hasil yang diharapkan</h3>
+        <div class="result-box">
+          <div class="result-row">✓ Pekerjaan guru memiliki dua lapisan penyelamatan: file cadangan `.json` di perangkat/Drive Bapak/Ibu, serta Cloud Sync otomatis untuk pemegang lisensi aktif saat server aktif.</div><div class="result-row">✓ Laporan kendala melalui &quot;Pusat Bantuan &amp; Lapor Kendala&quot; terkirim dengan status berhasil.</div>
+        </div>
+      </section>
+
+      <section>
+        <h3 class="heading-warning">6. Kesalahan umum</h3>
+        <div class="mistake-stack">
+          <div class="mistake-card">
+                <div class="mistake-title">Kendala: Membuka mode Penyamaran (Incognito/Private Browser) saat mengerjakan administrasi satu semester.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Browser Incognito menghapus seluruh penyimpanan lokal saat jendela ditutup. Selalu gunakan jendela browser normal dan biasakan klik &quot;Unduh Backup Data (.json)&quot; sebulan sekali atau di akhir semester.</div>
+              </div><div class="mistake-card">
+                <div class="mistake-title">Kendala: Memakai Lisensi Sekolah yang sama dengan rekan guru tetapi memakai Nama/PIN Guru yang sama.</div>
+                <div class="mistake-solution"><strong>Solusi:</strong> Setiap guru pada Lisensi Kolektif Sekolah wajib menggunakan Nama Singkat / PIN Pribadi Guru yang berbeda (misal &quot;BU_SITI_IPA&quot; dan &quot;PAK_BUDI_MTK&quot;) supaya riwayat kelas dan nilai masing-masing guru tetap terisolasi dan aman.</div>
+              </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>7. Langkah selanjutnya</h3>
+        <div class="next-box">
+          <p>Semua tahap penggunaan AsesMerdeka telah lengkap! Anda dapat kembali ke ruang kerja atau mencetak panduan ini sebagai pegangan di sekolah.</p>
+          
+        </div>
+      </section>
+
+      <div class="faq-section">
+        <h3>Tanya Jawab (FAQ) — Penyimpanan Lokal, Cloud Sync, Backup &amp; Bantuan</h3>
+        <div class="faq-card">
+              <div class="faq-q">Tanya: Apakah saya bisa memakai 1 lisensi di Laptop sekolah dan HP pribadi?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Ya. Satu Lisensi Guru Mandiri mendukung maksimal 2 perangkat aktif (misalnya 1 Laptop + 1 HP), dan Lisensi Kolektif Sekolah mendukung hingga 25 Guru (masing-masing maks. 2 perangkat).</div>
+            </div><div class="faq-card">
+              <div class="faq-q">Tanya: Bagaimana jika tombol &quot;Hubungi Admin via WhatsApp&quot; diperlukan saat membeli lisensi?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Pembelian online otomatis website sementara belum aktif pada rilis awal. Klik tombol &quot;Lisensi&quot; di bilah atas, pilih paket &quot;Lisensi Guru Mandiri&quot; (Rp 99.000) atau &quot;Lisensi Kolektif Sekolah&quot; (Rp 749.000), lalu klik tombol beli untuk melihat rincian dan menekan &quot;Hubungi Admin via WhatsApp&quot;.</div>
+            </div><div class="faq-card">
+              <div class="faq-q">Tanya: Bagaimana jika data di Laptop dan HP pernah teredit bersamaan dan muncul &quot;Konflik Cloud&quot;?</div>
+              <div class="faq-a"><strong>Jawab:</strong> Klik badge &quot;Konflik Cloud&quot; di bilah atas (atau buka &quot;Lisensi&quot;) untuk memilih versi lokal atau versi cloud yang ingin dipertahankan tanpa langsung menimpa diam-diam. Sistem juga menyimpan cadangan pra-konflik lokal.</div>
+            </div>
+      </div>
+    </div>
+
+    <nav class="chapter-nav no-print" aria-label="Navigasi antar bagian panduan">
+      <a href="#bagian-7" class="btn-nav btn-nav-prev" onclick="selectChapter('bagian-7')">
+              <span>← Bagian Sebelumnya</span>
+              <strong>BAGIAN 7: Paket Siap Supervisi &amp; Ekspor Dokumen (.docx / .zip)</strong>
+            </a>
+      <a href="/" class="btn-nav btn-nav-done">
+              <span>Selesai Membaca Panduan</span>
+              <strong>Kembali ke Aplikasi AsesMerdeka</strong>
+            </a>
+    </nav>
+  </article>
+      </main>
+    </div>
   </div>
 
-  <!-- Footer -->
-  <footer class="page-footer">
-    <p><strong>AsesMerdeka</strong> &copy; 2026. Pendamping Administrasi Guru & Pendidik Indonesia.</p>
-    <p style="font-size: 12.5px; margin-top: 6px;">Bebas Ribet • Lengkap Resmi • Siap Supervisi</p>
-  </footer>
-
   <script>
-    function goHome(e) {
-      if (window.location.protocol === 'file:') {
-        e.preventDefault();
-        if (window.history.length > 1) {
-          window.history.back();
-        } else {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+    function toggleFontSize() {
+      var isLarge = document.body.classList.toggle('font-large');
+      document.getElementById('btn-font-toggle').textContent = isLarge ? 'Ukuran Tulisan: Besar (18px)' : 'Ukuran Tulisan: 16px / 18px';
+    }
+    function toggleMobileDrawer() {
+      var el = document.getElementById('mobile-drawer');
+      var open = el.classList.toggle('open');
+      document.getElementById('drawer-arrow').textContent = open ? '▲' : '▼';
+    }
+    function selectChapter(id) {
+      document.querySelectorAll('.sidebar-link').forEach(function(link) {
+        link.classList.toggle('is-active', link.getAttribute('data-sidebar-link') === id);
+      });
+      var mobileDrawer = document.getElementById('mobile-drawer');
+      if (mobileDrawer) mobileDrawer.classList.remove('open');
+      var target = document.getElementById(id);
+      if (target) {
+        var h2 = target.querySelector('h2');
+        if (h2) document.getElementById('breadcrumb-current').textContent = h2.textContent;
+      }
+    }
+    function showAllChapters() {
+      document.querySelectorAll('.guide-article').forEach(function(a) { a.style.display = 'block'; });
+      document.getElementById('breadcrumb-current').textContent = 'Semua Bagian (1–8)';
+    }
+    function filterGuide(q) {
+      var clean = String(q || '').trim().toLowerCase();
+      document.querySelectorAll('.guide-article').forEach(function(article) {
+        if (!clean) {
+          article.style.display = 'block';
+          return;
         }
-      }
+        var hay = (article.textContent + ' ' + (article.getAttribute('data-keywords') || '')).toLowerCase();
+        article.style.display = hay.indexOf(clean) !== -1 ? 'block' : 'none';
+      });
     }
-
-    let isLargeFont = false;
-    function toggleTextSize() {
-      isLargeFont = !isLargeFont;
-      document.body.style.fontSize = isLargeFont ? '18px' : '16px';
-      alert(isLargeFont ? 'Ukuran tulisan diperbesar untuk kenyamanan membaca.' : 'Ukuran tulisan kembali normal.');
-    }
-
-    function toggleFaq(element) {
-      const answer = element.nextElementSibling;
-      const icon = element.querySelector('span:last-child');
-      if (answer.style.display === 'block') {
-        answer.style.display = 'none';
-        icon.textContent = '➕';
-      } else {
-        answer.style.display = 'block';
-        icon.textContent = '➖';
-      }
-    }
-
-    document.querySelectorAll('.faq-answer').forEach(el => el.style.display = 'block');
-    document.querySelectorAll('.faq-question span:last-child').forEach(el => el.textContent = '➖');
   </script>
 </body>
 </html>

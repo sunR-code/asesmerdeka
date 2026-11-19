@@ -24,6 +24,7 @@ import type { SchoolProfile } from '../utils/schoolProfileStorage';
 export interface HelpFeedbackModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenGuide?: () => void;
   activeTabName?: string;
   activeTabId?: string;
   schoolProfile: SchoolProfile;
@@ -34,6 +35,7 @@ export interface HelpFeedbackModalProps {
 export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
   isOpen,
   onClose,
+  onOpenGuide,
   activeTabName,
   activeTabId,
   schoolProfile,
@@ -229,26 +231,52 @@ export const HelpFeedbackModal: React.FC<HelpFeedbackModalProps> = ({
               </span>
             </div>
           </div>
-          <a
-            href="/panduan.html"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              background: '#1e40af',
-              color: '#ffffff',
-              fontSize: 12.5,
-              fontWeight: 700,
-              padding: '7px 15px',
-              borderRadius: 8,
-              textDecoration: 'none',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              boxShadow: '0 2px 6px rgba(30, 64, 175, 0.25)',
-            }}
-          >
-            Buka Buku Panduan ↗
-          </a>
+          {onOpenGuide ? (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenGuide();
+              }}
+              style={{
+                background: '#1e40af',
+                color: '#ffffff',
+                fontSize: 12.5,
+                fontWeight: 700,
+                padding: '9px 15px',
+                borderRadius: 8,
+                border: 'none',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                boxShadow: '0 2px 6px rgba(30, 64, 175, 0.25)',
+              }}
+            >
+              Buka Buku Panduan
+            </button>
+          ) : (
+            <a
+              href="/panduan.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                background: '#1e40af',
+                color: '#ffffff',
+                fontSize: 12.5,
+                fontWeight: 700,
+                padding: '9px 15px',
+                borderRadius: 8,
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                boxShadow: '0 2px 6px rgba(30, 64, 175, 0.25)',
+              }}
+            >
+              Buka Buku Panduan ↗
+            </a>
+          )}
         </div>
 
         {/* Content: Form Pengiriman Laporan (Sisi Guru) */}

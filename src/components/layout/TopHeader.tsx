@@ -3,6 +3,7 @@ import {
   Menu,
   School,
   Key,
+  BookOpen,
   HelpCircle,
   HardDrive,
   Cloud,
@@ -27,6 +28,7 @@ interface TopHeaderProps {
   schoolProfile: SchoolProfile;
   onOpenSchoolModal: () => void;
   onOpenLicenseModal?: () => void;
+  onOpenGuideModal?: () => void;
   onOpenHelpModal?: () => void;
   isPro?: boolean;
   storageStatus?: WorkspaceStorageStatus;
@@ -102,6 +104,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   schoolProfile,
   onOpenSchoolModal,
   onOpenLicenseModal,
+  onOpenGuideModal,
   onOpenHelpModal,
   isPro,
   storageStatus = 'local',
@@ -305,6 +308,25 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           >
             <Key size={14} style={{ color: isPro ? '#059669' : '#475569', flexShrink: 0 }} />
             <span className="header-pill-license-text">{isPro ? 'Lisensi aktif' : 'Lisensi'}</span>
+          </button>
+        )}
+
+        {/* Panduan Guru Langsung */}
+        {onOpenGuideModal && (
+          <button
+            type="button"
+            onClick={onOpenGuideModal}
+            className="header-pill-btn header-pill-guide"
+            style={{
+              borderColor: '#bfdbfe',
+              background: '#eff6ff',
+              color: '#1e40af',
+            }}
+            title="Buka Buku Panduan Praktis Guru"
+            aria-label="Panduan"
+          >
+            <BookOpen size={14} style={{ color: '#2563eb', flexShrink: 0 }} />
+            <span className="header-pill-guide-text">Panduan</span>
           </button>
         )}
 

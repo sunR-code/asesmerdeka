@@ -252,6 +252,80 @@ export const ONE_TIME_PLANS: Record<OneTimePlanId, OneTimePlan> = {
   },
 };
 
+export const PUBLIC_VISIBLE_PLAN_IDS: OneTimePlanId[] = ['pro_individu', 'pro_sekolah'];
+export const HIDDEN_AI_PRO_PLAN_IDS: OneTimePlanId[] = ['pro_ai', 'sekolah_pro'];
+
+// Sumber tunggal konfigurasi WhatsApp Admin untuk pembelian pra-rilis
+const DEFAULT_ADMIN_WHATSAPP_NUMBER = '6282114625243';
+
+/**
+ * Menormalkan nomor telepon WhatsApp Indonesia ke format internasional (628...).
+ * Mengembalikan string kosong bila input kosong atau tidak valid.
+ */
+export function normalizeWhatsAppNumber(raw: string): string {
+  let digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('08')) {
+    digits = `62${digits.slice(1)}`;
+  } else if (digits.startsWith('8')) {
+    digits = `62${digits}`;
+  }
+  return /^628\d{7,13}$/.test(digits) ? digits : '';
+}
+
+/**
+ * Mengambil nomor WhatsApp Admin dari konfigurasi tunggal terpusat (atau env VITE_ADMIN_WHATSAPP_NUMBER).
+ */
+export function getAdminWhatsAppNumber(overrideRaw?: string): string {
+  const raw =
+    overrideRaw !== undefined
+      ? overrideRaw
+      : (import.meta as any).env?.VITE_ADMIN_WHATSAPP_NUMBER ?? DEFAULT_ADMIN_WHATSAPP_NUMBER;
+  return normalizeWhatsAppNumber(String(raw || ''));
+}
+
+/**
+ * Menyusun pesan WhatsApp siap kirim (masih dapat diedit calon pembeli di WhatsApp) sesuai paket pilihan.
+ */
+export function buildWhatsAppPurchaseMessage(planId: OneTimePlanId): string {
+  const plan = ONE_TIME_PLANS[planId] || ONE_TIME_PLANS.pro_individu;
+  if (plan.id === 'pro_sekolah' || plan.id === 'sekolah_pro') {
+    return [
+      "Assalamu'alaikum Admin AsesMerdeka.",
+      '',
+      `Saya tertarik membeli ${plan.name} (${plan.priceFormatted} — Hingga 25 Guru / SPJ Dana BOS).`,
+      '',
+      'Mohon informasi mengenai harga, ketentuan jumlah guru, proses pembelian, dan cara aktivasi lisensi kolektif sekolah.',
+      '',
+      'Terima kasih.',
+    ].join('\n');
+  }
+
+  return [
+    "Assalamu'alaikum Admin AsesMerdeka.",
+    '',
+    `Saya tertarik membeli ${plan.name} (${plan.priceFormatted} — Sekali Bayar / 1 Guru, 2 Perangkat).`,
+    '',
+    'Mohon informasi mengenai harga, proses pembelian, dan cara aktivasi lisensinya.',
+    '',
+    'Terima kasih.',
+  ].join('\n');
+}
+
+/**
+ * Membangun URL WhatsApp wa.me resmi dengan query pesan terenkode.
+ * Mengembalikan string kosong apabila nomor Admin belum tersedia/tidak valid.
+ */
+export function buildAdminWhatsAppPurchaseUrl(
+  planId: OneTimePlanId,
+  overrideNumber?: string
+): string {
+  const adminNumber = getAdminWhatsAppNumber(overrideNumber);
+  if (!adminNumber) return '';
+  const text = buildWhatsAppPurchaseMessage(planId);
+  return `https://wa.me/${adminNumber}?text=${encodeURIComponent(text)}`;
+}
+
 export const PAYMENT_METHODS: PaymentMethodOption[] = [
   {
     id: 'qris',

@@ -18,6 +18,7 @@ import { ClassSemesterHub } from './components/ClassSemesterHub';
 import { LicenseModal } from './components/LicenseModal';
 import { SchoolProfileModal } from './components/SchoolProfileModal';
 import { HelpFeedbackModal } from './components/HelpFeedbackModal';
+import { TeacherGuideView } from './components/TeacherGuideView';
 import { AdminPortal } from './components/admin/AdminPortal';
 import type { AsesmenDokumen, GenerationRequest, UserQuota } from './types/assessment';
 import type { RangkumanDokumen, RangkumanRequest } from './types/summary';
@@ -122,8 +123,15 @@ const checkIsAdminUrl = (): boolean => {
   return page === 'admin' || admin === 'portal' || admin === '1';
 };
 
+const checkIsPanduanUrl = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('page') === 'panduan';
+};
+
 export function App() {
   const [isAdminPortalOpen, setIsAdminPortalOpen] = useState<boolean>(() => checkIsAdminUrl());
+  const [isPanduanOpen, setIsPanduanOpen] = useState<boolean>(() => checkIsPanduanUrl());
   const [activeTab, setActiveTab] = useState<AppTab>('tp_list');
   const [bankList, setBankList] = useState<AsesmenDokumen[]>(() => loadAndUpgradeBankSoal());
   const [currentAssessment, setCurrentAssessment] = useState<AsesmenDokumen | null>(() => {
@@ -247,9 +255,36 @@ export function App() {
     }
   };
 
+  const handleOpenPanduanPage = () => {
+    setIsPanduanOpen(true);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('page', 'panduan');
+      window.history.pushState({}, '', url.toString());
+    } catch {
+      // fallback
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleClosePanduanPage = () => {
+    setIsPanduanOpen(false);
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('page') === 'panduan') {
+        url.searchParams.delete('page');
+        window.history.replaceState({}, '', url.toString());
+      }
+    } catch {
+      // fallback
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   useEffect(() => {
     const handlePopState = () => {
       setIsAdminPortalOpen(checkIsAdminUrl());
+      setIsPanduanOpen(checkIsPanduanUrl());
     };
     const handleOpenPortalEvent = () => {
       handleOpenAdminPortal();
@@ -693,6 +728,14 @@ export function App() {
     );
   }
 
+  if (isPanduanOpen) {
+    return (
+      <MotionConfig reducedMotion="user">
+        <TeacherGuideView onBackToApp={handleClosePanduanPage} />
+      </MotionConfig>
+    );
+  }
+
   return (
     <MotionConfig reducedMotion="user">
       <div className="app-shell" style={{ minHeight: '100vh', display: 'flex', background: '#f7f8fa' }}>
@@ -709,6 +752,7 @@ export function App() {
           onOpenClassModal={() => setIsClassModalOpen(true)}
           onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
           onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
+          onOpenGuideModal={handleOpenPanduanPage}
           onOpenHelpModal={() => setIsHelpModalOpen(true)}
           isMobileOpen={isMobileSidebarOpen}
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
@@ -723,6 +767,7 @@ export function App() {
             schoolProfile={schoolProfile}
             onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
             onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
+            onOpenGuideModal={handleOpenPanduanPage}
             onOpenHelpModal={() => setIsHelpModalOpen(true)}
             isPro={isLicensed(quota.tier)}
             storageStatus={storageStatus}
@@ -959,6 +1004,7 @@ export function App() {
           onOpenClassModal={() => setIsClassModalOpen(true)}
           onOpenSchoolModal={() => setIsSchoolModalOpen(true)}
           onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
+          onOpenGuideModal={handleOpenPanduanPage}
           onOpenHelpModal={() => setIsHelpModalOpen(true)}
           onOpenAdminPortal={handleOpenAdminPortal}
         />
@@ -1009,6 +1055,7 @@ export function App() {
       <HelpFeedbackModal
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}
+        onOpenGuide={handleOpenPanduanPage}
         activeTabName={headerInfo.title}
         activeTabId={activeTab}
         schoolProfile={schoolProfile}

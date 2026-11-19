@@ -12,6 +12,10 @@ import {
   ExternalLink,
   Lock,
   Link2,
+  MessageCircle,
+  Users,
+  ArrowLeft,
+  Info,
 } from 'lucide-react';
 import type { UserQuota } from '../types/assessment';
 import {
@@ -41,6 +45,8 @@ import {
 } from '../utils/licenseManager';
 import {
   ONE_TIME_PLANS,
+  PUBLIC_VISIBLE_PLAN_IDS,
+  buildAdminWhatsAppPurchaseUrl,
   getMayarPaymentLink,
   saveMayarPaymentLinks,
   type OneTimePlanId,
@@ -124,6 +130,7 @@ interface LicenseModalProps {
   quota: UserQuota;
   onUpdateQuota: (newQuota: UserQuota) => void;
   onRestoredFromCloud?: () => void;
+  initialWhatsAppModalPlanId?: OneTimePlanId | null;
 }
 
 export const LicenseModal: React.FC<LicenseModalProps> = ({
@@ -132,6 +139,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   quota,
   onUpdateQuota,
   onRestoredFromCloud,
+  initialWhatsAppModalPlanId = null,
 }) => {
   const [licenseInput, setLicenseInput] = useState('');
   const [teacherPinInput, setTeacherPinInput] = useState(() => getSavedTeacherSyncPin());
@@ -172,6 +180,9 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const [showChangeLicense, setShowChangeLicense] = useState(false);
 
   const [selectedPlanId, setSelectedPlanId] = useState<OneTimePlanId>('pro_individu');
+  const [whatsAppModalPlanId, setWhatsAppModalPlanId] = useState<OneTimePlanId | null>(
+    initialWhatsAppModalPlanId
+  );
   const [activeSubTab, setActiveSubTab] = useState<'order' | 'byok'>('order');
 
   // State khusus Panel Kalkulator Kode Lisensi & Konfigurasi Mayar Admin / Mitra (Ketik @admin)
@@ -234,13 +245,22 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   }, [isOpen, quota.licenseKey]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setWhatsAppModalPlanId(null);
+      return;
+    }
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (whatsAppModalPlanId) {
+          setWhatsAppModalPlanId(null);
+        } else {
+          onClose();
+        }
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, whatsAppModalPlanId]);
 
   // Validasi live ke server apakah lisensi aktif pada perangkat ini masih sah
   // (Mendeteksi seketika jika Admin baru saja menghapus lisensi atau melepas perangkat)
@@ -266,36 +286,28 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
 
   const isUnlocked = isLicensed(quota.tier);
   const isPro = isUnlocked;
-  const currentPlan = ONE_TIME_PLANS[selectedPlanId] || ONE_TIME_PLANS['pro_individu'];
-  const activePaymentUrl = getMayarPaymentLink(selectedPlanId);
-  const isOnlineCheckoutReady = Boolean(activePaymentUrl && !currentPlan.isComingSoon);
+  const safeSelectedPlanId: OneTimePlanId = PUBLIC_VISIBLE_PLAN_IDS.includes(selectedPlanId)
+    ? selectedPlanId
+    : 'pro_individu';
+  const currentPlan = ONE_TIME_PLANS[safeSelectedPlanId] || ONE_TIME_PLANS['pro_individu'];
   const activeSeatInfo = isUnlocked && quota.licenseKey ? getLicenseSeatStatus(quota.licenseKey) : null;
   const lastLicenseStatus = !isUnlocked ? getLastLicenseStatusMetadata() : null;
   const tierName = getTierDisplayName(quota.tier);
   const badgeName = getTierBadgeLabel(quota.tier);
 
-  const handlePayViaMayar = () => {
-    setStatusMessage(null);
-    const targetUrl = getMayarPaymentLink(selectedPlanId);
+  const whatsAppModalPlan = whatsAppModalPlanId
+    ? ONE_TIME_PLANS[whatsAppModalPlanId] || ONE_TIME_PLANS.pro_individu
+    : null;
+  const whatsAppPurchaseUrl = whatsAppModalPlanId
+    ? buildAdminWhatsAppPurchaseUrl(whatsAppModalPlanId)
+    : '';
 
-    if (targetUrl) {
-      try {
-        const url = new URL(targetUrl);
-        url.searchParams.set('device_id', quota.deviceId);
-        window.open(url.toString(), '_blank', 'noopener,noreferrer');
-      } catch {
-        window.open(targetUrl, '_blank', 'noopener,noreferrer');
-      }
-      setStatusMessage({
-        text: 'Halaman pembayaran resmi Mayar.id telah dibuka di tab baru. Setelah pembayaran QRIS / Virtual Account selesai, tempel Kode Lisensi yang Anda terima pada kolom aktivasi di bawah.',
-        isError: false,
-      });
-    } else {
-      setStatusMessage({
-        text: 'Pembayaran online otomatis belum diaktifkan pada rilis ini. Silakan gunakan aktivasi Kode Lisensi resmi pada kolom di bawah atau lanjutkan dalam Mode Pratinjau.',
-        isError: false,
-      });
-    }
+  const handleOpenPurchaseFlow = (planId: OneTimePlanId) => {
+    setStatusMessage(null);
+    setSelectedPlanId(planId);
+    // Rilis awal menonaktifkan checkout otomatis Mayar dan mengarahkan calon pembeli
+    // ke modal informasi pembelian via WhatsApp Admin.
+    setWhatsAppModalPlanId(planId);
   };
 
   const handleActivate = async (e: React.FormEvent) => {
@@ -1534,135 +1546,171 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
             {/* TAMPILKAN PILIHAN PAKET & FORM INPUT KODE HANYA JIKA BELUM AKTIVASI ATAU KLIK "GANTI KODE" */}
             {(!isUnlocked || showChangeLicense) && (
               <>
-                {/* 1. Pilihan 4 Paket (Guru Mandiri, Sekolah, Guru PRO, Sekolah PRO) */}
+                {/* 1. Pilihan 2 Paket Utama (Guru Mandiri & Kolektif Sekolah) */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-                  {(['pro_individu', 'pro_sekolah', 'pro_ai', 'sekolah_pro'] as OneTimePlanId[]).map((planKey) => {
+                  {PUBLIC_VISIBLE_PLAN_IDS.map((planKey) => {
                     const plan = ONE_TIME_PLANS[planKey];
-                    const isSelected = selectedPlanId === planKey;
+                    const isSelected = safeSelectedPlanId === planKey;
                     const isSchoolPlan = planKey === 'pro_sekolah';
-                    const isAIPro = plan.isComingSoon;
 
                     let cardBorder = '1px solid var(--border-subtle)';
                     let cardBg = '#ffffff';
                     if (isSelected) {
-                      cardBorder = isSchoolPlan ? '2px solid #059669' : isAIPro ? '2px solid #7c3aed' : '2px solid #2563eb';
-                      cardBg = isSchoolPlan ? '#ecfdf5' : isAIPro ? '#faf5ff' : '#eff6ff';
+                      cardBorder = isSchoolPlan ? '2px solid #059669' : '2px solid #2563eb';
+                      cardBg = isSchoolPlan ? '#ecfdf5' : '#eff6ff';
                     }
 
                     return (
                       <div
                         key={plan.id}
-                        onClick={() => {
-                          if (!plan.isComingSoon) {
-                            setSelectedPlanId(plan.id);
-                          }
-                        }}
+                        data-testid={`license-plan-card-${plan.id}`}
+                        onClick={() => setSelectedPlanId(plan.id)}
                         style={{
                           border: cardBorder,
                           background: cardBg,
                           padding: '16px',
                           borderRadius: 'var(--radius-md)',
-                          cursor: plan.isComingSoon ? 'default' : 'pointer',
+                          cursor: 'pointer',
                           position: 'relative',
                           transition: 'all 0.15s ease',
-                          opacity: plan.isComingSoon ? 0.9 : 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          gap: 12,
                         }}
                       >
-                        <span
+                        <div>
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 800,
+                              padding: '3px 9px',
+                              borderRadius: 99,
+                              background: isSchoolPlan ? '#d1fae5' : '#dbeafe',
+                              color: isSchoolPlan ? '#065f46' : '#1e40af',
+                              display: 'inline-block',
+                              marginBottom: 8,
+                            }}
+                          >
+                            {plan.badge}
+                          </span>
+
+                          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-main)' }}>{plan.name}</div>
+
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '6px 0 4px', flexWrap: 'wrap' }}>
+                            <span
+                              style={{
+                                fontSize: 21,
+                                fontWeight: 900,
+                                color: isSchoolPlan ? '#059669' : '#2563eb',
+                              }}
+                            >
+                              {plan.priceFormatted}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 12,
+                                color: '#94a3b8',
+                                textDecoration: 'line-through',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {plan.originalPriceFormatted}
+                            </span>
+                            <span style={{ fontSize: 11, color: '#0f172a', fontWeight: 700 }}>• Sekali Bayar</span>
+                          </div>
+
+                          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.45 }}>
+                            {plan.subtitle}
+                          </p>
+
+                          <div
+                            style={{
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              color: isSchoolPlan ? '#065f46' : '#1e3a8a',
+                              background: isSchoolPlan ? '#ecfdf5' : '#f8fafc',
+                              border: `1px solid ${isSchoolPlan ? '#a7f3d0' : '#e2e8f0'}`,
+                              borderRadius: 8,
+                              padding: '6px 10px',
+                              marginBottom: 10,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                          >
+                            <Users size={13} style={{ flexShrink: 0 }} aria-hidden="true" />
+                            <span>{plan.targetAudience}</span>
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11.5, color: '#334155' }}>
+                            {plan.features.map((feat, idx) => (
+                              <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                <CheckCircle2
+                                  size={13}
+                                  color={isSchoolPlan ? '#059669' : '#2563eb'}
+                                  style={{ marginTop: 2, flexShrink: 0 }}
+                                />
+                                <span>{feat}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenPurchaseFlow(plan.id);
+                          }}
+                          className={`btn ${isSchoolPlan ? 'btn-success' : 'btn-primary'}`}
                           style={{
-                            fontSize: 10,
+                            width: '100%',
+                            minHeight: 44,
+                            padding: '10px 14px',
+                            fontSize: 13,
                             fontWeight: 800,
-                            padding: '3px 8px',
-                            borderRadius: 99,
-                            background: isSchoolPlan ? '#d1fae5' : isAIPro ? '#ede9fe' : '#dbeafe',
-                            color: isSchoolPlan ? '#065f46' : isAIPro ? '#6d28d9' : '#1e40af',
-                            display: 'inline-block',
-                            marginBottom: 8,
+                            whiteSpace: 'normal',
+                            lineHeight: 1.35,
+                            textAlign: 'center',
                           }}
                         >
-                          {plan.badge}
-                        </span>
-
-                        <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-main)' }}>{plan.name}</div>
-
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '6px 0 4px' }}>
-                          <span
-                            style={{
-                              fontSize: 20,
-                              fontWeight: 900,
-                              color: isSchoolPlan ? '#059669' : isAIPro ? '#7c3aed' : '#2563eb',
-                            }}
-                          >
-                            {plan.priceFormatted}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 12,
-                              color: '#94a3b8',
-                              textDecoration: 'line-through',
-                              fontWeight: 600,
-                            }}
-                          >
-                            {plan.originalPriceFormatted}
-                          </span>
-                          <span style={{ fontSize: 11, color: '#0f172a', fontWeight: 700 }}>• Sekali Bayar</span>
-                        </div>
-
-                        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.4 }}>
-                          {plan.subtitle}
-                        </p>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: '#334155' }}>
-                          {plan.features.map((feat, idx) => (
-                            <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                              <CheckCircle2
-                                size={13}
-                                color={isSchoolPlan ? '#059669' : isAIPro ? '#7c3aed' : '#2563eb'}
-                                style={{ marginTop: 2, flexShrink: 0 }}
-                              />
-                              <span>{feat}</span>
-                            </div>
-                          ))}
-                        </div>
+                          <MessageCircle size={15} style={{ flexShrink: 0 }} aria-hidden="true" />
+                          <span>Beli {plan.name} ({plan.priceFormatted})</span>
+                        </button>
                       </div>
                     );
                   })}
                 </div>
 
-                {/* 2. Tombol Langsung ke Checkout Resmi Mayar.id (hanya aktif jika payment link dikonfigurasi) */}
+                {/* 2. Tombol Utama Lanjutkan Pembelian Paket Terpilih */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <button
                     type="button"
-                    onClick={handlePayViaMayar}
+                    onClick={() => handleOpenPurchaseFlow(currentPlan.id)}
                     className="btn btn-primary"
-                    disabled={!isOnlineCheckoutReady}
                     style={{
                       width: '100%',
-                      padding: '13px 20px',
+                      minHeight: 46,
+                      padding: '12px 18px',
                       fontSize: 14,
                       fontWeight: 800,
                       display: 'flex',
                       alignItems: 'center',
-                      opacity: isOnlineCheckoutReady ? 1 : 0.65,
-                      cursor: isOnlineCheckoutReady ? 'pointer' : 'not-allowed',
                       justifyContent: 'center',
                       gap: 8,
+                      whiteSpace: 'normal',
+                      lineHeight: 1.35,
+                      textAlign: 'center',
                     }}
                   >
-                    {currentPlan.isComingSoon ? (
-                      'Paket Segera Hadir — Pilih Paket Guru Mandiri / Sekolah'
-                    ) : !activePaymentUrl ? (
-                      'Pembelian Online Otomatis Belum Aktif — Gunakan Kode Lisensi di Bawah'
-                    ) : (
-                      <>
-                        <ExternalLink size={17} /> Bayar Sekali {currentPlan.priceFormatted} via Payment Gateway (QRIS / Bank / E-Wallet) &rarr;
-                      </>
-                    )}
+                    <MessageCircle size={17} style={{ flexShrink: 0 }} aria-hidden="true" />
+                    <span>
+                      Beli {currentPlan.name} ({currentPlan.priceFormatted}) — Info Pembelian &amp; WhatsApp Admin
+                    </span>
                   </button>
-                  <div style={{ fontSize: 11, color: 'var(--text-dim)', textAlign: 'center' }}>
-                    {!activePaymentUrl && !currentPlan.isComingSoon
-                      ? 'Rilis awal menggunakan aktivasi Kode Lisensi Resmi / Mitra pada kolom di bawah atau akses Mode Pratinjau. Anda tidak diarahkan ke checkout yang belum aktif.'
-                      : 'Mendukung QRIS (Semua Bank & E-Wallet), BRI, Mandiri, BCA, BNI, GoPay, DANA, OVO & ShopeePay melalui Mayar Payment Gateway.'}
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.45 }}>
+                    Pembelian online otomatis melalui website sementara belum aktif. Klik tombol di atas untuk panduan pemesanan melalui WhatsApp Admin atau masukkan kode lisensi di bawah.
                   </div>
                 </div>
 
@@ -2109,6 +2157,250 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
           </div>
         )}
       </motion.div>
+
+      {/* MODAL PEMBERITAHUAN PEMBELIAN WHATSAPP ADMIN */}
+      {whatsAppModalPlan && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Pembelian Online Sementara Belum Tersedia"
+          data-testid="whatsapp-purchase-modal"
+          onClick={() => setWhatsAppModalPlanId(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.7)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 14,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#ffffff',
+              borderRadius: 16,
+              border: '1px solid #cbd5e1',
+              boxShadow: '0 24px 48px -12px rgba(15, 23, 42, 0.28)',
+              maxWidth: 520,
+              width: '100%',
+              maxHeight: '90dvh',
+              overflowY: 'auto',
+              padding: '22px 20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+              boxSizing: 'border-box',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 11,
+                    background: '#eff6ff',
+                    border: '1px solid #bfdbfe',
+                    color: '#1d4ed8',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Info size={20} aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', margin: 0, lineHeight: 1.3 }}>
+                    Pembelian Online Sementara Belum Tersedia
+                  </h3>
+                  <p style={{ fontSize: 12, color: '#64748b', margin: '3px 0 0' }}>
+                    Pemesanan &amp; aktivasi lisensi dibantu langsung oleh Admin resmi AsesMerdeka
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWhatsAppModalPlanId(null)}
+                aria-label="Tutup modal pembelian WhatsApp"
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '50%',
+                  width: 34,
+                  height: 34,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#475569',
+                  flexShrink: 0,
+                }}
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+
+            <div
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: 12,
+                padding: '12px 14px',
+                fontSize: 13.5,
+                color: '#334155',
+                lineHeight: 1.6,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              <p style={{ margin: 0 }}>Terima kasih atas minat Anda menggunakan AsesMerdeka.</p>
+              <p style={{ margin: 0 }}>
+                Saat ini pembayaran otomatis melalui website belum tersedia. Namun, Bapak/Ibu tetap dapat membeli lisensi AsesMerdeka dengan menghubungi Admin melalui WhatsApp.
+              </p>
+              <p style={{ margin: 0 }}>
+                Admin akan membantu menjelaskan paket, proses pembelian, dan aktivasi lisensi.
+              </p>
+            </div>
+
+            {/* Rincian Paket Pilihan */}
+            <div
+              data-testid="whatsapp-selected-plan-summary"
+              style={{
+                border: whatsAppModalPlan.id === 'pro_sekolah' ? '1.5px solid #10b981' : '1.5px solid #3b82f6',
+                background: whatsAppModalPlan.id === 'pro_sekolah' ? '#ecfdf5' : '#eff6ff',
+                borderRadius: 12,
+                padding: '14px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <strong style={{ fontSize: 15, color: '#0f172a' }}>{whatsAppModalPlan.name}</strong>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    padding: '2px 8px',
+                    borderRadius: 99,
+                    background: '#ffffff',
+                    color: whatsAppModalPlan.id === 'pro_sekolah' ? '#047857' : '#1d4ed8',
+                    border: '1px solid currentColor',
+                  }}
+                >
+                  {whatsAppModalPlan.badge}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    fontSize: 20,
+                    fontWeight: 900,
+                    color: whatsAppModalPlan.id === 'pro_sekolah' ? '#047857' : '#1d4ed8',
+                  }}
+                >
+                  {whatsAppModalPlan.priceFormatted}
+                </span>
+                <span style={{ fontSize: 12, color: '#64748b', textDecoration: 'line-through' }}>
+                  {whatsAppModalPlan.originalPriceFormatted}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>
+                  • Harga Resmi Berlaku (Sekali Bayar)
+                </span>
+              </div>
+
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1e293b' }}>
+                Cakupan Pengguna: {whatsAppModalPlan.targetAudience}
+              </div>
+
+              <ul style={{ margin: '2px 0 0 18px', padding: 0, fontSize: 12, color: '#334155', lineHeight: 1.55 }}>
+                {whatsAppModalPlan.features.map((feat, i) => (
+                  <li key={i}>{feat}</li>
+                ))}
+              </ul>
+            </div>
+
+            {!whatsAppPurchaseUrl ? (
+              <div
+                role="alert"
+                style={{
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  color: '#b91c1c',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                }}
+              >
+                Kontak WhatsApp Admin belum terkonfigurasi. Hubungi pengelola melalui Pusat Bantuan atau periksa konfigurasi helper WhatsApp.
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.45 }}>
+                Pesan otomatis sudah disiapkan dengan nama paket pilihan Anda dan masih dapat dibaca atau diubah sebelum dikirim di WhatsApp.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {whatsAppPurchaseUrl ? (
+                <a
+                  href={whatsAppPurchaseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-success"
+                  style={{
+                    width: '100%',
+                    minHeight: 46,
+                    padding: '11px 16px',
+                    fontSize: 14,
+                    fontWeight: 800,
+                    whiteSpace: 'normal',
+                    lineHeight: 1.35,
+                    textAlign: 'center',
+                  }}
+                >
+                  <MessageCircle size={17} style={{ flexShrink: 0 }} aria-hidden="true" />
+                  <span>Hubungi Admin via WhatsApp</span>
+                  <ExternalLink size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="btn btn-outline"
+                  style={{ width: '100%', minHeight: 46, fontWeight: 700, whiteSpace: 'normal' }}
+                >
+                  Hubungi Admin via WhatsApp (Kontak Belum Tersedia)
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setWhatsAppModalPlanId(null)}
+                className="btn btn-outline"
+                style={{
+                  width: '100%',
+                  minHeight: 44,
+                  padding: '10px 16px',
+                  fontSize: 13.5,
+                  fontWeight: 700,
+                  whiteSpace: 'normal',
+                }}
+              >
+                <ArrowLeft size={15} style={{ flexShrink: 0 }} aria-hidden="true" />
+                <span>Kembali / Tutup</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

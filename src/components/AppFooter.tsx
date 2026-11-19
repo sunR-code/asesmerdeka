@@ -5,6 +5,7 @@ export interface AppFooterProps {
   onOpenClassModal: () => void;
   onOpenSchoolModal: () => void;
   onOpenLicenseModal: () => void;
+  onOpenGuideModal?: () => void;
   onOpenHelpModal?: () => void;
   onOpenAdminPortal?: () => void;
 }
@@ -13,6 +14,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
   onOpenClassModal,
   onOpenSchoolModal,
   onOpenLicenseModal,
+  onOpenGuideModal,
   onOpenHelpModal,
   onOpenAdminPortal,
 }) => (
@@ -115,6 +117,27 @@ export const AppFooter: React.FC<AppFooterProps> = ({
         >
           Lisensi
         </button>
+        {onOpenGuideModal && (
+          <>
+            <span style={{ color: '#cbd5e1' }}>·</span>
+            <button
+              type="button"
+              onClick={onOpenGuideModal}
+              className="ws-footer-link"
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                color: '#1e40af',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              Panduan
+            </button>
+          </>
+        )}
         {onOpenHelpModal && (
           <>
             <span style={{ color: '#cbd5e1' }}>·</span>

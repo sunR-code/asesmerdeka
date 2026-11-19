@@ -123,28 +123,13 @@ describe('Task 9.0 — Production Readiness & Release Candidate Gate', () => {
     vi.unstubAllEnvs();
   });
 
-  it('1. P1 Fix & Admin Isolation: checkout online nonaktif saat link Mayar kosong, bebas bocoran @admin, & aktif hanya jika link tersedia', () => {
-    const linkSpy = vi.spyOn(paymentGateway, 'getMayarPaymentLink').mockReturnValue('');
-
-    const htmlNoLink = renderToStaticMarkup(
-      React.createElement(LicenseModal, {
-        isOpen: true,
-        onClose: () => {},
-        quota: makeQuota(),
-        onUpdateQuota: () => {},
-      })
-    );
-    expect(htmlNoLink).toContain('Pembelian Online Otomatis Belum Aktif — Gunakan Kode Lisensi di Bawah');
-    expect(htmlNoLink).toContain('disabled=""');
-    expect(htmlNoLink).toContain('Aktivasi &amp; Sinkronkan');
-    expect(htmlNoLink).not.toContain('@admin');
-
-    linkSpy.mockRestore();
+  it('1. P1 Fix & Admin Isolation: hanya 2 paket utama tampil, checkout Mayar tetap nonaktif, bebas bocoran @admin, & alur WhatsApp Admin siap', () => {
     paymentGateway.saveMayarPaymentLinks(
       'https://pay.mayar.id/guru-test',
       'https://pay.mayar.id/sekolah-test'
     );
-    const htmlWithLink = renderToStaticMarkup(
+
+    const htmlPublic = renderToStaticMarkup(
       React.createElement(LicenseModal, {
         isOpen: true,
         onClose: () => {},
@@ -152,9 +137,30 @@ describe('Task 9.0 — Production Readiness & Release Candidate Gate', () => {
         onUpdateQuota: () => {},
       })
     );
-    expect(htmlWithLink).toContain('Bayar Sekali Rp 99.000 via Payment Gateway');
-    expect(htmlWithLink).not.toContain('Pembelian Online Otomatis Belum Aktif');
-    expect(htmlWithLink).not.toContain('@admin');
+    expect(htmlPublic).toContain('Lisensi Guru Mandiri');
+    expect(htmlPublic).toContain('Rp 99.000');
+    expect(htmlPublic).toContain('Lisensi Kolektif Sekolah');
+    expect(htmlPublic).toContain('Rp 749.000');
+    expect(htmlPublic).not.toContain('Lisensi Guru Mandiri PRO');
+    expect(htmlPublic).not.toContain('Lisensi Kolektif Sekolah PRO');
+    expect(htmlPublic).not.toContain('via Payment Gateway');
+    expect(htmlPublic).toContain('Info Pembelian &amp; WhatsApp Admin');
+    expect(htmlPublic).toContain('Aktivasi &amp; Sinkronkan');
+    expect(htmlPublic).not.toContain('@admin');
+
+    const htmlWhatsAppModal = renderToStaticMarkup(
+      React.createElement(LicenseModal, {
+        isOpen: true,
+        onClose: () => {},
+        quota: makeQuota(),
+        onUpdateQuota: () => {},
+        initialWhatsAppModalPlanId: 'pro_sekolah',
+      })
+    );
+    expect(htmlWhatsAppModal).toContain('Pembelian Online Sementara Belum Tersedia');
+    expect(htmlWhatsAppModal).toContain('Hubungi Admin via WhatsApp');
+    expect(htmlWhatsAppModal).toContain('Kembali / Tutup');
+    expect(htmlWhatsAppModal).not.toContain('@admin');
   });
 
   it('2. Regresi Alur Inti A-C & Task 8.3C.1: regulasi, empty state jujur, CP->TP->ATP->Prota/Promes, & penyesuaian guru non-destruktif', () => {

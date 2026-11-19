@@ -60,6 +60,7 @@ interface AppSidebarProps {
   onOpenClassModal: () => void;
   onOpenSchoolModal: () => void;
   onOpenLicenseModal: () => void;
+  onOpenGuideModal?: () => void;
   onOpenHelpModal?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
@@ -75,6 +76,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   onOpenClassModal,
   onOpenSchoolModal,
   onOpenLicenseModal,
+  onOpenGuideModal,
   onOpenHelpModal,
   isMobileOpen = false,
   onCloseMobile,
@@ -566,6 +568,36 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             </span>
             <ChevronRight size={13} style={{ color: '#94a3b8' }} />
           </button>
+
+          {onOpenGuideModal && (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenGuideModal();
+                if (onCloseMobile) onCloseMobile();
+              }}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '6px 8px',
+                border: 'none',
+                borderRadius: 8,
+                background: '#eff6ff',
+                cursor: 'pointer',
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: '#1e40af',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <BookOpen size={14} style={{ color: '#2563eb' }} />
+                <span>Panduan Praktis Guru</span>
+              </span>
+              <ChevronRight size={13} style={{ color: '#2563eb' }} />
+            </button>
+          )}
 
           {onOpenHelpModal && (
             <button
