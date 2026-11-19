@@ -261,9 +261,15 @@ export async function fetchFeedbackReports(
     const data = await res.json().catch(() => null);
 
     if (!res.ok || !data?.ok) {
+      let msg = data?.error || data?.message || 'PIN Admin tidak valid atau gagal memuat laporan kendala.';
+      if (res.status === 429) {
+        msg = data?.message || 'Terlalu banyak percobaan autentikasi Admin. Silakan tunggu beberapa saat.';
+      } else if (res.status >= 500) {
+        msg = 'Layanan Admin sementara tidak tersedia. Silakan coba lagi beberapa saat lagi.';
+      }
       return {
         ok: false,
-        message: data?.error || 'PIN Admin tidak valid atau gagal memuat laporan kendala.',
+        message: msg,
         reports: [],
       };
     }
@@ -308,15 +314,11 @@ export async function fetchFeedbackReports(
       message: 'Daftar laporan kendala berhasil dimuat.',
       reports,
     };
-  } catch (err) {
-    const offline = getOfflineFeedbackReports();
+  } catch {
     return {
       ok: false,
-      message:
-        err instanceof Error
-          ? err.message
-          : 'Koneksi jaringan terputus. Menampilkan laporan yang tersimpan secara lokal.',
-      reports: offline,
+      message: 'Koneksi ke server Admin tidak tersedia. Gagal memuat laporan kendala.',
+      reports: [],
     };
   }
 }

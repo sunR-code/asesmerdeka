@@ -65,9 +65,6 @@ export const DEFAULT_SEKOLAH_MAX_DEVICES_PER_TEACHER = 2; // Maksimal 2 perangka
 export const DEFAULT_MAYAR_PRODUCT_ID = 'c1db962a-7cc5-46cc-969e-2c7c930f5bdc';
 export const DEFAULT_MAYAR_SCHOOL_PRODUCT_ID = '17cece7f-e711-4fdc-af44-e6ceb4b4bff7';
 
-// One-way 53-bit hash untuk verifikasi PIN Admin tanpa menyimpan PIN plaintext di dalam bundle klien
-const EXPECTED_ADMIN_PIN_HASH = '2ID3PNQBIO';
-
 function safeSetItem(key: string, value: string): boolean {
   try {
     localStorage.setItem(key, value);
@@ -379,17 +376,6 @@ export function generateSchoolBatchLicenses(schoolPrefix: string, count = 25): s
     codes.push(computeSerialLicenseCode(`${prefix}${num}`));
   }
   return codes;
-}
-
-export function verifyAdminKeygenPin(inputPin: string): boolean {
-  const cleanPin = inputPin.trim();
-  if (!cleanPin) return false;
-  const envPin = (import.meta as any).env?.VITE_ADMIN_PIN;
-  if (typeof envPin === 'string' && envPin.trim().length >= 4) {
-    return cleanPin === envPin.trim();
-  }
-  const hashedInput = computeHash36(`ADMIN_KEYGEN_V1:${cleanPin}:MERDEKA_SALT_2026`);
-  return hashedInput === EXPECTED_ADMIN_PIN_HASH;
 }
 
 /**

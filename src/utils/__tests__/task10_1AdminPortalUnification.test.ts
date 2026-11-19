@@ -84,6 +84,7 @@ import {
   getAdminSessionPin,
   saveAdminSessionPin,
 } from '../adminService';
+import * as licenseManagerModule from '../licenseManager';
 import {
   computeLicenseCodeForDevice,
   computeSerialLicenseCode,
@@ -91,7 +92,6 @@ import {
   getTierDisplayName,
   isLicensed,
   isProAiTier,
-  verifyAdminKeygenPin,
 } from '../licenseManager';
 import { ONE_TIME_PLANS } from '../paymentGateway';
 import type { UserQuota } from '../../types/assessment';
@@ -266,8 +266,7 @@ describe('Task 10.1 — Unify Admin Access & Remove Legacy Inline Admin Panel', 
     expect(batch).toHaveLength(3);
     expect(batch[0]).toMatch(/^ASM-GM26-/);
 
-    expect(verifyAdminKeygenPin('')).toBe(false);
-    expect(verifyAdminKeygenPin('WRONG_PIN_0000')).toBe(false);
+    expect('verifyAdminKeygenPin' in licenseManagerModule).toBe(false);
 
     expect(isLicensed('pro')).toBe(true);
     expect(isLicensed('sekolah_pro')).toBe(true);

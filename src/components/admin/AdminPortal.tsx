@@ -97,15 +97,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBack }) => {
           if (res.ok) {
             setIsAuthenticated(true);
             setAdminPin(stored);
+            setPinError(null);
           } else {
             clearAdminSessionPin();
             setIsAuthenticated(false);
             setAdminPin('');
+            setPinError(res.message || 'Sesi Admin tidak dapat diverifikasi oleh server.');
           }
           setIsVerifyingSession(false);
         }
       } catch {
         if (isMounted) {
+          clearAdminSessionPin();
+          setIsAuthenticated(false);
+          setAdminPin('');
+          setPinError('Koneksi ke server Admin tidak tersedia. Silakan coba lagi.');
           setIsVerifyingSession(false);
         }
       }
@@ -165,9 +171,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBack }) => {
         setIsAuthenticated(true);
         setPinInput('');
       } else {
+        clearAdminSessionPin();
+        setIsAuthenticated(false);
+        setAdminPin('');
         setPinError(res.message || 'PIN Admin tidak sesuai atau tidak memiliki hak akses.');
       }
     } catch (err) {
+      clearAdminSessionPin();
+      setIsAuthenticated(false);
+      setAdminPin('');
       setPinError(err instanceof Error ? err.message : 'Gagal memverifikasi PIN Admin.');
     } finally {
       setIsLoggingIn(false);
