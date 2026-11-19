@@ -56,18 +56,35 @@ function verifyAdminPin(pin) {
   return false;
 }
 
-function getRedisCredentials() {
-  const url = (
-    process.env.UPSTASH_REDIS_REST_URL ||
-    process.env.KV_REST_API_URL ||
-    ''
-  ).trim();
-  const token = (
-    process.env.UPSTASH_REDIS_REST_TOKEN ||
-    process.env.KV_REST_API_TOKEN ||
-    ''
-  ).trim();
-  return { url, token, configured: Boolean(url && token) };
+export function clearLocalFeedbackStore() {
+  localFeedbackMemoryStore = [];
+}
+
+export function getRedisCredentials() {
+  const upstashUrl = String(process.env.UPSTASH_REDIS_REST_URL || '').trim();
+  const upstashToken = String(process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
+  if (upstashUrl && upstashToken) {
+    return {
+      url: upstashUrl,
+      token: upstashToken,
+      configured: true,
+      source: 'UPSTASH_REDIS_REST_*',
+    };
+  }
+
+  const hasPartialUpstash = Boolean(upstashUrl || upstashToken);
+  const kvUrl = String(process.env.KV_REST_API_URL || '').trim();
+  const kvToken = String(process.env.KV_REST_API_TOKEN || '').trim();
+  if (!hasPartialUpstash && kvUrl && kvToken) {
+    return {
+      url: kvUrl,
+      token: kvToken,
+      configured: true,
+      source: 'KV_REST_API_*',
+    };
+  }
+
+  return { url: '', token: '', configured: false, source: null };
 }
 
 async function getStoredReports() {
