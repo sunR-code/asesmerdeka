@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { SchoolProfile } from '../../utils/schoolProfileStorage';
+import { getLastCloudSyncErrorDetail } from '../../utils/cloudSyncManager';
 
 export type WorkspaceStorageStatus =
   | 'local'
@@ -112,6 +113,16 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   mobileMenuButtonRef,
 }) => {
   const statusInfo = STORAGE_STATUS_META[storageStatus] || STORAGE_STATUS_META.local;
+  const lastSyncErrDetail =
+    storageStatus === 'sync_error' ? getLastCloudSyncErrorDetail() : null;
+  const resolvedTitle = lastSyncErrDetail?.message
+    ? `${lastSyncErrDetail.message} Data lokal tetap tersimpan di peramban ini — klik untuk detail & coba ulang.`
+    : statusInfo.title;
+  const isInteractiveStatus =
+    (storageStatus === 'conflict' ||
+      storageStatus === 'reverify_required' ||
+      storageStatus === 'sync_error') &&
+    Boolean(onOpenLicenseModal);
 
   return (
     <header
@@ -207,27 +218,11 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         {/* Indikator penyimpanan sesuai kondisi nyata perangkat/cloud */}
         <div
           className="header-pill-autosave"
-          role={
-            (storageStatus === 'conflict' || storageStatus === 'reverify_required') &&
-            onOpenLicenseModal
-              ? 'button'
-              : undefined
-          }
-          tabIndex={
-            (storageStatus === 'conflict' || storageStatus === 'reverify_required') &&
-            onOpenLicenseModal
-              ? 0
-              : undefined
-          }
-          onClick={
-            (storageStatus === 'conflict' || storageStatus === 'reverify_required') &&
-            onOpenLicenseModal
-              ? onOpenLicenseModal
-              : undefined
-          }
+          role={isInteractiveStatus ? 'button' : undefined}
+          tabIndex={isInteractiveStatus ? 0 : undefined}
+          onClick={isInteractiveStatus ? onOpenLicenseModal : undefined}
           onKeyDown={
-            (storageStatus === 'conflict' || storageStatus === 'reverify_required') &&
-            onOpenLicenseModal
+            isInteractiveStatus && onOpenLicenseModal
               ? (e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
@@ -245,26 +240,30 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             background:
               storageStatus === 'conflict'
                 ? '#fef2f2'
-                : storageStatus === 'unconfigured' || storageStatus === 'reverify_required'
+                : storageStatus === 'unconfigured' ||
+                    storageStatus === 'reverify_required' ||
+                    storageStatus === 'sync_error'
                   ? '#fffbeb'
                   : '#f8fafc',
             border:
               storageStatus === 'conflict'
                 ? '1px solid #fecaca'
-                : storageStatus === 'unconfigured' || storageStatus === 'reverify_required'
+                : storageStatus === 'unconfigured' ||
+                    storageStatus === 'reverify_required' ||
+                    storageStatus === 'sync_error'
                   ? '1px solid #fde68a'
                   : '1px solid #e2e8f0',
             fontSize: 12,
             fontWeight:
-              storageStatus === 'conflict' || storageStatus === 'reverify_required' ? 700 : 500,
+              storageStatus === 'conflict' ||
+              storageStatus === 'reverify_required' ||
+              storageStatus === 'sync_error'
+                ? 700
+                : 500,
             color: statusInfo.textColor,
-            cursor:
-              (storageStatus === 'conflict' || storageStatus === 'reverify_required') &&
-              onOpenLicenseModal
-                ? 'pointer'
-                : 'default',
+            cursor: isInteractiveStatus ? 'pointer' : 'default',
           }}
-          title={statusInfo.title}
+          title={resolvedTitle}
         >
           {statusInfo.icon === 'syncing' ? (
             <RefreshCw size={13} className="animate-spin" style={{ color: statusInfo.dotColor }} />

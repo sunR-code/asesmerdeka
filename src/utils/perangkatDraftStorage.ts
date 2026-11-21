@@ -101,6 +101,20 @@ function resolveOriginFromDraft(draft: {
   return draft.draftSource === 'ai_generated' ? 'saved_ai' : 'saved_manual';
 }
 
+function notifyWorkspaceDraftSaved(storageKey: string): void {
+  try {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(
+        new CustomEvent('asesmerdeka:workspace-draft-saved', {
+          detail: { storageKey },
+        })
+      );
+    }
+  } catch {
+    // ignore outside DOM
+  }
+}
+
 export function saveModulAjarDraft(
   profile: AcademicProfileLike | null | undefined,
   tp: Pick<CustomTPItem, 'id' | 'kode'>,
@@ -144,6 +158,7 @@ export function saveModulAjarDraft(
       buildModulAjarLatestIndexKey(profile, tpId),
       JSON.stringify(latestIdx)
     );
+    notifyWorkspaceDraftSaved(storageKey);
     return { ok: true, savedAt, storageKey, doc: enriched };
   } catch (err: unknown) {
     const reason = err instanceof Error ? err.message : 'Batas kuota penyimpanan lokal penuh.';
@@ -296,6 +311,7 @@ export function saveLKPDDraft(
       buildLKPDLatestIndexKey(profile, tpId),
       JSON.stringify(latestIdx)
     );
+    notifyWorkspaceDraftSaved(storageKey);
     return { ok: true, savedAt, storageKey, doc: enriched };
   } catch (err: unknown) {
     const reason = err instanceof Error ? err.message : 'Batas kuota penyimpanan lokal penuh.';

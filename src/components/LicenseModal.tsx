@@ -54,12 +54,14 @@ import {
   getPendingLegacyPinRecovery,
   submitLegacyPinRecovery,
   getCloudSyncUiStatus,
+  getLastCloudSyncErrorDetail,
   getPreConflictBackup,
   resolveCloudConflict,
   restorePreConflictBackup,
   type CloudPendingConflict,
   type CloudPendingPinRecovery,
   type CloudPreConflictBackup,
+  type CloudSyncErrorDetail,
   type ConflictChoice,
   type HonestCloudStatus,
 } from '../utils/cloudSyncManager';
@@ -116,6 +118,9 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const [cloudUiStatus, setCloudUiStatus] = useState<HonestCloudStatus>(() =>
     getCloudSyncUiStatus()
   );
+  const [lastSyncErrorDetail, setLastSyncErrorDetail] = useState<CloudSyncErrorDetail | null>(() =>
+    getLastCloudSyncErrorDetail()
+  );
   const [recoveryMode, setRecoveryMode] = useState<'reverify' | 'replace'>('reverify');
   const [recoveryCurrentPin, setRecoveryCurrentPin] = useState('');
   const [recoveryNewPin, setRecoveryNewPin] = useState('');
@@ -151,6 +156,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
     setPendingConflict(nextConflict);
     setPendingPinRecovery(getPendingLegacyPinRecovery());
     setCloudUiStatus(getCloudSyncUiStatus());
+    setLastSyncErrorDetail(getLastCloudSyncErrorDetail());
     setPreConflictBackup(getPreConflictBackup());
     if (nextConflict && nextConflict.conflicts.length > 0) {
       setConflictChoices((prev) => {
@@ -865,6 +871,46 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
                         ? 'Server lokal saat ini menggunakan memori dev tanpa Upstash Redis, sehingga data hanya bertahan selama sesi dev berjalan dan tetap tersimpan di peramban perangkat ini.'
                         : 'Identitas sekolah, pengaturan kelas, daftar siswa, nilai harian, dan bank soal Anda tersimpan dengan kontrol revisi atomik (OCC) pada kode lisensi ini agar perubahan dari perangkat lain tidak tertimpa diam-diam.'}
                     </p>
+
+                    {cloudUiStatus === 'sync_error' && lastSyncErrorDetail && (
+                      <div
+                        data-testid="cloud-sync-error-detail"
+                        style={{
+                          background: '#fffbeb',
+                          border: '1px solid #fcd34d',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: '10px 12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ fontSize: 12, fontWeight: 800, color: '#92400e' }}>
+                          {lastSyncErrorDetail.kind === 'payload_too_large'
+                            ? 'Batas Ukuran Payload Cloud Sync (HTTP 413)'
+                            : lastSyncErrorDetail.kind === 'partial_sync'
+                              ? `Sinkronisasi Bertahap Terhenti${
+                                  lastSyncErrorDetail.failedChunkIndex !== undefined &&
+                                  lastSyncErrorDetail.totalChunks
+                                    ? ` (Bagian ${lastSyncErrorDetail.failedChunkIndex + 1}/${lastSyncErrorDetail.totalChunks})`
+                                    : ''
+                                }`
+                              : lastSyncErrorDetail.kind === 'timeout'
+                                ? 'Batas Waktu Permintaan Habis (HTTP 408)'
+                                : lastSyncErrorDetail.kind === 'rate_limited'
+                                  ? 'Batas Percobaan Sementara (HTTP 429)'
+                                  : lastSyncErrorDetail.kind === 'server_unavailable'
+                                    ? 'Server Penyimpanan Cloud Sementara Tidak Tersedia'
+                                    : 'Kendala Koneksi Sinkronisasi Cloud'}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: '#78350f', lineHeight: 1.45 }}>
+                          {lastSyncErrorDetail.message}
+                        </div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#065f46' }}>
+                          Seluruh draf lokal di peramban Anda dan ekspor dokumen Word (.docx) tetap aman 100%.
+                        </div>
+                      </div>
+                    )}
 
                     {(quota.tier === 'sekolah' ||
                       quota.tier === 'sekolah_pro' ||

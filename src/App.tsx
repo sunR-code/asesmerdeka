@@ -163,6 +163,7 @@ export function App() {
   const [dismissPromoBar, setDismissPromoBar] = useState(false);
   const [appToast, setAppToast] = useState<string | null>(null);
   const [, setKelasHarianRev] = useState(0);
+  const [draftSyncTick, setDraftSyncTick] = useState(0);
   const [storageStatus, setStorageStatus] = useState<WorkspaceStorageStatus>(() =>
     getCloudSyncUiStatus()
   );
@@ -368,11 +369,18 @@ export function App() {
         setStorageStatus(getCloudSyncUiStatus());
       }
     };
+    const handleDraftSaved = () => {
+      setDraftSyncTick((n) => n + 1);
+    };
     window.addEventListener(CLOUD_SYNC_STATUS_EVENT, handleCloudStatus);
-    return () => window.removeEventListener(CLOUD_SYNC_STATUS_EVENT, handleCloudStatus);
+    window.addEventListener('asesmerdeka:workspace-draft-saved', handleDraftSaved);
+    return () => {
+      window.removeEventListener(CLOUD_SYNC_STATUS_EVENT, handleCloudStatus);
+      window.removeEventListener('asesmerdeka:workspace-draft-saved', handleDraftSaved);
+    };
   }, []);
 
-  // Otomatis sinkronkan perubahan profil kelas/soal ke Cloud (debounced 2.5 detik) jika pengguna memiliki Kode Lisensi aktif
+  // Otomatis sinkronkan perubahan profil kelas/soal/draf ke Cloud (debounced 2.5 detik) jika pengguna memiliki Kode Lisensi aktif
   useEffect(() => {
     if (!isLicensed(quota.tier) || !quota.licenseKey) {
       setStorageStatus('local');
@@ -383,10 +391,13 @@ export function App() {
       setStorageStatus(currentUiStatus);
       return;
     }
-    setStorageStatus('syncing');
     const timer = setTimeout(() => {
-      pushWorkspaceToCloud()
+      pushWorkspaceToCloud(undefined, undefined, { isAutoSync: true })
         .then((res) => {
+          if (res.skippedUnchanged) {
+            setStorageStatus(getCloudSyncUiStatus());
+            return;
+          }
           if (res.conflict) {
             setStorageStatus('conflict');
             triggerAppToast(
@@ -401,6 +412,11 @@ export function App() {
             setStorageStatus(res.cloudConfigured ? 'synced' : 'unconfigured');
           } else {
             setStorageStatus('sync_error');
+            if (res.payloadTooLarge || res.partialSync) {
+              triggerAppToast(
+                'Sinkronisasi Cloud terkendala, namun perubahan lokal dan ekspor DOCX tetap aman. Cek panel Lisensi untuk detail.'
+              );
+            }
           }
         })
         .catch(() => {
@@ -408,7 +424,7 @@ export function App() {
         });
     }, 2500);
     return () => clearTimeout(timer);
-  }, [schoolProfile, bankList.length, isClassConfirmed, quota.tier, quota.licenseKey]);
+  }, [schoolProfile, bankList.length, isClassConfirmed, quota.tier, quota.licenseKey, draftSyncTick]);
 
   const handleReloadFromCloudRestore = () => {
     const refreshedProf = getSchoolProfile();

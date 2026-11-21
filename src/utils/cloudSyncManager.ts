@@ -1,11 +1,21 @@
 import {
-  exportBackupDataJson,
+  collectAllowedBackupEntries,
   importBackupDataJson,
   setConfirmedClassSetup,
   type CustomTPItem,
 } from './schoolProfileStorage';
 import { getUserQuota, isLicensed, normalizeLicenseCodeInput } from './licenseManager';
 import { computeNilaiAkhir, generateAutoDeskripsiRapor } from './kelasHarianStorage';
+import {
+  computeCanonicalDigestHex,
+  computeEntriesDelta,
+  computeWorkspaceEntryDigests,
+  decodeEntriesFromCloudSync,
+  encodeEntriesForCloudSync,
+  measureUtf8Bytes,
+  planWorkspaceUploadChunks,
+  type WorkspaceEntryDigests,
+} from './cloudSyncPayloadCodec';
 import type {
   JurnalMengajarItem,
   KelasHarianData,
@@ -20,12 +30,42 @@ const STORAGE_KEY_LAST_SYNC_AT = 'asesmerdeka_cloud_last_sync_at_v1';
 const STORAGE_KEY_CLOUD_CONFIGURED = 'asesmerdeka_cloud_configured_v1';
 const STORAGE_KEY_BASE_REVISION_MAP = 'asesmerdeka_cloud_base_revision_map_v1';
 const STORAGE_KEY_BASE_SNAPSHOT_MAP = 'asesmerdeka_cloud_base_snapshot_map_v1';
+const STORAGE_KEY_BASE_ENTRY_HASHES_MAP = 'asesmerdeka_cloud_base_entry_hashes_v1';
 const STORAGE_KEY_PENDING_CONFLICT = 'asesmerdeka_cloud_pending_conflict_v1';
 const STORAGE_KEY_PRE_CONFLICT_BACKUP = 'asesmerdeka_cloud_pre_conflict_backup_v1';
 const STORAGE_KEY_LAST_SYNC_ERROR = 'asesmerdeka_cloud_last_sync_error_v1';
+const STORAGE_KEY_LAST_SYNC_ERROR_DETAIL = 'asesmerdeka_cloud_last_sync_error_detail_v1';
+const STORAGE_KEY_INFLIGHT_SYNC = 'asesmerdeka_cloud_inflight_sync_v1';
 const STORAGE_KEY_PENDING_PIN_RECOVERY = 'asesmerdeka_cloud_pending_pin_recovery_v1';
 
+const DEFAULT_CLOUD_SYNC_TIMEOUT_MS = 25_000;
+const DEFAULT_MAX_CHUNK_BYTES = 280_000;
+
 export const CLOUD_SYNC_STATUS_EVENT = 'asesmerdeka:cloud-sync-status';
+
+export type CloudSyncErrorKind =
+  | 'payload_too_large'
+  | 'partial_sync'
+  | 'timeout'
+  | 'rate_limited'
+  | 'server_unavailable'
+  | 'network_error'
+  | 'pin_reverification_required'
+  | 'other';
+
+export interface CloudSyncErrorDetail {
+  kind: CloudSyncErrorKind;
+  statusCode?: number;
+  message: string;
+  occurredAt: string;
+  action: 'push' | 'pull';
+  uploadedChunks?: number;
+  failedChunkIndex?: number;
+  totalChunks?: number;
+  maxBytes?: number;
+  actualBytes?: number;
+  retryAfterSeconds?: number;
+}
 
 export type HonestCloudStatus =
   | 'local'
@@ -219,6 +259,23 @@ export interface CloudSyncPushResult {
   rateLimited?: boolean;
   retryAfterSeconds?: number;
   redisUnavailable?: boolean;
+  payloadTooLarge?: boolean;
+  partialSync?: boolean;
+  timedOut?: boolean;
+  skippedUnchanged?: boolean;
+  uploadedChunks?: number;
+  failedChunkIndex?: number;
+  totalChunks?: number;
+  maxBytes?: number;
+  actualBytes?: number;
+  mode?: 'inline' | 'delta' | 'chunked' | 'skipped_unchanged';
+  requestCount?: number;
+  rawBytes?: number;
+  wireBytes?: number;
+  maxRequestBytes?: number;
+  changedRecords?: number;
+  totalDocuments?: number;
+  durationMs?: number;
   message: string;
 }
 
@@ -238,6 +295,18 @@ export interface CloudSyncPullResult {
   rateLimited?: boolean;
   retryAfterSeconds?: number;
   redisUnavailable?: boolean;
+  payloadTooLarge?: boolean;
+  partialSync?: boolean;
+  timedOut?: boolean;
+  uploadedChunks?: number;
+  failedChunkIndex?: number;
+  totalChunks?: number;
+  mode?: 'inline' | 'chunked_pull';
+  requestCount?: number;
+  rawBytes?: number;
+  maxRequestBytes?: number;
+  totalDocuments?: number;
+  durationMs?: number;
   message: string;
 }
 
@@ -361,6 +430,35 @@ function setCloudConfiguredFlag(configured: boolean): void {
   }
 }
 
+interface StoredWorkspaceEntryHashes {
+  revision: number | null;
+  workspaceDigest: string;
+  entryDigests: Record<string, string>;
+  entryCount: number;
+  updatedAt: string;
+}
+
+interface InflightSyncState {
+  action: 'push' | 'pull';
+  scope: string;
+  digest: string;
+  startedAt: string;
+}
+
+interface AutoSyncSuppressionRecord {
+  kind: CloudSyncErrorKind;
+  failures: number;
+  blockedPermanent?: boolean;
+  retryAfterMs: number;
+  lastDigest: string;
+}
+
+const autoSyncSuppressionMap = new Map<string, AutoSyncSuppressionRecord>();
+
+export function clearCloudSyncAutoRetrySuppression(): void {
+  autoSyncSuppressionMap.clear();
+}
+
 function hasLastSyncError(): boolean {
   try {
     return localStorage.getItem(STORAGE_KEY_LAST_SYNC_ERROR) === 'true';
@@ -378,6 +476,99 @@ function setLastSyncErrorFlag(hasError: boolean): void {
     }
   } catch {
     // ignore
+  }
+}
+
+export function getLastCloudSyncErrorDetail(): CloudSyncErrorDetail | null {
+  try {
+    return safeParseJson<CloudSyncErrorDetail | null>(
+      localStorage.getItem(STORAGE_KEY_LAST_SYNC_ERROR_DETAIL),
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function saveLastSyncErrorDetail(detail: CloudSyncErrorDetail | null): void {
+  try {
+    if (detail) {
+      localStorage.setItem(STORAGE_KEY_LAST_SYNC_ERROR_DETAIL, JSON.stringify(detail));
+    } else {
+      localStorage.removeItem(STORAGE_KEY_LAST_SYNC_ERROR_DETAIL);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function getInflightSyncState(): InflightSyncState | null {
+  try {
+    return safeParseJson<InflightSyncState | null>(
+      localStorage.getItem(STORAGE_KEY_INFLIGHT_SYNC),
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function setInflightSyncState(state: InflightSyncState | null): void {
+  try {
+    if (state) {
+      localStorage.setItem(STORAGE_KEY_INFLIGHT_SYNC, JSON.stringify(state));
+    } else {
+      localStorage.removeItem(STORAGE_KEY_INFLIGHT_SYNC);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function getWorkspaceBaseEntryHashes(
+  licenseCode?: string,
+  teacherPin?: string
+): StoredWorkspaceEntryHashes | null {
+  try {
+    const quota = getUserQuota();
+    const cleanCode = normalizeLicenseCodeInput(licenseCode || quota.licenseKey || '');
+    const cleanPin = (
+      teacherPin !== undefined ? teacherPin : getSavedTeacherSyncPin()
+    ).trim();
+    if (!cleanCode) return null;
+    const scope = buildWorkspaceScope(cleanCode, cleanPin);
+    const map = safeParseJson<Record<string, StoredWorkspaceEntryHashes>>(
+      localStorage.getItem(STORAGE_KEY_BASE_ENTRY_HASHES_MAP),
+      {}
+    );
+    return map[scope] || null;
+  } catch {
+    return null;
+  }
+}
+
+function setWorkspaceBaseEntryHashes(
+  licenseCode: string,
+  teacherPin: string,
+  revision: number | null,
+  digests: WorkspaceEntryDigests
+): void {
+  try {
+    const scope = buildWorkspaceScope(licenseCode, teacherPin);
+    const map = safeParseJson<Record<string, StoredWorkspaceEntryHashes>>(
+      localStorage.getItem(STORAGE_KEY_BASE_ENTRY_HASHES_MAP),
+      {}
+    );
+    map[scope] = {
+      revision,
+      workspaceDigest: digests.workspaceDigest,
+      entryDigests: digests.entryDigests,
+      entryCount: digests.entryCount,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(STORAGE_KEY_BASE_ENTRY_HASHES_MAP, JSON.stringify(map));
+  } catch {
+    // ignore quota error on hash map
   }
 }
 
@@ -453,16 +644,29 @@ function setWorkspaceBaseSnapshot(
   teacherPin: string,
   entries: Record<string, unknown>
 ): void {
+  const scope = buildWorkspaceScope(licenseCode, teacherPin);
+  const cloned = deepClone(entries);
   try {
-    const scope = buildWorkspaceScope(licenseCode, teacherPin);
     const snapMap = safeParseJson<Record<string, Record<string, unknown>>>(
       localStorage.getItem(STORAGE_KEY_BASE_SNAPSHOT_MAP),
       {}
     );
-    snapMap[scope] = deepClone(entries);
+    snapMap[scope] = cloned;
     localStorage.setItem(STORAGE_KEY_BASE_SNAPSHOT_MAP, JSON.stringify(snapMap));
   } catch {
-    // ignore
+    // Fallback on QuotaExceededError: prune other scopes so active scope fits cleanly
+    try {
+      localStorage.setItem(
+        STORAGE_KEY_BASE_SNAPSHOT_MAP,
+        JSON.stringify({ [scope]: cloned })
+      );
+    } catch {
+      try {
+        localStorage.removeItem(STORAGE_KEY_BASE_SNAPSHOT_MAP);
+      } catch {
+        // ignore storage cleanup failure
+      }
+    }
   }
 }
 
@@ -643,6 +847,13 @@ export function getCloudSyncUiStatus(options?: {
   if (configured === false) {
     return 'unconfigured';
   }
+  const inflight = getInflightSyncState();
+  if (inflight) {
+    const scope = buildWorkspaceScope(quota.licenseKey, getSavedTeacherSyncPin());
+    if (inflight.scope === scope) {
+      return 'local';
+    }
+  }
   if (configured === true && getLastCloudSyncAt()) {
     return 'synced';
   }
@@ -663,6 +874,7 @@ export function emitCloudSyncStatus(
     status === 'reverify_required'
   ) {
     setLastSyncErrorFlag(false);
+    saveLastSyncErrorDetail(null);
   }
   const resolvedStatus = status || getCloudSyncUiStatus();
   try {
@@ -701,12 +913,7 @@ export function isSchoolCollectiveLicenseCode(rawCode?: string): boolean {
  */
 export function collectWorkspaceSyncEntries(): Record<string, unknown> {
   try {
-    const rawJson = exportBackupDataJson();
-    const parsed = JSON.parse(rawJson);
-    if (parsed && typeof parsed.entries === 'object' && parsed.entries) {
-      return parsed.entries as Record<string, unknown>;
-    }
-    return {};
+    return collectAllowedBackupEntries();
   } catch {
     return {};
   }
@@ -2304,13 +2511,201 @@ function hashWorkspaceNamespaceToken(licenseCode: string, rawPin: string): strin
   return `${(h1 >>> 0).toString(16).padStart(8, '0')}${(h2 >>> 0).toString(16).padStart(8, '0')}`;
 }
 
+interface PostCloudSyncResponse {
+  ok: boolean;
+  status: number;
+  timedOut?: boolean;
+  networkError?: boolean;
+  data: Record<string, unknown> | null;
+  requestBytes: number;
+}
+
+interface RequestStatsTracker {
+  requestCount: number;
+  wireBytes: number;
+  maxRequestBytes: number;
+}
+
+function recordRequestStat(stats: RequestStatsTracker, reqBytes: number): void {
+  stats.requestCount += 1;
+  stats.wireBytes += reqBytes;
+  if (reqBytes > stats.maxRequestBytes) {
+    stats.maxRequestBytes = reqBytes;
+  }
+}
+
+async function postCloudSyncJson(
+  payload: Record<string, unknown>,
+  timeoutMs: number,
+  stats?: RequestStatsTracker
+): Promise<PostCloudSyncResponse> {
+  const bodyStr = JSON.stringify(payload);
+  const requestBytes = measureUtf8Bytes(bodyStr);
+  if (stats) {
+    recordRequestStat(stats, requestBytes);
+  }
+
+  const effectiveTimeout =
+    typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? timeoutMs
+      : DEFAULT_CLOUD_SYNC_TIMEOUT_MS;
+
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timerId: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<{ timedOut: true }>((resolve) => {
+    timerId = setTimeout(() => {
+      try {
+        controller?.abort();
+      } catch {
+        // ignore abort error
+      }
+      resolve({ timedOut: true });
+    }, effectiveTimeout);
+  });
+
+  try {
+    const fetchPromise = fetch('/api/cloud-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: bodyStr,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+
+    const raceResult = await Promise.race([
+      fetchPromise.then((response) => ({ timedOut: false as const, response })),
+      timeoutPromise,
+    ]);
+
+    if (raceResult.timedOut) {
+      return {
+        ok: false,
+        status: 408,
+        timedOut: true,
+        data: {
+          ok: false,
+          timedOut: true,
+          message:
+            'Batas waktu koneksi sinkronisasi Cloud habis (HTTP 408). Perubahan lokal tetap aman tersimpan di peramban.',
+        },
+        requestBytes,
+      };
+    }
+
+    const res = raceResult.response;
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (res.status === 408) {
+      return {
+        ok: false,
+        status: 408,
+        timedOut: true,
+        data: data || {
+          ok: false,
+          timedOut: true,
+          message:
+            'Server sinkronisasi Cloud mengalami batas waktu (HTTP 408). Perubahan lokal Anda tetap aman.',
+        },
+        requestBytes,
+      };
+    }
+
+    return {
+      ok: res.ok,
+      status: res.status,
+      data,
+      requestBytes,
+    };
+  } catch (err: unknown) {
+    const isAbort =
+      err instanceof Error &&
+      (err.name === 'AbortError' || /abort|timeout/i.test(err.message));
+    if (isAbort) {
+      return {
+        ok: false,
+        status: 408,
+        timedOut: true,
+        data: {
+          ok: false,
+          timedOut: true,
+          message:
+            'Batas waktu permintaan sinkronisasi Cloud habis. Perubahan lokal Anda tetap aman.',
+        },
+        requestBytes,
+      };
+    }
+    return {
+      ok: false,
+      status: 0,
+      networkError: true,
+      data: null,
+      requestBytes,
+    };
+  } finally {
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+    }
+  }
+}
+
+function recordAutoSyncFailureSuppression(
+  scope: string,
+  digest: string,
+  kind: CloudSyncErrorKind,
+  retryAfterSeconds?: number
+): void {
+  const prev = autoSyncSuppressionMap.get(scope);
+  const sameDigest = prev && prev.lastDigest === digest;
+  const failures = sameDigest ? prev.failures + 1 : 1;
+
+  if (kind === 'payload_too_large') {
+    autoSyncSuppressionMap.set(scope, {
+      kind,
+      failures,
+      blockedPermanent: true,
+      retryAfterMs: Number.POSITIVE_INFINITY,
+      lastDigest: digest,
+    });
+    return;
+  }
+
+  if (kind === 'rate_limited') {
+    const cooldownMs =
+      typeof retryAfterSeconds === 'number' && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? retryAfterSeconds * 1000
+        : 60_000;
+    autoSyncSuppressionMap.set(scope, {
+      kind,
+      failures,
+      blockedPermanent: false,
+      retryAfterMs: Date.now() + cooldownMs,
+      lastDigest: digest,
+    });
+    return;
+  }
+
+  const backoffMs = failures === 1 ? 5_000 : 15_000;
+  autoSyncSuppressionMap.set(scope, {
+    kind,
+    failures,
+    blockedPermanent: failures >= 2,
+    retryAfterMs: Date.now() + backoffMs,
+    lastDigest: digest,
+  });
+}
+
 function buildCloudSyncFailureFields(
   action: 'pull' | 'push',
   statusCode: number,
   data: Record<string, unknown> | null,
   licenseCode: string,
   teacherPin: string,
-  fallbackMessage: string
+  fallbackMessage: string,
+  extraContext?: {
+    timedOut?: boolean;
+    networkError?: boolean;
+    scope?: string;
+    digest?: string;
+  }
 ) {
   const message =
     typeof data?.message === 'string' && data.message.trim()
@@ -2343,11 +2738,71 @@ function buildCloudSyncFailureFields(
     };
   }
 
+  const recordErr = (
+    kind: CloudSyncErrorKind,
+    extraDetail: Partial<CloudSyncErrorDetail> = {}
+  ) => {
+    const detail: CloudSyncErrorDetail = {
+      kind,
+      statusCode: statusCode || undefined,
+      message,
+      occurredAt: new Date().toISOString(),
+      action,
+      ...extraDetail,
+    };
+    saveLastSyncErrorDetail(detail);
+    if (extraContext?.scope && extraContext?.digest) {
+      recordAutoSyncFailureSuppression(
+        extraContext.scope,
+        extraContext.digest,
+        kind,
+        extraDetail.retryAfterSeconds
+      );
+    }
+  };
+
+  if (statusCode === 413 || data?.payloadTooLarge) {
+    const maxBytes =
+      typeof data?.maxBytes === 'number' && Number.isFinite(data.maxBytes)
+        ? data.maxBytes
+        : undefined;
+    const actualBytes =
+      typeof data?.actualBytes === 'number' && Number.isFinite(data.actualBytes)
+        ? data.actualBytes
+        : undefined;
+    recordErr('payload_too_large', { maxBytes, actualBytes });
+    emitCloudSyncStatus('sync_error', { statusCode: 413, payloadTooLarge: true });
+    return {
+      ok: false as const,
+      cloudConfigured:
+        typeof data?.cloudConfigured === 'boolean' ? data.cloudConfigured : undefined,
+      statusCode: 413,
+      payloadTooLarge: true,
+      maxBytes,
+      actualBytes,
+      message,
+    };
+  }
+
+  if (statusCode === 408 || extraContext?.timedOut || data?.timedOut) {
+    recordErr('timeout');
+    emitCloudSyncStatus('sync_error', { statusCode: 408, timedOut: true });
+    return {
+      ok: false as const,
+      cloudConfigured:
+        typeof data?.cloudConfigured === 'boolean' ? data.cloudConfigured : undefined,
+      statusCode: 408,
+      timedOut: true,
+      message,
+    };
+  }
+
   if (statusCode === 429) {
     const retryAfterSeconds =
       typeof data?.retryAfterSeconds === 'number' && Number.isFinite(data.retryAfterSeconds)
         ? data.retryAfterSeconds
         : undefined;
+    recordErr('rate_limited', { retryAfterSeconds });
     emitCloudSyncStatus('sync_error', { rateLimited: true, retryAfterSeconds });
     return {
       ok: false as const,
@@ -2360,24 +2815,38 @@ function buildCloudSyncFailureFields(
     };
   }
 
-  if (statusCode === 503) {
+  if (statusCode === 503 || statusCode === 500 || statusCode === 502 || statusCode === 504) {
     if (typeof data?.cloudConfigured === 'boolean') {
       setCloudConfiguredFlag(data.cloudConfigured);
     }
+    const redisUnavailable = Boolean(data?.redisUnavailable || statusCode === 503);
+    recordErr('server_unavailable');
     emitCloudSyncStatus('sync_error', {
-      statusCode: 503,
-      redisUnavailable: Boolean(data?.redisUnavailable),
+      statusCode,
+      redisUnavailable,
     });
     return {
       ok: false as const,
       cloudConfigured:
         typeof data?.cloudConfigured === 'boolean' ? data.cloudConfigured : undefined,
-      statusCode: 503,
-      redisUnavailable: Boolean(data?.redisUnavailable),
+      statusCode,
+      redisUnavailable: statusCode === 503 ? Boolean(data?.redisUnavailable) : false,
       message,
     };
   }
 
+  if (extraContext?.networkError || statusCode === 0) {
+    recordErr('network_error');
+    emitCloudSyncStatus('sync_error', { networkError: true });
+    return {
+      ok: false as const,
+      cloudConfigured:
+        typeof data?.cloudConfigured === 'boolean' ? data.cloudConfigured : undefined,
+      message,
+    };
+  }
+
+  recordErr('other');
   emitCloudSyncStatus('sync_error', { statusCode });
   return {
     ok: false as const,
@@ -2387,9 +2856,209 @@ function buildCloudSyncFailureFields(
   };
 }
 
+function buildPartialSyncFailure(params: {
+  action: 'push' | 'pull';
+  statusCode: number;
+  data: Record<string, unknown> | null;
+  uploadedChunks: number;
+  failedChunkIndex: number;
+  totalChunks: number;
+  licenseCode: string;
+  teacherPin: string;
+  timedOut?: boolean;
+  networkError?: boolean;
+  scope: string;
+  digest: string;
+}) {
+  const {
+    action,
+    statusCode,
+    data,
+    uploadedChunks,
+    failedChunkIndex,
+    totalChunks,
+    licenseCode,
+    teacherPin,
+    timedOut,
+    networkError,
+    scope,
+    digest,
+  } = params;
+
+  if (statusCode === 403 && data?.pinReverificationRequired) {
+    return buildCloudSyncFailureFields(
+      action,
+      statusCode,
+      data,
+      licenseCode,
+      teacherPin,
+      String(data.message || 'Verifikasi ulang PIN diperlukan.'),
+      { scope, digest }
+    );
+  }
+
+  const baseReason =
+    typeof data?.message === 'string' && data.message.trim()
+      ? data.message
+      : timedOut
+      ? 'Batas waktu habis saat mengirim/mengambil bagian data.'
+      : networkError
+      ? 'Koneksi internet terputus di tengah proses sinkronisasi bertahap.'
+      : `Gagal memproses bagian ke-${failedChunkIndex + 1} dari ${totalChunks}.`;
+
+  const message = `Sinkronisasi bertahap terhenti pada bagian ${failedChunkIndex + 1}/${totalChunks} (${baseReason}). Workspace Cloud maupun lokal tetap utuh tanpa penulisan sebagian; silakan coba ulang dengan aman.`;
+
+  const detail: CloudSyncErrorDetail = {
+    kind: 'partial_sync',
+    statusCode: statusCode || undefined,
+    message,
+    occurredAt: new Date().toISOString(),
+    action,
+    uploadedChunks,
+    failedChunkIndex,
+    totalChunks,
+  };
+  saveLastSyncErrorDetail(detail);
+  recordAutoSyncFailureSuppression(
+    scope,
+    digest,
+    statusCode === 413 ? 'payload_too_large' : 'partial_sync',
+    typeof data?.retryAfterSeconds === 'number' ? data.retryAfterSeconds : undefined
+  );
+  emitCloudSyncStatus('sync_error', {
+    statusCode: statusCode || undefined,
+    partialSync: true,
+    uploadedChunks,
+    failedChunkIndex,
+    totalChunks,
+  });
+
+  return {
+    ok: false as const,
+    partialSync: true,
+    statusCode: statusCode || undefined,
+    timedOut: Boolean(timedOut),
+    payloadTooLarge: statusCode === 413 || Boolean(data?.payloadTooLarge),
+    rateLimited: statusCode === 429 || undefined,
+    retryAfterSeconds:
+      typeof data?.retryAfterSeconds === 'number' ? data.retryAfterSeconds : undefined,
+    redisUnavailable: statusCode === 503 ? Boolean(data?.redisUnavailable) : undefined,
+    cloudConfigured:
+      typeof data?.cloudConfigured === 'boolean' ? data.cloudConfigured : undefined,
+    uploadedChunks,
+    failedChunkIndex,
+    totalChunks,
+    message,
+  };
+}
+
+interface ChunkRefDescriptor {
+  index?: number;
+  hash: string;
+}
+
+async function fetchChunkedEntriesViaPullChunk(params: {
+  chunkRefs: ChunkRefDescriptor[];
+  expectedChecksum?: string;
+  licenseCode: string;
+  teacherPin: string;
+  deviceId: string;
+  timeoutMs: number;
+  stats: RequestStatsTracker;
+  scope: string;
+  digest: string;
+  action: 'push' | 'pull';
+}): Promise<
+  | { ok: true; entries: Record<string, unknown> }
+  | { ok: false; failure: ReturnType<typeof buildPartialSyncFailure> }
+> {
+  const {
+    chunkRefs,
+    expectedChecksum,
+    licenseCode,
+    teacherPin,
+    deviceId,
+    timeoutMs,
+    stats,
+    scope,
+    digest,
+    action,
+  } = params;
+
+  const assembled: Record<string, unknown> = {};
+  const totalChunks = chunkRefs.length;
+
+  for (let i = 0; i < totalChunks; i += 1) {
+    const ref = chunkRefs[i];
+    const res = await postCloudSyncJson(
+      {
+        action: 'pull_chunk',
+        licenseCode,
+        teacherPin,
+        deviceId,
+        chunkHash: ref?.hash || '',
+      },
+      timeoutMs,
+      stats
+    );
+
+    if (!res.ok || !res.data?.ok || !isPlainObject(res.data.entriesChunk)) {
+      return {
+        ok: false,
+        failure: buildPartialSyncFailure({
+          action,
+          statusCode: res.status,
+          data: res.data,
+          uploadedChunks: i,
+          failedChunkIndex: i,
+          totalChunks,
+          licenseCode,
+          teacherPin,
+          timedOut: res.timedOut,
+          networkError: res.networkError,
+          scope,
+          digest,
+        }),
+      };
+    }
+
+    Object.assign(assembled, res.data.entriesChunk);
+  }
+
+  if (
+    expectedChecksum &&
+    computeCanonicalDigestHex(assembled) !== expectedChecksum
+  ) {
+    return {
+      ok: false,
+      failure: buildPartialSyncFailure({
+        action,
+        statusCode: 500,
+        data: {
+          message:
+            'Checksum gabungan potongan Cloud tidak cocok; pemulihan dibatalkan agar data lokal tidak rusak.',
+        },
+        uploadedChunks: totalChunks,
+        failedChunkIndex: Math.max(0, totalChunks - 1),
+        totalChunks,
+        licenseCode,
+        teacherPin,
+        scope,
+        digest,
+      }),
+    };
+  }
+
+  return {
+    ok: true,
+    entries: decodeEntriesFromCloudSync(assembled),
+  };
+}
+
 /**
  * Menyimpan (Push) riwayat pengisian guru dari perangkat ini ke Cloud berdasarkan Kode Lisensi
- * dengan Optimistic Concurrency Control (baseRevision + 409 Conflict detection).
+ * dengan Optimistic Concurrency Control (baseRevision + 409 Conflict detection),
+ * delta sync, deduplikasi wire lossless, serta chunked staging upload.
  */
 export async function pushWorkspaceToCloud(
   explicitLicenseCode?: string,
@@ -2400,8 +3069,13 @@ export async function pushWorkspaceToCloud(
     entriesOverride?: Record<string, unknown>;
     reverifyLegacyPin?: boolean;
     newTeacherPin?: string;
+    isAutoSync?: boolean;
+    timeoutMs?: number;
+    maxChunkBytes?: number;
+    forceChunked?: boolean;
   }
 ): Promise<CloudSyncPushResult> {
+  const startedAt = Date.now();
   const quota = getUserQuota();
   const licenseCode = normalizeLicenseCodeInput(explicitLicenseCode || quota.licenseKey || '');
   const teacherPin = (
@@ -2421,6 +3095,11 @@ export async function pushWorkspaceToCloud(
       message:
         'Untuk Lisensi Sekolah (25 Guru), silakan isi Nama Singkat / PIN Pribadi Guru agar data Anda tidak tertukar dengan guru lain.',
     };
+  }
+
+  const scope = buildWorkspaceScope(licenseCode, teacherPin);
+  if (!options?.isAutoSync) {
+    autoSyncSuppressionMap.delete(scope);
   }
 
   const pending = getPendingCloudConflict();
@@ -2454,30 +3133,131 @@ export async function pushWorkspaceToCloud(
       : getWorkspaceBaseRevision(licenseCode, teacherPin);
   const requestId = options?.requestId || createSyncRequestId();
   const nextPinTrimmed = options?.newTeacherPin ? options.newTeacherPin.trim() : '';
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_CLOUD_SYNC_TIMEOUT_MS;
+  const maxChunkBytes = options?.maxChunkBytes ?? DEFAULT_MAX_CHUNK_BYTES;
 
+  const currentDigests = computeWorkspaceEntryDigests(entries);
+  const rawBytes = measureUtf8Bytes(entries);
+  const storedHashes = getWorkspaceBaseEntryHashes(licenseCode, teacherPin);
+
+  if (options?.isAutoSync) {
+    const sup = autoSyncSuppressionMap.get(scope);
+    if (sup && sup.lastDigest === currentDigests.workspaceDigest) {
+      if (sup.blockedPermanent || Date.now() < sup.retryAfterMs) {
+        const lastErr = getLastCloudSyncErrorDetail();
+        return {
+          ok: false,
+          skippedUnchanged: false,
+          mode: 'skipped_unchanged',
+          requestCount: 0,
+          rawBytes,
+          wireBytes: 0,
+          maxRequestBytes: 0,
+          changedRecords: 0,
+          totalDocuments: currentDigests.entryCount,
+          durationMs: Date.now() - startedAt,
+          payloadTooLarge: sup.kind === 'payload_too_large',
+          rateLimited: sup.kind === 'rate_limited',
+          partialSync: sup.kind === 'partial_sync',
+          timedOut: sup.kind === 'timeout',
+          statusCode: lastErr?.statusCode,
+          message:
+            lastErr?.message ||
+            'Sinkronisasi otomatis dihentikan sementara untuk mencegah pengulangan gagal pada payload yang sama.',
+        };
+      }
+    } else if (sup && sup.lastDigest !== currentDigests.workspaceDigest) {
+      autoSyncSuppressionMap.delete(scope);
+    }
+
+    if (
+      !options.forceChunked &&
+      options.entriesOverride === undefined &&
+      baseRevision !== null &&
+      baseRevision > 0 &&
+      storedHashes?.revision === baseRevision &&
+      storedHashes.workspaceDigest === currentDigests.workspaceDigest &&
+      isCloudBackendConfigured() === true &&
+      !hasLastSyncError() &&
+      !getInflightSyncState()
+    ) {
+      return {
+        ok: true,
+        skippedUnchanged: true,
+        mode: 'skipped_unchanged',
+        cloudConfigured: true,
+        revision: baseRevision,
+        updatedAt: getLastCloudSyncAt() || undefined,
+        requestCount: 0,
+        rawBytes,
+        wireBytes: 0,
+        maxRequestBytes: 0,
+        changedRecords: 0,
+        totalDocuments: currentDigests.entryCount,
+        durationMs: Date.now() - startedAt,
+        message: 'Data lokal sudah identik dengan revisi Cloud terbaru.',
+      };
+    }
+  }
+
+  const stats: RequestStatsTracker = {
+    requestCount: 0,
+    wireBytes: 0,
+    maxRequestBytes: 0,
+  };
+
+  setInflightSyncState({
+    action: 'push',
+    scope,
+    digest: currentDigests.workspaceDigest,
+    startedAt: new Date().toISOString(),
+  });
   emitCloudSyncStatus('syncing');
 
   try {
-    const res = await fetch('/api/cloud-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'push',
-        licenseCode,
-        teacherPin,
-        deviceId: quota.deviceId,
-        baseRevision,
-        requestId,
-        entries,
-        ...(options?.reverifyLegacyPin ? { reverifyLegacyPin: true } : {}),
-        ...(nextPinTrimmed ? { newTeacherPin: nextPinTrimmed } : {}),
-      }),
-    });
+    const recoveryExtras = {
+      ...(options?.reverifyLegacyPin ? { reverifyLegacyPin: true } : {}),
+      ...(nextPinTrimmed ? { newTeacherPin: nextPinTrimmed } : {}),
+      supportsChunkedPull: true,
+    };
 
-    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    const handleConflictFromServer = async (
+      data: Record<string, unknown>,
+      status: number
+    ): Promise<CloudSyncPushResult> => {
+      let serverEntries: Record<string, unknown>;
+      if (data.serverEntriesChunked && Array.isArray(data.chunkRefs)) {
+        const chunkPullRes = await fetchChunkedEntriesViaPullChunk({
+          chunkRefs: data.chunkRefs as ChunkRefDescriptor[],
+          expectedChecksum:
+            typeof data.workspaceChecksum === 'string' ? data.workspaceChecksum : undefined,
+          licenseCode,
+          teacherPin,
+          deviceId: quota.deviceId,
+          timeoutMs,
+          stats,
+          scope,
+          digest: currentDigests.workspaceDigest,
+          action: 'push',
+        });
+        if (!chunkPullRes.ok) {
+          return {
+            ...chunkPullRes.failure,
+            requestCount: stats.requestCount,
+            rawBytes,
+            wireBytes: stats.wireBytes,
+            maxRequestBytes: stats.maxRequestBytes,
+            totalDocuments: currentDigests.entryCount,
+            durationMs: Date.now() - startedAt,
+          };
+        }
+        serverEntries = chunkPullRes.entries;
+      } else {
+        serverEntries = isPlainObject(data.serverEntries)
+          ? decodeEntriesFromCloudSync(data.serverEntries)
+          : {};
+      }
 
-    if (res.status === 409 && data?.conflict) {
-      const serverEntries = isPlainObject(data.serverEntries) ? data.serverEntries : {};
       const serverRevision = Number(data.serverRevision) || 1;
       const cloudConfigured = Boolean(data.cloudConfigured);
 
@@ -2518,23 +3298,40 @@ export async function pushWorkspaceToCloud(
         lastDeviceId: conflictPayload.lastDeviceId,
         conflicts: analysis.conflicts,
         autoMergedSummary: analysis.autoMergedSummary,
-        statusCode: 409,
+        statusCode: status || 409,
+        requestCount: stats.requestCount,
+        rawBytes,
+        wireBytes: stats.wireBytes,
+        maxRequestBytes: stats.maxRequestBytes,
+        totalDocuments: currentDigests.entryCount,
+        durationMs: Date.now() - startedAt,
         message:
           (typeof data.message === 'string' && data.message) ||
           `Konflik sinkronisasi terdeteksi (Server Revisi #${serverRevision}). Pilih strategi penggabungan agar tidak menimpa data perangkat lain.`,
       };
-    }
+    };
 
-    if (res.ok && data?.ok) {
+    const finalizePushSuccess = (
+      data: Record<string, unknown>,
+      statusCode: number,
+      mode: CloudSyncPushResult['mode'],
+      changedRecords: number,
+      extraMeta?: Partial<CloudSyncPushResult>
+    ): CloudSyncPushResult => {
       const cloudConfigured = Boolean(data.cloudConfigured);
       const nextRev =
         typeof data.revision === 'number'
           ? data.revision
           : (baseRevision ?? 0) + 1;
       const effectivePinScope = nextPinTrimmed || teacherPin;
+      const effectiveScope = buildWorkspaceScope(licenseCode, effectivePinScope);
+
+      autoSyncSuppressionMap.delete(scope);
+      autoSyncSuppressionMap.delete(effectiveScope);
 
       setCloudConfiguredFlag(cloudConfigured);
       setWorkspaceBaseRevision(licenseCode, effectivePinScope, nextRev);
+      setWorkspaceBaseEntryHashes(licenseCode, effectivePinScope, nextRev, currentDigests);
       setWorkspaceBaseSnapshot(licenseCode, effectivePinScope, entries);
       if (nextPinTrimmed) {
         saveTeacherSyncPin(nextPinTrimmed);
@@ -2560,29 +3357,348 @@ export async function pushWorkspaceToCloud(
         revision: nextRev,
         updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
         lastDeviceId: typeof data.lastDeviceId === 'string' ? data.lastDeviceId : undefined,
-        statusCode: res.status,
+        statusCode,
+        mode,
+        requestCount: stats.requestCount,
+        rawBytes,
+        wireBytes: stats.wireBytes,
+        maxRequestBytes: stats.maxRequestBytes,
+        changedRecords,
+        totalDocuments: currentDigests.entryCount,
+        durationMs: Date.now() - startedAt,
+        ...(extraMeta || {}),
         message:
           (typeof data.message === 'string' && data.message) ||
           (cloudConfigured
             ? 'Riwayat berhasil disimpan ke Cloud.'
             : 'Data tersimpan di memori dev lokal saja (Cloud Redis belum dikonfigurasi).'),
       };
+    };
+
+    const runChunkedUpload = async (
+      uploadEntries: Record<string, unknown>,
+      chunkMode: 'full' | 'delta',
+      chunkDeletes: string[],
+      changedRecords: number
+    ): Promise<CloudSyncPushResult | { retryFullMode: true }> => {
+      const chunks = planWorkspaceUploadChunks(uploadEntries, maxChunkBytes);
+      const uploadId = `upl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+
+      for (let i = 0; i < chunks.length; i += 1) {
+        const chunkRes = await postCloudSyncJson(
+          {
+            action: 'push_chunk',
+            licenseCode,
+            teacherPin,
+            deviceId: quota.deviceId,
+            uploadId,
+            chunkIndex: i,
+            totalChunks: chunks.length,
+            chunk: chunks[i],
+            ...(options?.reverifyLegacyPin ? { reverifyLegacyPin: true } : {}),
+            ...(nextPinTrimmed ? { newTeacherPin: nextPinTrimmed } : {}),
+          },
+          timeoutMs,
+          stats
+        );
+
+        if (!chunkRes.ok || !chunkRes.data?.ok) {
+          return {
+            ...buildPartialSyncFailure({
+              action: 'push',
+              statusCode: chunkRes.status,
+              data: chunkRes.data,
+              uploadedChunks: i,
+              failedChunkIndex: i,
+              totalChunks: chunks.length,
+              licenseCode,
+              teacherPin,
+              timedOut: chunkRes.timedOut,
+              networkError: chunkRes.networkError,
+              scope,
+              digest: currentDigests.workspaceDigest,
+            }),
+            mode: 'chunked',
+            requestCount: stats.requestCount,
+            rawBytes,
+            wireBytes: stats.wireBytes,
+            maxRequestBytes: stats.maxRequestBytes,
+            changedRecords,
+            totalDocuments: currentDigests.entryCount,
+            durationMs: Date.now() - startedAt,
+          };
+        }
+      }
+
+      const commitRes = await postCloudSyncJson(
+        {
+          action: 'commit_chunks',
+          licenseCode,
+          teacherPin,
+          deviceId: quota.deviceId,
+          uploadId,
+          totalChunks: chunks.length,
+          mode: chunkMode,
+          ...(chunkMode === 'delta' ? { deletes: chunkDeletes } : {}),
+          baseRevision,
+          requestId,
+          expectedEntryCount: currentDigests.entryCount,
+          workspaceChecksum: currentDigests.workspaceDigest,
+          ...recoveryExtras,
+        },
+        timeoutMs,
+        stats
+      );
+
+      if (commitRes.status === 409 && commitRes.data?.deltaMismatch && chunkMode === 'delta') {
+        return { retryFullMode: true };
+      }
+      if (commitRes.status === 409 && commitRes.data?.conflict) {
+        return await handleConflictFromServer(commitRes.data, commitRes.status);
+      }
+      if (commitRes.ok && commitRes.data?.ok) {
+        return finalizePushSuccess(
+          commitRes.data,
+          commitRes.status,
+          'chunked',
+          changedRecords,
+          { totalChunks: chunks.length, uploadedChunks: chunks.length }
+        );
+      }
+
+      return {
+        ...buildPartialSyncFailure({
+          action: 'push',
+          statusCode: commitRes.status,
+          data: commitRes.data,
+          uploadedChunks: chunks.length,
+          failedChunkIndex: Math.max(0, chunks.length - 1),
+          totalChunks: chunks.length,
+          licenseCode,
+          teacherPin,
+          timedOut: commitRes.timedOut,
+          networkError: commitRes.networkError,
+          scope,
+          digest: currentDigests.workspaceDigest,
+        }),
+        mode: 'chunked',
+        requestCount: stats.requestCount,
+        rawBytes,
+        wireBytes: stats.wireBytes,
+        maxRequestBytes: stats.maxRequestBytes,
+        changedRecords,
+        totalDocuments: currentDigests.entryCount,
+        durationMs: Date.now() - startedAt,
+      };
+    };
+
+    const encodedFull = encodeEntriesForCloudSync(entries);
+    const encodedFullWireBytes = measureUtf8Bytes(encodedFull);
+
+    // 1. Delta Sync Path when prior revision + entry digests match cleanly
+    const canAttemptDelta =
+      !options?.forceChunked &&
+      options?.entriesOverride === undefined &&
+      options?.baseRevisionOverride === undefined &&
+      !options?.reverifyLegacyPin &&
+      !options?.newTeacherPin &&
+      baseRevision !== null &&
+      baseRevision > 0 &&
+      storedHashes?.revision === baseRevision &&
+      Object.keys(storedHashes.entryDigests || {}).length > 0;
+
+    if (canAttemptDelta) {
+      const delta = computeEntriesDelta(storedHashes!.entryDigests, entries);
+      const changedRecords = delta.changedCount + delta.deletedCount;
+      if (delta.changedCount < currentDigests.entryCount || changedRecords === 0) {
+        const encodedDeltaUpserts = encodeEntriesForCloudSync(delta.upserts, entries);
+        const deltaPayloadBytes = measureUtf8Bytes({
+          upserts: encodedDeltaUpserts,
+          deletes: delta.deletes,
+        });
+
+        if (deltaPayloadBytes <= maxChunkBytes) {
+          const deltaRes = await postCloudSyncJson(
+            {
+              action: 'push_delta',
+              licenseCode,
+              teacherPin,
+              deviceId: quota.deviceId,
+              baseRevision,
+              requestId,
+              upserts: encodedDeltaUpserts,
+              deletes: delta.deletes,
+              expectedEntryCount: currentDigests.entryCount,
+              workspaceChecksum: currentDigests.workspaceDigest,
+              supportsChunkedPull: true,
+            },
+            timeoutMs,
+            stats
+          );
+
+          if (deltaRes.status === 409 && deltaRes.data?.conflict) {
+            return await handleConflictFromServer(deltaRes.data, deltaRes.status);
+          }
+
+          if (deltaRes.ok && deltaRes.data?.ok) {
+            return finalizePushSuccess(deltaRes.data, deltaRes.status, 'delta', changedRecords);
+          }
+
+          const shouldFallbackFull =
+            (deltaRes.status === 409 && Boolean(deltaRes.data?.deltaMismatch)) ||
+            (deltaRes.status === 413 && Boolean(deltaRes.data?.supportsChunkedUpload));
+
+          if (!shouldFallbackFull) {
+            return {
+              ...buildCloudSyncFailureFields(
+                'push',
+                deltaRes.status,
+                deltaRes.data,
+                licenseCode,
+                teacherPin,
+                'Gagal menyinkronkan perubahan data ke Cloud.',
+                {
+                  timedOut: deltaRes.timedOut,
+                  networkError: deltaRes.networkError,
+                  scope,
+                  digest: currentDigests.workspaceDigest,
+                }
+              ),
+              mode: 'delta',
+              requestCount: stats.requestCount,
+              rawBytes,
+              wireBytes: stats.wireBytes,
+              maxRequestBytes: stats.maxRequestBytes,
+              changedRecords,
+              totalDocuments: currentDigests.entryCount,
+              durationMs: Date.now() - startedAt,
+            };
+          }
+        } else if (deltaPayloadBytes < encodedFullWireBytes * 0.8) {
+          const chunkedDeltaOut = await runChunkedUpload(
+            encodedDeltaUpserts,
+            'delta',
+            delta.deletes,
+            changedRecords
+          );
+          if (!('retryFullMode' in chunkedDeltaOut)) {
+            return chunkedDeltaOut;
+          }
+        }
+      }
     }
 
-    return buildCloudSyncFailureFields(
-      'push',
-      res.status,
-      data,
-      licenseCode,
-      teacherPin,
-      'Gagal menyinkronkan data ke Cloud.'
+    // 2. Inline Full Push when wire payload fits safely within single-request chunk threshold
+    if (!options?.forceChunked && encodedFullWireBytes <= maxChunkBytes) {
+      const inlineRes = await postCloudSyncJson(
+        {
+          action: 'push',
+          licenseCode,
+          teacherPin,
+          deviceId: quota.deviceId,
+          baseRevision,
+          requestId,
+          entries: encodedFull,
+          ...recoveryExtras,
+        },
+        timeoutMs,
+        stats
+      );
+
+      if (inlineRes.status === 409 && inlineRes.data?.conflict) {
+        return await handleConflictFromServer(inlineRes.data, inlineRes.status);
+      }
+
+      if (inlineRes.ok && inlineRes.data?.ok) {
+        return finalizePushSuccess(
+          inlineRes.data,
+          inlineRes.status,
+          'inline',
+          currentDigests.entryCount
+        );
+      }
+
+      if (!(inlineRes.status === 413 && inlineRes.data?.supportsChunkedUpload)) {
+        return {
+          ...buildCloudSyncFailureFields(
+            'push',
+            inlineRes.status,
+            inlineRes.data,
+            licenseCode,
+            teacherPin,
+            'Gagal menyinkronkan data ke Cloud.',
+            {
+              timedOut: inlineRes.timedOut,
+              networkError: inlineRes.networkError,
+              scope,
+              digest: currentDigests.workspaceDigest,
+            }
+          ),
+          mode: 'inline',
+          requestCount: stats.requestCount,
+          rawBytes,
+          wireBytes: stats.wireBytes,
+          maxRequestBytes: stats.maxRequestBytes,
+          changedRecords: currentDigests.entryCount,
+          totalDocuments: currentDigests.entryCount,
+          durationMs: Date.now() - startedAt,
+        };
+      }
+    }
+
+    // 3. Multi-Part Staged Chunked Upload for large workspaces / fallback on 413
+    const chunkedOut = await runChunkedUpload(
+      encodedFull,
+      'full',
+      [],
+      currentDigests.entryCount
     );
+    if ('retryFullMode' in chunkedOut) {
+      return {
+        ...buildCloudSyncFailureFields(
+          'push',
+          409,
+          null,
+          licenseCode,
+          teacherPin,
+          'Checksum sinkronisasi tidak cocok saat verifikasi akhir.',
+          { scope, digest: currentDigests.workspaceDigest }
+        ),
+        mode: 'chunked',
+        requestCount: stats.requestCount,
+        rawBytes,
+        wireBytes: stats.wireBytes,
+        maxRequestBytes: stats.maxRequestBytes,
+        changedRecords: currentDigests.entryCount,
+        totalDocuments: currentDigests.entryCount,
+        durationMs: Date.now() - startedAt,
+      };
+    }
+    return chunkedOut;
   } catch {
-    emitCloudSyncStatus('sync_error');
     return {
-      ok: false,
-      message: 'Tidak dapat terhubung ke server sinkronisasi Cloud (periksa koneksi internet).',
+      ...buildCloudSyncFailureFields(
+        'push',
+        0,
+        null,
+        licenseCode,
+        teacherPin,
+        'Tidak dapat terhubung ke server sinkronisasi Cloud (periksa koneksi internet).',
+        {
+          networkError: true,
+          scope,
+          digest: currentDigests.workspaceDigest,
+        }
+      ),
+      requestCount: stats.requestCount,
+      rawBytes,
+      wireBytes: stats.wireBytes,
+      maxRequestBytes: stats.maxRequestBytes,
+      totalDocuments: currentDigests.entryCount,
+      durationMs: Date.now() - startedAt,
     };
+  } finally {
+    setInflightSyncState(null);
   }
 }
 
@@ -2595,8 +3711,10 @@ export async function pullWorkspaceFromCloud(
   options?: {
     reverifyLegacyPin?: boolean;
     newTeacherPin?: string;
+    timeoutMs?: number;
   }
 ): Promise<CloudSyncPullResult> {
+  const startedAt = Date.now();
   const quota = getUserQuota();
   const licenseCode = normalizeLicenseCodeInput(explicitLicenseCode || quota.licenseKey || '');
   const teacherPin = (
@@ -2623,24 +3741,38 @@ export async function pullWorkspaceFromCloud(
   }
 
   const nextPinTrimmed = options?.newTeacherPin ? options.newTeacherPin.trim() : '';
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_CLOUD_SYNC_TIMEOUT_MS;
+  const scope = buildWorkspaceScope(licenseCode, teacherPin);
+  const stats: RequestStatsTracker = {
+    requestCount: 0,
+    wireBytes: 0,
+    maxRequestBytes: 0,
+  };
 
+  setInflightSyncState({
+    action: 'pull',
+    scope,
+    digest: '',
+    startedAt: new Date().toISOString(),
+  });
   emitCloudSyncStatus('syncing');
 
   try {
-    const res = await fetch('/api/cloud-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const res = await postCloudSyncJson(
+      {
         action: 'pull',
         licenseCode,
         teacherPin,
         deviceId: quota.deviceId,
+        supportsChunkedPull: true,
         ...(options?.reverifyLegacyPin ? { reverifyLegacyPin: true } : {}),
         ...(nextPinTrimmed ? { newTeacherPin: nextPinTrimmed } : {}),
-      }),
-    });
+      },
+      timeoutMs,
+      stats
+    );
 
-    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    const data = res.data;
     if (!res.ok || !data?.ok) {
       return {
         ...buildCloudSyncFailureFields(
@@ -2649,10 +3781,14 @@ export async function pullWorkspaceFromCloud(
           data,
           licenseCode,
           teacherPin,
-          'Gagal mengambil data dari Cloud.'
+          'Gagal mengambil data dari Cloud.',
+          { timedOut: res.timedOut, networkError: res.networkError }
         ),
         found: false,
         restoredCount: 0,
+        requestCount: stats.requestCount,
+        maxRequestBytes: stats.maxRequestBytes,
+        durationMs: Date.now() - startedAt,
       };
     }
 
@@ -2661,11 +3797,7 @@ export async function pullWorkspaceFromCloud(
     setCloudConfiguredFlag(cloudConfigured);
     savePendingLegacyPinRecovery(null);
 
-    if (
-      !data.found ||
-      !isPlainObject(data.entries) ||
-      Object.keys(data.entries).length === 0
-    ) {
+    if (!data.found) {
       const serverRev = typeof data.revision === 'number' ? data.revision : 0;
       setWorkspaceBaseRevision(licenseCode, effectivePinScope, serverRev);
       if (nextPinTrimmed) {
@@ -2682,6 +3814,71 @@ export async function pullWorkspaceFromCloud(
         cloudConfigured,
         revision: serverRev,
         statusCode: res.status,
+        mode: 'inline',
+        requestCount: stats.requestCount,
+        maxRequestBytes: stats.maxRequestBytes,
+        durationMs: Date.now() - startedAt,
+        message: cloudConfigured
+          ? 'Belum ada riwayat tersimpan di Cloud pada kode lisensi ini.'
+          : 'Cloud Redis belum dikonfigurasi pada server ini; belum ada riwayat di memori dev lokal.',
+      };
+    }
+
+    let pulledEntries: Record<string, unknown> | null = null;
+    let pullMode: 'inline' | 'chunked_pull' = 'inline';
+
+    if (data.chunked && Array.isArray(data.chunkRefs)) {
+      pullMode = 'chunked_pull';
+      const chunkRes = await fetchChunkedEntriesViaPullChunk({
+        chunkRefs: data.chunkRefs as ChunkRefDescriptor[],
+        expectedChecksum:
+          typeof data.workspaceChecksum === 'string' ? data.workspaceChecksum : undefined,
+        licenseCode,
+        teacherPin,
+        deviceId: quota.deviceId,
+        timeoutMs,
+        stats,
+        scope,
+        digest: typeof data.workspaceChecksum === 'string' ? data.workspaceChecksum : '',
+        action: 'pull',
+      });
+      if (!chunkRes.ok) {
+        return {
+          ...chunkRes.failure,
+          found: false,
+          restoredCount: 0,
+          mode: 'chunked_pull',
+          requestCount: stats.requestCount,
+          maxRequestBytes: stats.maxRequestBytes,
+          durationMs: Date.now() - startedAt,
+        };
+      }
+      pulledEntries = chunkRes.entries;
+    } else if (isPlainObject(data.entries)) {
+      pulledEntries = decodeEntriesFromCloudSync(data.entries);
+    }
+
+    if (!pulledEntries || Object.keys(pulledEntries).length === 0) {
+      const serverRev = typeof data.revision === 'number' ? data.revision : 0;
+      setWorkspaceBaseRevision(licenseCode, effectivePinScope, serverRev);
+      if (nextPinTrimmed) {
+        saveTeacherSyncPin(nextPinTrimmed);
+      }
+      emitCloudSyncStatus(cloudConfigured ? 'local' : 'unconfigured', {
+        revision: serverRev,
+        cloudConfigured,
+      });
+      return {
+        ok: true,
+        found: false,
+        restoredCount: 0,
+        cloudConfigured,
+        revision: serverRev,
+        statusCode: res.status,
+        mode: pullMode,
+        requestCount: stats.requestCount,
+        maxRequestBytes: stats.maxRequestBytes,
+        durationMs: Date.now() - startedAt,
         message: cloudConfigured
           ? 'Belum ada riwayat tersimpan di Cloud pada kode lisensi ini.'
           : 'Cloud Redis belum dikonfigurasi pada server ini; belum ada riwayat di memori dev lokal.',
@@ -2704,16 +3901,21 @@ export async function pullWorkspaceFromCloud(
       app: 'AsesMerdeka Studio',
       version: '1.0.0',
       exportedAt: (typeof data.updatedAt === 'string' && data.updatedAt) || new Date().toISOString(),
-      entries: data.entries,
+      entries: pulledEntries,
     });
 
     const importRes = importBackupDataJson(wrappedBackup);
     const serverRev = typeof data.revision === 'number' ? data.revision : 1;
+    const pulledDigests = computeWorkspaceEntryDigests(pulledEntries);
+    const rawBytes = measureUtf8Bytes(pulledEntries);
 
     if (importRes.success) {
+      autoSyncSuppressionMap.delete(scope);
+      autoSyncSuppressionMap.delete(buildWorkspaceScope(licenseCode, effectivePinScope));
       setConfirmedClassSetup(true);
       setWorkspaceBaseRevision(licenseCode, effectivePinScope, serverRev);
-      setWorkspaceBaseSnapshot(licenseCode, effectivePinScope, data.entries as Record<string, unknown>);
+      setWorkspaceBaseEntryHashes(licenseCode, effectivePinScope, serverRev, pulledDigests);
+      setWorkspaceBaseSnapshot(licenseCode, effectivePinScope, pulledEntries);
       if (nextPinTrimmed) {
         saveTeacherSyncPin(nextPinTrimmed);
       }
@@ -2742,6 +3944,12 @@ export async function pullWorkspaceFromCloud(
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
       lastDeviceId: typeof data.lastDeviceId === 'string' ? data.lastDeviceId : undefined,
       statusCode: res.status,
+      mode: pullMode,
+      requestCount: stats.requestCount,
+      rawBytes,
+      maxRequestBytes: stats.maxRequestBytes,
+      totalDocuments: pulledDigests.entryCount,
+      durationMs: Date.now() - startedAt,
       message: importRes.success
         ? cloudConfigured
           ? `☁️ Riwayat pengisian Anda dari Cloud (Revisi #${serverRev}) berhasil dipulihkan (${importRes.restoredCount} kelompok data)!`
@@ -2749,13 +3957,24 @@ export async function pullWorkspaceFromCloud(
         : importRes.message,
     };
   } catch {
-    emitCloudSyncStatus('sync_error');
     return {
-      ok: false,
+      ...buildCloudSyncFailureFields(
+        'pull',
+        0,
+        null,
+        licenseCode,
+        teacherPin,
+        'Gagal menghubungi server Cloud untuk memulihkan riwayat.',
+        { networkError: true }
+      ),
       found: false,
       restoredCount: 0,
-      message: 'Gagal menghubungi server Cloud untuk memulihkan riwayat.',
+      requestCount: stats.requestCount,
+      maxRequestBytes: stats.maxRequestBytes,
+      durationMs: Date.now() - startedAt,
     };
+  } finally {
+    setInflightSyncState(null);
   }
 }
 
@@ -2955,7 +4174,15 @@ export async function resolveCloudConflict(
 
     setConfirmedClassSetup(true);
     setWorkspaceBaseRevision(pending.licenseCode, pending.teacherPin, pending.serverRevision);
+    setWorkspaceBaseEntryHashes(
+      pending.licenseCode,
+      pending.teacherPin,
+      pending.serverRevision,
+      computeWorkspaceEntryDigests(pending.serverEntries)
+    );
     setWorkspaceBaseSnapshot(pending.licenseCode, pending.teacherPin, pending.serverEntries);
+    autoSyncSuppressionMap.delete(buildWorkspaceScope(pending.licenseCode, pending.teacherPin));
+    setInflightSyncState(null);
     setCloudConfiguredFlag(pending.cloudConfigured);
     if (pending.cloudConfigured && pending.serverUpdatedAt) {
       setLastCloudSyncAt(pending.serverUpdatedAt);

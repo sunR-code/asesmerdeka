@@ -468,8 +468,11 @@ export function isAllowedBackupKey(key: string): boolean {
   return ALLOWED_BACKUP_PREFIXES.some((prefix) => key === prefix || key.startsWith(prefix));
 }
 
-export function exportBackupDataJson(): string {
+export function collectAllowedBackupEntries(): Record<string, unknown> {
   const data: Record<string, unknown> = {};
+  if (typeof localStorage === 'undefined') {
+    return data;
+  }
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (key && isAllowedBackupKey(key)) {
@@ -483,6 +486,11 @@ export function exportBackupDataJson(): string {
       }
     }
   }
+  return data;
+}
+
+export function exportBackupDataJson(): string {
+  const data = collectAllowedBackupEntries();
   return JSON.stringify(
     {
       app: 'AsesMerdeka Studio',

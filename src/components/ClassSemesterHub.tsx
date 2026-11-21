@@ -192,7 +192,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     setDemoPreviewData(null);
     setKelasHarian(updated);
     saveKelasHarianData(schoolProfile, updated);
-    pushWorkspaceToCloud().catch(() => {});
+    pushWorkspaceToCloud(undefined, undefined, { isAutoSync: true }).catch(() => {});
   };
 
   const handleOpenSeparateDemoPreview = () => {
@@ -263,7 +263,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     setIsCustomTP(true);
     setEditingTPId(null);
     setDraftTP(null);
-    pushWorkspaceToCloud().catch(() => {});
+    pushWorkspaceToCloud(undefined, undefined, { isAutoSync: true }).catch(() => {});
     const atpNotice = reconciledATP?.needsReapprovalReview
       ? ' Status persetujuan ATP Fase ditandai perlu ditinjau ulang.'
       : '';
@@ -348,7 +348,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     setIsCustomTP(true);
     setEditingTPId(newTP.id);
     setDraftTP({ ...newTP });
-    pushWorkspaceToCloud().catch(() => {});
+    pushWorkspaceToCloud(undefined, undefined, { isAutoSync: true }).catch(() => {});
     triggerToast(
       `TP ${newTP.kode} dibuat dari hasil Analisis CP. Silakan tinjau kelengkapan lalu klik Simpan.`
     );
@@ -365,7 +365,7 @@ export const ClassSemesterHub: React.FC<ClassSemesterHubProps> = ({
     );
     reconcilePhaseATPApprovalForScope(schoolProfile, nextList);
     setIsCustomTP(true);
-    pushWorkspaceToCloud().catch(() => {});
+    pushWorkspaceToCloud(undefined, undefined, { isAutoSync: true }).catch(() => {});
   };
 
   const handleDeleteTP = (id: string, kode: string) => {
