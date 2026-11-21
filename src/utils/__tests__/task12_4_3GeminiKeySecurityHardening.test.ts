@@ -411,4 +411,62 @@ describe('Task 12.4.3 — Gemini API Key Security Hardening (Server-Only Secret 
       'gemini-3.5-flash-lite',
     ]);
   });
+
+  it('13. Failover otomatis /api/gemini saat upstream mengembalikan 503 UNAVAILABLE ke gemini-3.5-flash-lite', async () => {
+    const secretKey = 'SECRET_GEMINI_SERVER_KEY_503_FAILOVER';
+    process.env.GEMINI_API_KEY = secretKey;
+    const validBasic = computeSerialLicenseCode('INDIV1243G');
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () =>
+          JSON.stringify({
+            error: {
+              code: 404,
+              message:
+                'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements.',
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        text: async () =>
+          JSON.stringify({
+            error: {
+              code: 503,
+              message: 'This model is currently experiencing high demand.',
+              status: 'UNAVAILABLE',
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }],
+        }),
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const res = await invokeGemini({
+      prompt: 'Buatkan modul ajar IPAS SD',
+      tier: 'guru',
+      licenseCode: validBasic,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.model).toBe('gemini-3.5-flash-lite');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/models/gemini-3.5-flash-lite:generateContent');
+    expect((res.body.attempts as Array<{ model: string; status: number }>).map((a) => [a.model, a.status])).toEqual([
+      ['gemini-2.5-flash', 404],
+      ['gemini-3.8-flash', 503],
+      ['gemini-3.5-flash-lite', 200],
+    ]);
+  });
 });

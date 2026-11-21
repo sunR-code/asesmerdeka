@@ -217,7 +217,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Pemilihan model berbasis Tier Pengguna + fallback otomatis saat 404 atau timeout
+    // Pemilihan model berbasis Tier Pengguna + fallback otomatis saat 404 / 429 / 5xx / timeout
     const isProTier = tier === 'pro' || tier === 'sekolah_pro';
     const tierKey = isProTier ? 'pro' : 'standard';
     const primaryModel = isProTier ? 'gemini-1.5-pro' : 'gemini-2.5-flash';
@@ -227,6 +227,7 @@ export default async function handler(req, res) {
           'gemini-3.5-flash',
           'gemini-3.5-flash-lite',
           'gemini-3.8-pro',
+          'gemini-3.8-flash-lite',
           'gemini-2.5-pro',
           'gemini-2.0-flash',
         ]
@@ -234,10 +235,21 @@ export default async function handler(req, res) {
           'gemini-3.8-flash',
           'gemini-3.5-flash-lite',
           'gemini-3.5-flash',
+          'gemini-3.8-flash-lite',
           'gemini-2.5-flash-lite',
+          'gemini-3.8-pro',
           'gemini-2.0-flash',
         ];
     const isVitestRuntime = Boolean(process.env.VITEST);
+
+    const isFailoverEligibleStatus = (status, aborted) =>
+      Boolean(aborted) ||
+      status === 404 ||
+      status === 429 ||
+      status === 500 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504;
 
     // Susun payload dinamis per model untuk Google Gemini API
     const buildModelPayload = (targetModel) => {
@@ -290,6 +302,9 @@ export default async function handler(req, res) {
           signal: controller.signal,
           body: JSON.stringify(buildModelPayload(targetModel)),
         });
+        if (!resUpstream) {
+          return { ok: false, status: 0, mockExhausted: true };
+        }
         attempts.push({
           model: targetModel,
           status: resUpstream.status ?? 200,
@@ -331,6 +346,49 @@ export default async function handler(req, res) {
       return null;
     };
 
+    const discoverAuthorizedGeminiModels = async (deadlineMs, alreadyTriedSet) => {
+      const remaining = deadlineMs - Date.now();
+      if (remaining < 6000) return [];
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), Math.min(4000, remaining - 2000));
+      try {
+        const listRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+          method: 'GET',
+          headers: { 'x-goog-api-key': apiKey },
+          signal: controller.signal,
+        });
+        if (!listRes || !listRes.ok) return [];
+        const listJson = await listRes.json().catch(() => null);
+        const models = Array.isArray(listJson?.models) ? listJson.models : [];
+        const rankModel = (name) => {
+          const lower = name.toLowerCase();
+          if (lower.includes('flash-lite')) return 0;
+          if (lower.includes('flash')) return 1;
+          if (lower.includes('pro')) return 2;
+          return 3;
+        };
+        return models
+          .filter(
+            (m) =>
+              Array.isArray(m?.supportedGenerationMethods) &&
+              m.supportedGenerationMethods.includes('generateContent') &&
+              /^models\/gemini-/i.test(String(m?.name || '')) &&
+              !/(embedding|imagen|veo|tts|native-audio|live|aqa|robotics|computer-use)/i.test(
+                String(m?.name || '')
+              )
+          )
+          .map((m) => String(m.name).replace(/^models\//i, '').trim())
+          .filter(
+            (name) => name && !alreadyTriedSet.has(name) && !deprecatedModelsCache.has(name)
+          )
+          .sort((a, b) => rankModel(a) - rankModel(b) || b.localeCompare(a));
+      } catch {
+        return [];
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
     // Timeout 56 detik total untuk Vercel Serverless Function dengan per-candidate timeout bounded
     const deadlineMs = Date.now() + 56000;
     let activeModel =
@@ -339,18 +397,18 @@ export default async function handler(req, res) {
         : !isVitestRuntime && deprecatedModelsCache.has(primaryModel)
         ? 'gemini-3.8-flash'
         : primaryModel;
-    let response = await callUpstreamModel(activeModel, 26000);
+    let response = await callUpstreamModel(activeModel, 20000);
 
     if (response.ok && !isVitestRuntime) {
       workingModelByTierCache[tierKey] = activeModel;
     }
 
-    if (!response.ok && (response.status === 404 || response.status === 504 || response.aborted)) {
+    if (!response.ok && isFailoverEligibleStatus(response.status, response.aborted)) {
       if (response.status === 404 && !isVitestRuntime) {
         deprecatedModelsCache.add(activeModel);
-        if (workingModelByTierCache[tierKey] === activeModel) {
-          workingModelByTierCache[tierKey] = null;
-        }
+      }
+      if (!isVitestRuntime && workingModelByTierCache[tierKey] === activeModel) {
+        workingModelByTierCache[tierKey] = null;
       }
 
       let lastStatus = response.status;
@@ -368,31 +426,88 @@ export default async function handler(req, res) {
           (isVitestRuntime || !deprecatedModelsCache.has(candidate))
       );
 
-      for (const candidateModel of fallbackCandidates) {
-        const remainingMs = deadlineMs - Date.now();
-        if (remainingMs < 3000) break;
-        activeModel = candidateModel;
-        const attemptTimeoutMs = Math.min(remainingMs, 24000);
-        const candidateResp = await callUpstreamModel(candidateModel, attemptTimeoutMs);
-        if (candidateResp.ok) {
-          response = candidateResp;
-          if (!isVitestRuntime) {
-            workingModelByTierCache[tierKey] = candidateModel;
+      const runFailoverList = async (candidates) => {
+        for (const candidateModel of candidates) {
+          const remainingMs = deadlineMs - Date.now();
+          if (remainingMs < 3000) break;
+          const attemptTimeoutMs = Math.min(remainingMs, 18000);
+          const candidateResp = await callUpstreamModel(candidateModel, attemptTimeoutMs);
+          if (candidateResp.mockExhausted) {
+            break;
           }
-          break;
+          activeModel = candidateModel;
+          triedModels.add(candidateModel);
+          if (candidateResp.ok) {
+            response = candidateResp;
+            if (!isVitestRuntime) {
+              workingModelByTierCache[tierKey] = candidateModel;
+            }
+            return true;
+          }
+          lastStatus = candidateResp.status;
+          if (lastStatus === 404 && !isVitestRuntime) {
+            deprecatedModelsCache.add(candidateModel);
+          }
+          lastErrText =
+            candidateResp._cachedText ??
+            (typeof candidateResp.text === 'function'
+              ? await candidateResp.text().catch(() => '')
+              : '');
+          response = {
+            ok: false,
+            status: lastStatus,
+            aborted: candidateResp.aborted,
+            _cachedText: lastErrText,
+          };
+          if (!isFailoverEligibleStatus(lastStatus, candidateResp.aborted)) {
+            return true;
+          }
         }
-        lastStatus = candidateResp.status;
-        if (lastStatus === 404 && !isVitestRuntime) {
-          deprecatedModelsCache.add(candidateModel);
+        return false;
+      };
+
+      const stoppedEarly = await runFailoverList(fallbackCandidates);
+
+      // Discovery dinamis model resmi API key jika seluruh fallback statis gagal di runtime live
+      if (!response.ok && !stoppedEarly && !isVitestRuntime && deadlineMs - Date.now() > 8000) {
+        const discoveredModels = await discoverAuthorizedGeminiModels(deadlineMs, triedModels);
+        if (discoveredModels.length > 0) {
+          await runFailoverList(discoveredModels);
         }
-        lastErrText =
-          candidateResp._cachedText ??
-          (typeof candidateResp.text === 'function'
-            ? await candidateResp.text().catch(() => '')
-            : '');
-        response = { ok: false, status: lastStatus, aborted: candidateResp.aborted, _cachedText: lastErrText };
-        if (lastStatus !== 404 && lastStatus !== 504 && !candidateResp.aborted) {
-          break;
+      }
+
+      // Retry backoff singkat (maks 2x) pada model yang mengalami lonjakan 503 UNAVAILABLE sementara
+      if (!response.ok && !isVitestRuntime) {
+        const transient503Models = Array.from(
+          new Set(
+            attempts
+              .filter((a) => a.status === 503 && !deprecatedModelsCache.has(a.model))
+              .map((a) => a.model)
+          )
+        );
+        for (let retryIdx = 0; retryIdx < 2 && transient503Models.length > 0; retryIdx++) {
+          if (deadlineMs - Date.now() <= 10000) break;
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          const retryModel = transient503Models[retryIdx % transient503Models.length];
+          const remainingMs = deadlineMs - Date.now();
+          if (remainingMs <= 5000) break;
+          const retryResp = await callUpstreamModel(retryModel, Math.min(remainingMs, 16000));
+          activeModel = retryModel;
+          if (retryResp.ok) {
+            response = retryResp;
+            workingModelByTierCache[tierKey] = retryModel;
+            break;
+          }
+          lastStatus = retryResp.status;
+          lastErrText =
+            retryResp._cachedText ??
+            (typeof retryResp.text === 'function' ? await retryResp.text().catch(() => '') : '');
+          response = {
+            ok: false,
+            status: lastStatus,
+            aborted: retryResp.aborted,
+            _cachedText: lastErrText,
+          };
         }
       }
 
