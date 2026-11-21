@@ -214,10 +214,12 @@ export default async function handler(req, res) {
       });
     }
 
-    // Pemilihan model berbasis Tier Pengguna
+    // Pemilihan model berbasis Tier Pengguna + fallback otomatis bila model lama mengembalikan 404
     const isProTier = tier === 'pro' || tier === 'sekolah_pro';
-    const model = isProTier ? 'gemini-1.5-pro' : 'gemini-2.5-flash';
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    const primaryModel = isProTier ? 'gemini-1.5-pro' : 'gemini-2.5-flash';
+    const staticFallbacks = isProTier
+      ? ['gemini-3.8-pro', 'gemini-3.8-flash', 'gemini-2.5-pro', 'gemini-2.0-flash']
+      : ['gemini-3.8-flash', 'gemini-2.0-flash'];
 
     // Susun payload untuk Google Gemini API
     const geminiPayload = {
@@ -246,21 +248,82 @@ export default async function handler(req, res) {
       },
     };
 
-    // Timeout 45 detik untuk Vercel Serverless Function
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 45000);
+    const callUpstreamModel = async (targetModel, timeoutMs) => {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
+          signal: controller.signal,
+          body: JSON.stringify(geminiPayload),
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      signal: controller.signal,
-      body: JSON.stringify(geminiPayload),
-    });
+    const extractSuggestedModel = (rawText, excludeModel) => {
+      const text = String(rawText || '');
+      const updateMatch = text.match(/(?:use|switch to|try)\s+models\/(gemini-[a-zA-Z0-9._-]+)/i);
+      if (updateMatch?.[1] && updateMatch[1].trim() !== excludeModel) {
+        return updateMatch[1].trim();
+      }
+      const allMatches = Array.from(text.matchAll(/models\/(gemini-[a-zA-Z0-9._-]+)/gi));
+      for (const m of allMatches) {
+        const candidate = String(m[1] || '').trim();
+        if (candidate && candidate !== excludeModel) {
+          return candidate;
+        }
+      }
+      return null;
+    };
 
-    clearTimeout(timer);
+    // Timeout 45 detik total untuk Vercel Serverless Function
+    const deadlineMs = Date.now() + 45000;
+    let activeModel = primaryModel;
+    let response = await callUpstreamModel(activeModel, 45000);
+
+    if (!response.ok && response.status === 404) {
+      let lastStatus = response.status;
+      let lastErrText = await response.text();
+      const suggestedModel = extractSuggestedModel(lastErrText, primaryModel);
+      const fallbackCandidates = Array.from(
+        new Set([...(suggestedModel ? [suggestedModel] : []), ...staticFallbacks])
+      ).filter((candidate) => candidate && candidate !== primaryModel);
+
+      for (const candidateModel of fallbackCandidates) {
+        const remainingMs = deadlineMs - Date.now();
+        if (remainingMs < 3000) break;
+        activeModel = candidateModel;
+        const candidateResp = await callUpstreamModel(candidateModel, remainingMs);
+        if (candidateResp.ok) {
+          response = candidateResp;
+          break;
+        }
+        lastStatus = candidateResp.status;
+        lastErrText = await candidateResp.text();
+        response = { ok: false, status: lastStatus, _cachedText: lastErrText };
+        if (lastStatus !== 404) {
+          break;
+        }
+      }
+
+      if (!response.ok) {
+        const rawErrText = response._cachedText ?? lastErrText;
+        const safeErrText =
+          apiKey && rawErrText ? rawErrText.split(apiKey).join('[REDACTED]') : rawErrText;
+        return res.status(response.status || lastStatus).json({
+          error: `Google Gemini API Error (${response.status || lastStatus})`,
+          model: activeModel,
+          details: safeErrText,
+        });
+      }
+    }
 
     if (!response.ok) {
       const rawErrText = await response.text();
@@ -268,7 +331,7 @@ export default async function handler(req, res) {
         apiKey && rawErrText ? rawErrText.split(apiKey).join('[REDACTED]') : rawErrText;
       return res.status(response.status).json({
         error: `Google Gemini API Error (${response.status})`,
-        model,
+        model: activeModel,
         details: safeErrText,
       });
     }
@@ -276,7 +339,7 @@ export default async function handler(req, res) {
     const data = await response.json();
     return res.status(200).json({
       success: true,
-      model,
+      model: activeModel,
       tier,
       data,
     });

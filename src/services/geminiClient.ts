@@ -3,7 +3,26 @@ import { deductQuota, getSavedGeminiKey, getUserQuota, refundQuota } from '../ut
 
 const GOOGLE_GEMINI_FALLBACK_ENDPOINT =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-const GEMINI_TIMEOUT_MS = 35_000;
+const GEMINI_TIMEOUT_MS = 55_000;
+
+function extractDirectFallbackModel(errBodyText: string, currentModel: string): string {
+  const updateMatch = String(errBodyText || '').match(
+    /(?:use|switch to|try)\s+models\/(gemini-[a-zA-Z0-9._-]+)/i
+  );
+  if (updateMatch?.[1] && updateMatch[1].trim() !== currentModel) {
+    return updateMatch[1].trim();
+  }
+  const allMatches = Array.from(
+    String(errBodyText || '').matchAll(/models\/(gemini-[a-zA-Z0-9._-]+)/gi)
+  );
+  for (const m of allMatches) {
+    const candidate = String(m[1] || '').trim();
+    if (candidate && candidate !== currentModel) {
+      return candidate;
+    }
+  }
+  return 'gemini-3.8-flash';
+}
 
 export interface GeminiCallParams {
   prompt: string;
@@ -61,31 +80,51 @@ async function callDirectGoogleGemini(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
   const isProTier = tier === 'pro' || tier === 'sekolah_pro';
+  const primaryModel = isProTier ? 'gemini-1.5-pro' : 'gemini-2.5-flash';
   const endpoint = isProTier
     ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent'
     : GOOGLE_GEMINI_FALLBACK_ENDPOINT;
+  const requestBody = JSON.stringify({
+    ...(systemInstruction
+      ? { systemInstruction: { parts: [{ text: systemInstruction }] } }
+      : {}),
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature,
+      maxOutputTokens: Math.min(8192, Math.max(512, maxOutputTokens)),
+      responseMimeType: 'application/json',
+      ...(responseSchema ? { responseSchema } : {}),
+    },
+  });
 
   try {
-    const response = await fetch(endpoint, {
+    let response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey.trim(),
       },
       signal: controller.signal,
-      body: JSON.stringify({
-        ...(systemInstruction
-          ? { systemInstruction: { parts: [{ text: systemInstruction }] } }
-          : {}),
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature,
-          maxOutputTokens: Math.min(8192, Math.max(512, maxOutputTokens)),
-          responseMimeType: 'application/json',
-          ...(responseSchema ? { responseSchema } : {}),
-        },
-      }),
+      body: requestBody,
     });
+
+    if (!response.ok && response.status === 404) {
+      const errBody =
+        typeof response.text === 'function' ? await response.text().catch(() => '') : '';
+      const fallbackModel = extractDirectFallbackModel(errBody, primaryModel);
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${fallbackModel}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey.trim(),
+          },
+          signal: controller.signal,
+          body: requestBody,
+        }
+      );
+    }
 
     if (!response.ok) {
       throw new Error(`Google Gemini Direct API Error (${response.status})`);

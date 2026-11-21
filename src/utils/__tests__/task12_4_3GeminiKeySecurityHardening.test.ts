@@ -313,4 +313,47 @@ describe('Task 12.4.3 — Gemini API Key Security Hardening (Server-Only Secret 
     expect(envExampleSrc).toContain('GEMINI_API_KEY=');
     expect(envExampleSrc).not.toMatch(/^#?\s*VITE_GEMINI_API_KEY\s*=/m);
   });
+
+  it('11. Fallback otomatis /api/gemini ke model pengganti (gemini-3.8-flash) saat model primary mengembalikan 404', async () => {
+    const secretKey = 'SECRET_GEMINI_SERVER_KEY_FALLBACK_TEST';
+    process.env.GEMINI_API_KEY = secretKey;
+    const validBasic = computeSerialLicenseCode('INDIV1243E');
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () =>
+          JSON.stringify({
+            error: {
+              code: 404,
+              message:
+                'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements.',
+              status: 'NOT_FOUND',
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }],
+        }),
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const res = await invokeGemini({
+      prompt: 'Buatkan modul ajar IPAS SD',
+      tier: 'guru',
+      licenseCode: validBasic,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.model).toBe('gemini-3.8-flash');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/models/gemini-2.5-flash:generateContent');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/models/gemini-3.8-flash:generateContent');
+  });
 });
