@@ -221,31 +221,39 @@ export default async function handler(req, res) {
       ? ['gemini-3.8-pro', 'gemini-3.8-flash', 'gemini-2.5-pro', 'gemini-2.0-flash']
       : ['gemini-3.8-flash', 'gemini-2.0-flash'];
 
-    // Susun payload untuk Google Gemini API
-    const geminiPayload = {
-      ...(systemInstruction
-        ? {
-            systemInstruction:
-              typeof systemInstruction === 'string'
-                ? { parts: [{ text: systemInstruction }] }
-                : systemInstruction,
-          }
-        : {}),
-      contents: contents || [
-        {
-          parts: [{ text: prompt || '' }],
+    // Susun payload dinamis per model untuk Google Gemini API
+    const buildModelPayload = (targetModel) => {
+      const isGemini3Model = /^gemini-3/i.test(String(targetModel || '').trim());
+      const requestedMaxTokens = typeof maxOutputTokens === 'number' ? maxOutputTokens : 6144;
+      const effectiveMaxTokens = isGemini3Model
+        ? Math.min(16384, Math.max(8192, requestedMaxTokens))
+        : Math.min(8192, Math.max(512, requestedMaxTokens));
+
+      return {
+        ...(systemInstruction
+          ? {
+              systemInstruction:
+                typeof systemInstruction === 'string'
+                  ? { parts: [{ text: systemInstruction }] }
+                  : systemInstruction,
+            }
+          : {}),
+        contents: contents || [
+          {
+            parts: [{ text: prompt || '' }],
+          },
+        ],
+        generationConfig: {
+          temperature: typeof temperature === 'number' ? temperature : 0.4,
+          maxOutputTokens: effectiveMaxTokens,
+          responseMimeType: 'application/json',
+          ...(isGemini3Model && !generationConfig?.thinkingConfig
+            ? { thinkingConfig: { thinkingLevel: 'low' } }
+            : {}),
+          ...(responseSchema ? { responseSchema } : {}),
+          ...(generationConfig || {}),
         },
-      ],
-      generationConfig: {
-        temperature: typeof temperature === 'number' ? temperature : 0.4,
-        maxOutputTokens:
-          typeof maxOutputTokens === 'number'
-            ? Math.min(8192, Math.max(512, maxOutputTokens))
-            : 6144,
-        responseMimeType: 'application/json',
-        ...(responseSchema ? { responseSchema } : {}),
-        ...(generationConfig || {}),
-      },
+      };
     };
 
     const callUpstreamModel = async (targetModel, timeoutMs) => {
@@ -260,7 +268,7 @@ export default async function handler(req, res) {
             'x-goog-api-key': apiKey,
           },
           signal: controller.signal,
-          body: JSON.stringify(geminiPayload),
+          body: JSON.stringify(buildModelPayload(targetModel)),
         });
       } finally {
         clearTimeout(timer);
@@ -283,10 +291,10 @@ export default async function handler(req, res) {
       return null;
     };
 
-    // Timeout 45 detik total untuk Vercel Serverless Function
-    const deadlineMs = Date.now() + 45000;
+    // Timeout 56 detik total untuk Vercel Serverless Function
+    const deadlineMs = Date.now() + 56000;
     let activeModel = primaryModel;
-    let response = await callUpstreamModel(activeModel, 45000);
+    let response = await callUpstreamModel(activeModel, 56000);
 
     if (!response.ok && response.status === 404) {
       let lastStatus = response.status;

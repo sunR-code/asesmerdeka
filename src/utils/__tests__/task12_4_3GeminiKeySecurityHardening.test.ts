@@ -355,5 +355,11 @@ describe('Task 12.4.3 — Gemini API Key Security Hardening (Server-Only Secret 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0][0])).toContain('/models/gemini-2.5-flash:generateContent');
     expect(String(fetchMock.mock.calls[1][0])).toContain('/models/gemini-3.8-flash:generateContent');
+
+    const firstPayload = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    const fallbackPayload = JSON.parse(String(fetchMock.mock.calls[1][1].body));
+    expect(firstPayload.generationConfig?.thinkingConfig).toBeUndefined();
+    expect(fallbackPayload.generationConfig?.thinkingConfig).toEqual({ thinkingLevel: 'low' });
+    expect(fallbackPayload.generationConfig?.maxOutputTokens).toBeGreaterThanOrEqual(8192);
   });
 });

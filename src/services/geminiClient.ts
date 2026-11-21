@@ -3,7 +3,7 @@ import { deductQuota, getSavedGeminiKey, getUserQuota, refundQuota } from '../ut
 
 const GOOGLE_GEMINI_FALLBACK_ENDPOINT =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-const GEMINI_TIMEOUT_MS = 55_000;
+const GEMINI_TIMEOUT_MS = 65_000;
 
 function extractDirectFallbackModel(errBodyText: string, currentModel: string): string {
   const updateMatch = String(errBodyText || '').match(
@@ -84,17 +84,18 @@ async function callDirectGoogleGemini(
   const endpoint = isProTier
     ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent'
     : GOOGLE_GEMINI_FALLBACK_ENDPOINT;
+  const baseGenerationConfig = {
+    temperature,
+    maxOutputTokens: Math.min(8192, Math.max(512, maxOutputTokens)),
+    responseMimeType: 'application/json',
+    ...(responseSchema ? { responseSchema } : {}),
+  };
   const requestBody = JSON.stringify({
     ...(systemInstruction
       ? { systemInstruction: { parts: [{ text: systemInstruction }] } }
       : {}),
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature,
-      maxOutputTokens: Math.min(8192, Math.max(512, maxOutputTokens)),
-      responseMimeType: 'application/json',
-      ...(responseSchema ? { responseSchema } : {}),
-    },
+    generationConfig: baseGenerationConfig,
   });
 
   try {
@@ -112,6 +113,20 @@ async function callDirectGoogleGemini(
       const errBody =
         typeof response.text === 'function' ? await response.text().catch(() => '') : '';
       const fallbackModel = extractDirectFallbackModel(errBody, primaryModel);
+      const isGemini3Fallback = /^gemini-3/i.test(fallbackModel);
+      const fallbackBody = isGemini3Fallback
+        ? JSON.stringify({
+            ...(systemInstruction
+              ? { systemInstruction: { parts: [{ text: systemInstruction }] } }
+              : {}),
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              ...baseGenerationConfig,
+              maxOutputTokens: Math.min(16384, Math.max(8192, maxOutputTokens)),
+              thinkingConfig: { thinkingLevel: 'low' },
+            },
+          })
+        : requestBody;
       response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${fallbackModel}:generateContent`,
         {
@@ -121,7 +136,7 @@ async function callDirectGoogleGemini(
             'x-goog-api-key': apiKey.trim(),
           },
           signal: controller.signal,
-          body: requestBody,
+          body: fallbackBody,
         }
       );
     }

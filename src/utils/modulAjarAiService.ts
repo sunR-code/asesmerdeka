@@ -180,7 +180,8 @@ export function buildModulAjarGeminiPrompt(
       : 'KKTP Numerik Sekolah BELUM Ditetapkan: Gunakan penilaian kualitatif 4 tingkat (Baru Berkembang, Layak, Cakap, Mahir) pada rubrik dan pedoman penilaian. DILARANG menanamkan angka ketuntasan tetap seperti 71 secara sembarangan.';
   const referensiPromptBlock = buildReferensiPromptBlock(timeOptions?.referensiSumber);
 
-  const contohPertemuanJson = Array.from({ length: jumlahPertemuan }, (_, idx) => ({
+  const aiPromptMeetings = Math.min(jumlahPertemuan, 2);
+  const contohPertemuanJson = Array.from({ length: aiPromptMeetings }, (_, idx) => ({
     pertemuan: idx + 1,
     alokasiMenit: menitPerPertemuan,
     pendahuluan: ['...'],
@@ -241,7 +242,7 @@ KETENTUAN KUALITAS TIAP BAGIAN (WAJIB DIPENUHI):
    - "hubunganDenganTP": penjelasan eksplisit bagaimana materi menghantarkan pencapaian TP ${tp.kode}.
    - "potensiMiskonsepsi": array minimal 2 objek { "miskonsepsi", "caraMeluruskan" } berisi kesalahan konsep umum siswa dan langkah konkret guru meluruskannya.
 2. "profilPelajarPancasila": pilih HANYA 2 sampai 4 dimensi Profil Lulusan yang paling relevan dengan TP & kegiatan (dari 8 dimensi Profil Lulusan), jangan memaksakan seluruh dimensi.
-3. "kegiatanPembelajaran": susun tepat ${jumlahPertemuan} pertemuan, masing-masing tepat ${menitPerPertemuan} menit.
+3. "kegiatanPembelajaran": susun ${aiPromptMeetings} pertemuan inti yang representatif (masing-masing tepat ${menitPerPertemuan} menit; sistem akan mendistribusikan ke total ${jumlahPertemuan} pertemuan TP secara proporsional).
    - "tahapTerstruktur" mencakup fase "pendahuluan", seluruh tahapan sintaks "${modelDef.label}" pada fase "inti", dan fase "penutup".
    - Jumlah "durasiMenit" seluruh tahap dalam 1 pertemuan HARUS tepat ${menitPerPertemuan} menit.
    - Setiap tahap wajib menuliskan "aktivitasGuru" dan "aktivitasSiswa" secara operasional (>= 40 karakter, berisi objek/media nyata, instruksi spesifik, dan tindakan teramati), "instruksiPertanyaan" langsung pakai guru, "mediaBahan", dan "buktiBelajar".
@@ -559,6 +560,38 @@ function normalizeAIResponseStrict(
         };
       }
     );
+
+    if (
+      kegiatanPembelajaran.length > 0 &&
+      kegiatanPembelajaran.length < fallback.kegiatanPembelajaran.length
+    ) {
+      const baseCount = kegiatanPembelajaran.length;
+      for (let idx = baseCount; idx < fallback.kegiatanPembelajaran.length; idx++) {
+        const templateKeg = kegiatanPembelajaran[idx % baseCount];
+        const fb = fallback.kegiatanPembelajaran[idx] || fallback.kegiatanPembelajaran[0];
+        const targetAlokasi = fb.alokasiMenit;
+        const clonedStages = reconcileSessionStageDurations(
+          (templateKeg.tahapTerstruktur || []).map((st, sIdx) => ({
+            ...st,
+            id: `p${idx + 1}_ai_s${sIdx + 1}`,
+            urutan: sIdx + 1,
+          })),
+          targetAlokasi
+        );
+        const synced = syncLegacyArraysFromStructuredStages(clonedStages);
+        kegiatanPembelajaran.push({
+          ...templateKeg,
+          pertemuan: idx + 1,
+          alokasiMenit: targetAlokasi,
+          jpPertemuan: fb.jpPertemuan,
+          fokusPertemuan: fb.fokusPertemuan,
+          pendahuluan: synced.pendahuluan,
+          inti: synced.inti,
+          penutup: synced.penutup,
+          tahapTerstruktur: clonedStages,
+        });
+      }
+    }
   }
 
   // Asesmen Konkret Detail
