@@ -362,4 +362,53 @@ describe('Task 12.4.3 — Gemini API Key Security Hardening (Server-Only Secret 
     expect(fallbackPayload.generationConfig?.thinkingConfig).toEqual({ thinkingLevel: 'low' });
     expect(fallbackPayload.generationConfig?.maxOutputTokens).toBeGreaterThanOrEqual(8192);
   });
+
+  it('12. Failover otomatis /api/gemini saat upstream AbortError (timeout) ke gemini-3.5-flash-lite dengan log attempts aman', async () => {
+    const secretKey = 'SECRET_GEMINI_SERVER_KEY_TIMEOUT_FAILOVER';
+    process.env.GEMINI_API_KEY = secretKey;
+    const validBasic = computeSerialLicenseCode('INDIV1243F');
+
+    const abortErr = Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () =>
+          JSON.stringify({
+            error: {
+              code: 404,
+              message:
+                'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash.',
+            },
+          }),
+      })
+      .mockRejectedValueOnce(abortErr)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }],
+        }),
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const res = await invokeGemini({
+      prompt: 'Buatkan modul ajar IPAS SD',
+      tier: 'guru',
+      licenseCode: validBasic,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.model).toBe('gemini-3.5-flash-lite');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/models/gemini-3.5-flash-lite:generateContent');
+    expect(Array.isArray(res.body.attempts)).toBe(true);
+    expect((res.body.attempts as Array<{ model: string }>).map((a) => a.model)).toEqual([
+      'gemini-2.5-flash',
+      'gemini-3.8-flash',
+      'gemini-3.5-flash-lite',
+    ]);
+  });
 });

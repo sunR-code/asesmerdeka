@@ -6,17 +6,19 @@ const GOOGLE_GEMINI_FALLBACK_ENDPOINT =
 const GEMINI_TIMEOUT_MS = 65_000;
 
 function extractDirectFallbackModel(errBodyText: string, currentModel: string): string {
+  const cleanName = (raw?: string) => String(raw || '').trim().replace(/[.,;:]+$/, '');
   const updateMatch = String(errBodyText || '').match(
     /(?:use|switch to|try)\s+models\/(gemini-[a-zA-Z0-9._-]+)/i
   );
-  if (updateMatch?.[1] && updateMatch[1].trim() !== currentModel) {
-    return updateMatch[1].trim();
+  const suggestedPrimary = cleanName(updateMatch?.[1]);
+  if (suggestedPrimary && suggestedPrimary !== currentModel) {
+    return suggestedPrimary;
   }
   const allMatches = Array.from(
     String(errBodyText || '').matchAll(/models\/(gemini-[a-zA-Z0-9._-]+)/gi)
   );
   for (const m of allMatches) {
-    const candidate = String(m[1] || '').trim();
+    const candidate = cleanName(m[1]);
     if (candidate && candidate !== currentModel) {
       return candidate;
     }

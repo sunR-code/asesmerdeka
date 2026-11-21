@@ -180,13 +180,10 @@ export function buildModulAjarGeminiPrompt(
       : 'KKTP Numerik Sekolah BELUM Ditetapkan: Gunakan penilaian kualitatif 4 tingkat (Baru Berkembang, Layak, Cakap, Mahir) pada rubrik dan pedoman penilaian. DILARANG menanamkan angka ketuntasan tetap seperti 71 secara sembarangan.';
   const referensiPromptBlock = buildReferensiPromptBlock(timeOptions?.referensiSumber);
 
-  const aiPromptMeetings = Math.min(jumlahPertemuan, 2);
+  const aiPromptMeetings = 1;
   const contohPertemuanJson = Array.from({ length: aiPromptMeetings }, (_, idx) => ({
     pertemuan: idx + 1,
     alokasiMenit: menitPerPertemuan,
-    pendahuluan: ['...'],
-    inti: ['...'],
-    penutup: ['...'],
     tahapTerstruktur: [
       {
         fase: 'pendahuluan',
@@ -255,6 +252,7 @@ KETENTUAN KUALITAS TIAP BAGIAN (WAJIB DIPENUHI):
 5. "diferensiasiOperasional": 3 jalur nyata ("kesiapanDasar", "kesiapanBerkembang", "kesiapanMahir") yang masing-masing memuat "targetKesiapan", "dukunganScaffolding", "aktivitasKonkret" (minimal 2 aktivitas konkret), "mediaPendukung", dan "buktiBelajarJalur" serta "prinsipKesetaraanTP".
 6. "contohLKPD": 1 contoh LKPD terintegrasi relevan TP (preset "${lkpdPreset}") memuat "presetType", "judul", "konteksTugas", "tujuanPengerjaan", "petunjukSiswa" (>=2), "bahanAtauData" (>=1), "langkahPengerjaan" (>=2), "pertanyaanAtauRuangKerja" (>=2), "hasilYangDiharapkan", "kriteriaPenilaian" (>=2).
 7. "daftarPustaka": cantumkan rujukan jujur; DILARANG mengarang ISBN, halaman spesifik, atau URL SIBI fiktif.
+8. KEPADATAN & KECEPATAN JSON (WAJIB): Tulis setiap nilai string secara PADAT, SPESIFIK, dan LANGSUNG OPERASIONAL (1-2 kalimat padat per field; aktivitasGuru & aktivitasSiswa masing-masing 65-130 karakter berisi objek/media nyata + tindakan teramati; penjelasanKonsepUtama tepat 3 kalimat padat >= 100 karakter; tepat 2 item per array). Jangan menulis esai bertele-tele agar total JSON selesai di bawah 1.800 token dan tidak terpotong.
 
 Kembalikan HANYA 1 objek JSON valid tanpa markdown fence (\`\`\`json) dan tanpa teks pengantar:
 {
@@ -871,7 +869,7 @@ export async function generateContextualModulAjarWithAI(
       const parsed = await callGeminiStructuredJSON({
         prompt,
         systemInstruction: MODUL_AJAR_SYSTEM_INSTRUCTION,
-        maxOutputTokens: 6144,
+        maxOutputTokens: 4096,
         temperature: 0.4,
       });
 
@@ -916,7 +914,7 @@ export async function generateContextualModulAjarWithAI(
       const repairedRaw = await callGeminiStructuredJSON({
         prompt: repairPrompt,
         systemInstruction: MODUL_AJAR_SYSTEM_INSTRUCTION,
-        maxOutputTokens: 6144,
+        maxOutputTokens: 4096,
         temperature: 0.2,
       });
 

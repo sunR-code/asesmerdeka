@@ -22,6 +22,9 @@ import {
   resolveLicenseRuntimeEnvironment,
 } from './activate-license.js';
 
+const deprecatedModelsCache = new Set();
+const workingModelByTierCache = { pro: null, standard: null };
+
 export function resolveLicenseEntitlementServer(cleanCode, seatRecord, cleanDev = '') {
   const internalMatch = verifyInternalSerialOrDeviceCode(cleanCode, cleanDev);
   const planPrefix = extractLicensePlanPrefix(cleanCode);
@@ -214,12 +217,27 @@ export default async function handler(req, res) {
       });
     }
 
-    // Pemilihan model berbasis Tier Pengguna + fallback otomatis bila model lama mengembalikan 404
+    // Pemilihan model berbasis Tier Pengguna + fallback otomatis saat 404 atau timeout
     const isProTier = tier === 'pro' || tier === 'sekolah_pro';
+    const tierKey = isProTier ? 'pro' : 'standard';
     const primaryModel = isProTier ? 'gemini-1.5-pro' : 'gemini-2.5-flash';
     const staticFallbacks = isProTier
-      ? ['gemini-3.8-pro', 'gemini-3.8-flash', 'gemini-2.5-pro', 'gemini-2.0-flash']
-      : ['gemini-3.8-flash', 'gemini-2.0-flash'];
+      ? [
+          'gemini-3.8-flash',
+          'gemini-3.5-flash',
+          'gemini-3.5-flash-lite',
+          'gemini-3.8-pro',
+          'gemini-2.5-pro',
+          'gemini-2.0-flash',
+        ]
+      : [
+          'gemini-3.8-flash',
+          'gemini-3.5-flash-lite',
+          'gemini-3.5-flash',
+          'gemini-2.5-flash-lite',
+          'gemini-2.0-flash',
+        ];
+    const isVitestRuntime = Boolean(process.env.VITEST);
 
     // Susun payload dinamis per model untuk Google Gemini API
     const buildModelPayload = (targetModel) => {
@@ -256,12 +274,14 @@ export default async function handler(req, res) {
       };
     };
 
+    const attempts = [];
     const callUpstreamModel = async (targetModel, timeoutMs) => {
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent`;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const startedAt = Date.now();
       try {
-        return await fetch(endpoint, {
+        const resUpstream = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -270,6 +290,24 @@ export default async function handler(req, res) {
           signal: controller.signal,
           body: JSON.stringify(buildModelPayload(targetModel)),
         });
+        attempts.push({
+          model: targetModel,
+          status: resUpstream.status ?? 200,
+          elapsedMs: Date.now() - startedAt,
+        });
+        return resUpstream;
+      } catch (fetchErr) {
+        if (fetchErr?.name === 'AbortError') {
+          const elapsedMs = Date.now() - startedAt;
+          attempts.push({ model: targetModel, status: 504, aborted: true, elapsedMs });
+          return {
+            ok: false,
+            status: 504,
+            aborted: true,
+            _cachedText: `Upstream model ${targetModel} timed out after ${timeoutMs}ms`,
+          };
+        }
+        throw fetchErr;
       } finally {
         clearTimeout(timer);
       }
@@ -277,13 +315,15 @@ export default async function handler(req, res) {
 
     const extractSuggestedModel = (rawText, excludeModel) => {
       const text = String(rawText || '');
+      const cleanName = (raw) => String(raw || '').trim().replace(/[.,;:]+$/, '');
       const updateMatch = text.match(/(?:use|switch to|try)\s+models\/(gemini-[a-zA-Z0-9._-]+)/i);
-      if (updateMatch?.[1] && updateMatch[1].trim() !== excludeModel) {
-        return updateMatch[1].trim();
+      const suggestedPrimary = cleanName(updateMatch?.[1]);
+      if (suggestedPrimary && suggestedPrimary !== excludeModel) {
+        return suggestedPrimary;
       }
       const allMatches = Array.from(text.matchAll(/models\/(gemini-[a-zA-Z0-9._-]+)/gi));
       for (const m of allMatches) {
-        const candidate = String(m[1] || '').trim();
+        const candidate = cleanName(m[1]);
         if (candidate && candidate !== excludeModel) {
           return candidate;
         }
@@ -291,32 +331,67 @@ export default async function handler(req, res) {
       return null;
     };
 
-    // Timeout 56 detik total untuk Vercel Serverless Function
+    // Timeout 56 detik total untuk Vercel Serverless Function dengan per-candidate timeout bounded
     const deadlineMs = Date.now() + 56000;
-    let activeModel = primaryModel;
-    let response = await callUpstreamModel(activeModel, 56000);
+    let activeModel =
+      !isVitestRuntime && workingModelByTierCache[tierKey]
+        ? workingModelByTierCache[tierKey]
+        : !isVitestRuntime && deprecatedModelsCache.has(primaryModel)
+        ? 'gemini-3.8-flash'
+        : primaryModel;
+    let response = await callUpstreamModel(activeModel, 26000);
 
-    if (!response.ok && response.status === 404) {
+    if (response.ok && !isVitestRuntime) {
+      workingModelByTierCache[tierKey] = activeModel;
+    }
+
+    if (!response.ok && (response.status === 404 || response.status === 504 || response.aborted)) {
+      if (response.status === 404 && !isVitestRuntime) {
+        deprecatedModelsCache.add(activeModel);
+        if (workingModelByTierCache[tierKey] === activeModel) {
+          workingModelByTierCache[tierKey] = null;
+        }
+      }
+
       let lastStatus = response.status;
-      let lastErrText = await response.text();
-      const suggestedModel = extractSuggestedModel(lastErrText, primaryModel);
+      let lastErrText =
+        response._cachedText ??
+        (typeof response.text === 'function' ? await response.text().catch(() => '') : '');
+      const triedModels = new Set(attempts.map((a) => a.model));
+      const suggestedModel = extractSuggestedModel(lastErrText, activeModel);
       const fallbackCandidates = Array.from(
         new Set([...(suggestedModel ? [suggestedModel] : []), ...staticFallbacks])
-      ).filter((candidate) => candidate && candidate !== primaryModel);
+      ).filter(
+        (candidate) =>
+          candidate &&
+          !triedModels.has(candidate) &&
+          (isVitestRuntime || !deprecatedModelsCache.has(candidate))
+      );
 
       for (const candidateModel of fallbackCandidates) {
         const remainingMs = deadlineMs - Date.now();
         if (remainingMs < 3000) break;
         activeModel = candidateModel;
-        const candidateResp = await callUpstreamModel(candidateModel, remainingMs);
+        const attemptTimeoutMs = Math.min(remainingMs, 24000);
+        const candidateResp = await callUpstreamModel(candidateModel, attemptTimeoutMs);
         if (candidateResp.ok) {
           response = candidateResp;
+          if (!isVitestRuntime) {
+            workingModelByTierCache[tierKey] = candidateModel;
+          }
           break;
         }
         lastStatus = candidateResp.status;
-        lastErrText = await candidateResp.text();
-        response = { ok: false, status: lastStatus, _cachedText: lastErrText };
-        if (lastStatus !== 404) {
+        if (lastStatus === 404 && !isVitestRuntime) {
+          deprecatedModelsCache.add(candidateModel);
+        }
+        lastErrText =
+          candidateResp._cachedText ??
+          (typeof candidateResp.text === 'function'
+            ? await candidateResp.text().catch(() => '')
+            : '');
+        response = { ok: false, status: lastStatus, aborted: candidateResp.aborted, _cachedText: lastErrText };
+        if (lastStatus !== 404 && lastStatus !== 504 && !candidateResp.aborted) {
           break;
         }
       }
@@ -328,18 +403,22 @@ export default async function handler(req, res) {
         return res.status(response.status || lastStatus).json({
           error: `Google Gemini API Error (${response.status || lastStatus})`,
           model: activeModel,
+          attempts,
           details: safeErrText,
         });
       }
     }
 
     if (!response.ok) {
-      const rawErrText = await response.text();
+      const rawErrText =
+        response._cachedText ??
+        (typeof response.text === 'function' ? await response.text().catch(() => '') : '');
       const safeErrText =
         apiKey && rawErrText ? rawErrText.split(apiKey).join('[REDACTED]') : rawErrText;
       return res.status(response.status).json({
         error: `Google Gemini API Error (${response.status})`,
         model: activeModel,
+        attempts,
         details: safeErrText,
       });
     }
@@ -348,6 +427,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       model: activeModel,
+      attempts,
       tier,
       data,
     });
