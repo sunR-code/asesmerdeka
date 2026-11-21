@@ -204,8 +204,8 @@ export default async function handler(req, res) {
       }
     }
 
-    // Prioritaskan GEMINI_API_KEY (Server Secret), fallback ke VITE_GEMINI_API_KEY jika ada
-    const apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '').trim();
+    // Server-only secret: hanya membaca GEMINI_API_KEY (tanpa fallback variabel client VITE_*)
+    const apiKey = (process.env.GEMINI_API_KEY || '').trim();
 
     if (!apiKey) {
       return res.status(503).json({
@@ -263,11 +263,13 @@ export default async function handler(req, res) {
     clearTimeout(timer);
 
     if (!response.ok) {
-      const errText = await response.text();
+      const rawErrText = await response.text();
+      const safeErrText =
+        apiKey && rawErrText ? rawErrText.split(apiKey).join('[REDACTED]') : rawErrText;
       return res.status(response.status).json({
         error: `Google Gemini API Error (${response.status})`,
         model,
-        details: errText,
+        details: safeErrText,
       });
     }
 
@@ -279,9 +281,12 @@ export default async function handler(req, res) {
       data,
     });
   } catch (error) {
+    const serverKey = (process.env.GEMINI_API_KEY || '').trim();
+    const rawMsg = error?.message ? String(error.message) : '';
+    const safeMsg = serverKey && rawMsg ? rawMsg.split(serverKey).join('[REDACTED]') : rawMsg;
     return res.status(500).json({
       error: 'Terjadi kegagalan server saat meneruskan permintaan ke Gemini AI.',
-      message: error?.message,
+      message: safeMsg,
     });
   }
 }

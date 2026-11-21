@@ -156,10 +156,9 @@ async function callVercelServerlessGemini(
 
 /**
  * Universal Gemini API caller:
- * 1. Jika pengguna menyimpan Bring-Your-Own-Key (BYOK) pribadi, gunakan langsung ke Google.
- * 2. Coba Vercel Serverless Function /api/gemini (Kunci rahasia server aman dari intipan browser).
- * 3. Jika di mode dev lokal dan ada VITE_GEMINI_API_KEY, fallback langsung.
- * 4. Jika semua gagal, lemparkan error agar caller beralih ke Smart Curriculum Offline Engine.
+ * 1. Jika pengguna secara sadar menyimpan Bring-Your-Own-Key (BYOK) pribadi di browser, gunakan key tersebut.
+ * 2. Request utama aplikasi menggunakan Vercel Serverless Function /api/gemini (kunci server hanya di server).
+ * 3. Jika gagal, lemparkan error agar pemanggil menjaga draf guru / beralih ke fallback aman tanpa menyentuh secret server.
  */
 export async function callGeminiStructuredJSON(params: GeminiCallParams): Promise<any> {
   const currentQuota = getUserQuota();
@@ -167,7 +166,7 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
   const customKey = params.geminiApiKey || getSavedGeminiKey();
   const maxTokens = params.maxOutputTokens ?? 6144;
 
-  // 1. Prioritas BYOK Klien (Kunci Kustom Pengguna)
+  // 1. Prioritas BYOK Klien (Kunci Pribadi Pengguna)
   if (customKey) {
     try {
       return await callDirectGoogleGemini(
@@ -184,7 +183,7 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
     }
   }
 
-  // 2. Prioritas Serverless Proxy /api/gemini (Produksi Vercel)
+  // 2. Prioritas Serverless Proxy /api/gemini (Server-Only Secret)
   try {
     return await callVercelServerlessGemini(
       params.prompt,
@@ -198,26 +197,6 @@ export async function callGeminiStructuredJSON(params: GeminiCallParams): Promis
     );
   } catch (serverlessErr) {
     console.warn('Panggilan ke /api/gemini gagal atau offline:', serverlessErr);
-
-    // 3. Fallback lokal jika ada environment key saat development
-    const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
-    if (envKey && envKey !== customKey) {
-      try {
-        return await callDirectGoogleGemini(
-          params.prompt,
-          envKey,
-          params.temperature ?? 0.4,
-          params.systemInstruction,
-          maxTokens,
-          userTier,
-          params.responseSchema
-        );
-      } catch (directEnvErr) {
-        console.warn('Fallback direct dev key juga gagal:', directEnvErr);
-      }
-    }
-
-    // Teruskan error agar pemanggil beralih ke Smart Curriculum Heuristic Offline Engine
     throw serverlessErr;
   }
 }

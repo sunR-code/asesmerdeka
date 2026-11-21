@@ -1970,8 +1970,7 @@ export function getSavedGeminiKey(): string {
   if (localKey && localKey.trim().length > 0) {
     return localKey.trim();
   }
-  const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
-  return typeof envKey === 'string' ? envKey.trim() : '';
+  return '';
 }
 
 export function saveGeminiKey(key: string): void {
