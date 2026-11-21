@@ -869,7 +869,7 @@ export async function generateContextualModulAjarWithAI(
       const parsed = await callGeminiStructuredJSON({
         prompt,
         systemInstruction: MODUL_AJAR_SYSTEM_INSTRUCTION,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
         temperature: 0.4,
       });
 
@@ -914,7 +914,7 @@ export async function generateContextualModulAjarWithAI(
       const repairedRaw = await callGeminiStructuredJSON({
         prompt: repairPrompt,
         systemInstruction: MODUL_AJAR_SYSTEM_INSTRUCTION,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
         temperature: 0.2,
       });
 

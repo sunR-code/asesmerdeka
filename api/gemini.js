@@ -254,8 +254,10 @@ export default async function handler(req, res) {
     // Susun payload dinamis per model untuk Google Gemini API
     const buildModelPayload = (targetModel) => {
       const isGemini3Model = /^gemini-3/i.test(String(targetModel || '').trim());
+      const isHighBudgetModel =
+        isGemini3Model || /latest|2\.5/i.test(String(targetModel || '').trim());
       const requestedMaxTokens = typeof maxOutputTokens === 'number' ? maxOutputTokens : 6144;
-      const effectiveMaxTokens = isGemini3Model
+      const effectiveMaxTokens = isHighBudgetModel
         ? Math.min(16384, Math.max(8192, requestedMaxTokens))
         : Math.min(8192, Math.max(512, requestedMaxTokens));
 
@@ -395,7 +397,7 @@ export default async function handler(req, res) {
       !isVitestRuntime && workingModelByTierCache[tierKey]
         ? workingModelByTierCache[tierKey]
         : !isVitestRuntime && deprecatedModelsCache.has(primaryModel)
-        ? 'gemini-3.8-flash'
+        ? 'gemini-flash-lite-latest'
         : primaryModel;
     let response = await callUpstreamModel(activeModel, 20000);
 
@@ -417,9 +419,15 @@ export default async function handler(req, res) {
         (typeof response.text === 'function' ? await response.text().catch(() => '') : '');
       const triedModels = new Set(attempts.map((a) => a.model));
       const suggestedModel = extractSuggestedModel(lastErrText, activeModel);
-      const fallbackCandidates = Array.from(
-        new Set([...(suggestedModel ? [suggestedModel] : []), ...staticFallbacks])
-      ).filter(
+      const rawCandidateOrder = isVitestRuntime
+        ? [...(suggestedModel ? [suggestedModel] : []), ...staticFallbacks]
+        : [
+            'gemini-flash-lite-latest',
+            'gemini-flash-latest',
+            ...(suggestedModel ? [suggestedModel] : []),
+            ...staticFallbacks,
+          ];
+      const fallbackCandidates = Array.from(new Set(rawCandidateOrder)).filter(
         (candidate) =>
           candidate &&
           !triedModels.has(candidate) &&
