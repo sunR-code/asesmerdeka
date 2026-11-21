@@ -4,7 +4,9 @@ import type {
   JenisBuktiAsesmen,
   JenisIntervensiRemedial,
   NilaiSiswaItem,
+  PeranBuktiAsesmen,
   PredikatKKTP,
+  RemedialAuditEvent,
   RiwayatRemedialItem,
   StatusKetercapaianBukti,
   StatusTindakLanjutRemedial,
@@ -51,6 +53,8 @@ export interface StudentTPMasteryResult {
   insufficientEvidence: boolean;
   alasanStatus: string;
   evidences: MasteryEvidenceItemView[];
+  initialEvidences?: MasteryEvidenceItemView[];
+  reassessmentEvidences?: MasteryEvidenceItemView[];
   subTpResults: StudentSubTPMasteryResult[];
   subTpAnalysisNote: string;
   catatanMiskonsepsiGuru: string[];
@@ -240,10 +244,18 @@ function doesEvidenceMatchSubTP(ev: BuktiAsesmenSubTP, sub: SubTPItem): boolean 
 }
 
 export function createBuktiAsesmenEntry(params: {
+  id?: string;
   tp: Pick<CustomTPItem, 'id' | 'kode'>;
   subTp?: Pick<SubTPItem, 'id' | 'kode'> | null;
   jenisBukti: JenisBuktiAsesmen;
   sumberBukti: SumberBuktiAsesmen;
+  peranBukti?: PeranBuktiAsesmen;
+  remedialRecordId?: string;
+  originalEvidenceId?: string;
+  siswaId?: string;
+  schoolId?: string;
+  classId?: string;
+  semesterId?: string;
   tanggal?: string;
   skor?: number | null;
   skalaSkor?: number;
@@ -256,20 +268,31 @@ export function createBuktiAsesmenEntry(params: {
   jurnalId?: string;
   catatanGuru?: string;
   catatanMiskonsepsi?: string;
+  createdAt?: string;
 }): BuktiAsesmenSubTP {
   const normalized = normalizeEvidenceScoreToScale100(params.skor, params.skalaSkor);
   const autoStatus: StatusKetercapaianBukti =
     params.statusKetercapaian ||
     (normalized !== null ? classifyMasteryStatusKKTP(normalized, params.kktpMinTuntas) : 'Belum Dinilai');
+  const nowIso = new Date().toISOString();
 
   return {
-    id: `bukti_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    id:
+      params.id?.trim() ||
+      `bukti_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
     tpId: params.tp.id || params.tp.kode,
     tpKode: params.tp.kode,
     ...(params.subTp ? { subTpId: params.subTp.id, subTpKode: params.subTp.kode } : {}),
     jenisBukti: params.jenisBukti,
-    tanggal: params.tanggal || new Date().toISOString().split('T')[0],
+    tanggal: params.tanggal || nowIso.split('T')[0],
     sumberBukti: params.sumberBukti,
+    ...(params.peranBukti ? { peranBukti: params.peranBukti } : {}),
+    ...(params.remedialRecordId ? { remedialRecordId: params.remedialRecordId } : {}),
+    ...(params.originalEvidenceId ? { originalEvidenceId: params.originalEvidenceId } : {}),
+    ...(params.siswaId ? { siswaId: params.siswaId } : {}),
+    ...(params.schoolId ? { schoolId: params.schoolId } : {}),
+    ...(params.classId ? { classId: params.classId } : {}),
+    ...(params.semesterId ? { semesterId: params.semesterId } : {}),
     ...(params.asesmenId ? { asesmenId: params.asesmenId } : {}),
     ...(params.rangkumanId ? { rangkumanId: params.rangkumanId } : {}),
     ...(params.lkpdId ? { lkpdId: params.lkpdId } : {}),
@@ -282,44 +305,97 @@ export function createBuktiAsesmenEntry(params: {
     ...(params.catatanMiskonsepsi?.trim()
       ? { catatanMiskonsepsi: params.catatanMiskonsepsi.trim() }
       : {}),
-    updatedAt: new Date().toISOString(),
+    createdAt: params.createdAt || nowIso,
+    updatedAt: nowIso,
   };
 }
 
 export function createRemedialHistoryEntry(params: {
+  id?: string;
+  siswaId?: string;
+  schoolId?: string;
+  classId?: string;
+  semesterId?: string;
   tp: Pick<CustomTPItem, 'id' | 'kode'>;
   subTpIds?: string[];
+  subTpKodes?: string[];
   attemptAwalId?: string;
+  originalEvidenceId?: string;
   tanggalIntervensi?: string;
   jenisIntervensi: JenisIntervensiRemedial;
+  alasanRemedial?: string;
+  rencanaKegiatan?: string;
+  hasilKegiatan?: string;
   materiPengulanganId?: string;
   asesmenUlangId?: string;
+  reassessmentEvidenceId?: string;
   hasilSebelum?: RiwayatRemedialItem['hasilSebelum'];
   hasilSesudah?: RiwayatRemedialItem['hasilSesudah'];
   statusTindakLanjut?: StatusTindakLanjutRemedial;
   catatanGuru?: string;
+  createdAt?: string;
+  auditTrail?: RemedialAuditEvent[];
 }): RiwayatRemedialItem {
+  const nowIso = new Date().toISOString();
+  const linkedInitialId = params.originalEvidenceId || params.attemptAwalId;
+  const linkedReassessId = params.reassessmentEvidenceId || params.asesmenUlangId;
+
   return {
-    id: `remed_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    id:
+      params.id?.trim() ||
+      `remed_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    ...(params.siswaId ? { siswaId: params.siswaId } : {}),
+    ...(params.schoolId ? { schoolId: params.schoolId } : {}),
+    ...(params.classId ? { classId: params.classId } : {}),
+    ...(params.semesterId ? { semesterId: params.semesterId } : {}),
     tpId: params.tp.id || params.tp.kode,
     tpKode: params.tp.kode,
     ...(params.subTpIds && params.subTpIds.length > 0 ? { subTpIds: [...params.subTpIds] } : {}),
-    ...(params.attemptAwalId ? { attemptAwalId: params.attemptAwalId } : {}),
-    tanggalIntervensi: params.tanggalIntervensi || new Date().toISOString().split('T')[0],
+    ...(params.subTpKodes && params.subTpKodes.length > 0
+      ? { subTpKodes: [...params.subTpKodes] }
+      : {}),
+    ...(linkedInitialId
+      ? { attemptAwalId: linkedInitialId, originalEvidenceId: linkedInitialId }
+      : {}),
+    tanggalIntervensi: params.tanggalIntervensi || nowIso.split('T')[0],
     jenisIntervensi: params.jenisIntervensi,
+    ...(params.alasanRemedial?.trim() ? { alasanRemedial: params.alasanRemedial.trim() } : {}),
+    ...(params.rencanaKegiatan?.trim() ? { rencanaKegiatan: params.rencanaKegiatan.trim() } : {}),
+    ...(params.hasilKegiatan?.trim() ? { hasilKegiatan: params.hasilKegiatan.trim() } : {}),
     ...(params.materiPengulanganId ? { materiPengulanganId: params.materiPengulanganId } : {}),
-    ...(params.asesmenUlangId ? { asesmenUlangId: params.asesmenUlangId } : {}),
+    ...(linkedReassessId
+      ? { asesmenUlangId: linkedReassessId, reassessmentEvidenceId: linkedReassessId }
+      : {}),
     ...(params.hasilSebelum ? { hasilSebelum: { ...params.hasilSebelum } } : {}),
     ...(params.hasilSesudah ? { hasilSesudah: { ...params.hasilSesudah } } : {}),
     statusTindakLanjut: params.statusTindakLanjut || 'direncanakan',
     ...(params.catatanGuru?.trim() ? { catatanGuru: params.catatanGuru.trim() } : {}),
-    updatedAt: new Date().toISOString(),
+    createdAt: params.createdAt || nowIso,
+    updatedAt: nowIso,
+    ...(params.auditTrail && params.auditTrail.length > 0
+      ? { auditTrail: params.auditTrail.map((ev) => ({ ...ev })) }
+      : {}),
   };
+}
+
+function mergeRemedialAuditTrails(
+  prevTrail?: RemedialAuditEvent[],
+  nextTrail?: RemedialAuditEvent[]
+): RemedialAuditEvent[] | undefined {
+  const combined = [...(prevTrail || []), ...(nextTrail || [])];
+  if (combined.length === 0) return undefined;
+  const byId = new Map<string, RemedialAuditEvent>();
+  for (const ev of combined) {
+    if (ev && ev.id && !byId.has(ev.id)) {
+      byId.set(ev.id, { ...ev });
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => a.at.localeCompare(b.at));
 }
 
 /**
  * Menambahkan atau memperbarui riwayat tindak lanjut secara non-destruktif
- * tanpa menimpa `hasilSebelum`, `attemptAwalId`, maupun nilai formatif/sumatif awal siswa.
+ * tanpa menimpa `hasilSebelum`, `attemptAwalId`, `originalEvidenceId`, `createdAt`, maupun nilai awal siswa.
  */
 export function recordRemedialAttemptOnStudent(
   item: NilaiSiswaItem,
@@ -327,21 +403,66 @@ export function recordRemedialAttemptOnStudent(
 ): NilaiSiswaItem {
   const existing = Array.isArray(item.riwayatRemedial) ? [...item.riwayatRemedial] : [];
   const idx = existing.findIndex((r) => r.id === entry.id);
+  const nowIso = new Date().toISOString();
   if (idx >= 0) {
     const prev = existing[idx];
+    const preservedInitialId =
+      prev.originalEvidenceId ||
+      prev.attemptAwalId ||
+      entry.originalEvidenceId ||
+      entry.attemptAwalId;
+    const mergedReassessId =
+      entry.reassessmentEvidenceId ||
+      entry.asesmenUlangId ||
+      prev.reassessmentEvidenceId ||
+      prev.asesmenUlangId;
+    const mergedAudit = mergeRemedialAuditTrails(prev.auditTrail, entry.auditTrail);
+
     existing[idx] = {
       ...prev,
       ...entry,
-      attemptAwalId: prev.attemptAwalId || entry.attemptAwalId,
+      siswaId: prev.siswaId || entry.siswaId || item.siswaId,
+      schoolId: prev.schoolId || entry.schoolId,
+      classId: prev.classId || entry.classId,
+      semesterId: prev.semesterId || entry.semesterId,
+      ...(preservedInitialId
+        ? { attemptAwalId: preservedInitialId, originalEvidenceId: preservedInitialId }
+        : {}),
+      ...(mergedReassessId
+        ? { asesmenUlangId: mergedReassessId, reassessmentEvidenceId: mergedReassessId }
+        : {}),
       hasilSebelum: prev.hasilSebelum || entry.hasilSebelum,
-      updatedAt: new Date().toISOString(),
+      createdAt: prev.createdAt || entry.createdAt || nowIso,
+      ...(mergedAudit ? { auditTrail: mergedAudit } : {}),
+      updatedAt: nowIso,
     };
   } else {
-    existing.push(entry);
+    existing.push({
+      ...entry,
+      siswaId: entry.siswaId || item.siswaId,
+      createdAt: entry.createdAt || nowIso,
+      updatedAt: entry.updatedAt || nowIso,
+    });
   }
   return {
     ...item,
     riwayatRemedial: existing,
+  };
+}
+
+function toMasteryEvidenceItemView(
+  ev: BuktiAsesmenSubTP,
+  thresholdKKTP: number
+): MasteryEvidenceItemView {
+  const norm = normalizeEvidenceScoreToScale100(ev.skor, ev.skalaSkor);
+  const evStatus: StatusKetercapaianBukti =
+    norm !== null
+      ? classifyMasteryStatusKKTP(norm, thresholdKKTP)
+      : ev.statusKetercapaian || 'Belum Dinilai';
+  return {
+    evidence: ev,
+    normalizedScore100: norm,
+    status: evStatus,
   };
 }
 
@@ -361,25 +482,23 @@ export function analyzeStudentTPMastery(
   const formatifScore = readFormatifScoreLocal(item.nilaiFormatif, tp);
   const matchingEvidences = (item.buktiAsesmenSubTP || []).filter((ev) => doesEvidenceMatchTP(ev, tp));
 
-  const evidenceViews: MasteryEvidenceItemView[] = matchingEvidences.map((ev) => {
-    const norm = normalizeEvidenceScoreToScale100(ev.skor, ev.skalaSkor);
-    const evStatus: StatusKetercapaianBukti =
-      norm !== null
-        ? classifyMasteryStatusKKTP(norm, thresholdKKTP)
-        : ev.statusKetercapaian || 'Belum Dinilai';
-    return {
-      evidence: ev,
-      normalizedScore100: norm,
-      status: evStatus,
-    };
-  });
+  const evidenceViews = matchingEvidences.map((ev) => toMasteryEvidenceItemView(ev, thresholdKKTP));
+  // Pisahkan bukti awal dari bukti reassessment agar reassessment tidak menimpa capaian awal
+  const initialEvidenceViews = evidenceViews.filter(
+    (v) => v.evidence.peranBukti !== 'reassessment'
+  );
+  const reassessmentEvidenceViews = evidenceViews.filter(
+    (v) => v.evidence.peranBukti === 'reassessment'
+  );
 
-  const scoredEvidenceViews = evidenceViews.filter((v) => v.normalizedScore100 !== null);
+  const scoredInitialEvidenceViews = initialEvidenceViews.filter(
+    (v) => v.normalizedScore100 !== null
+  );
   const normalizedEvidenceAvg100 =
-    scoredEvidenceViews.length > 0
+    scoredInitialEvidenceViews.length > 0
       ? Math.round(
-          scoredEvidenceViews.reduce((sum, v) => sum + (v.normalizedScore100 as number), 0) /
-            scoredEvidenceViews.length
+          scoredInitialEvidenceViews.reduce((sum, v) => sum + (v.normalizedScore100 as number), 0) /
+            scoredInitialEvidenceViews.length
         )
       : null;
 
@@ -393,17 +512,21 @@ export function analyzeStudentTPMastery(
     alasanStatus =
       status === 'Tercapai'
         ? `Nilai formatif (${formatifScore}) memenuhi KKTP (>= ${thresholdKKTP})${
-            evidenceViews.length > 0 ? ` dengan ${evidenceViews.length} bukti pendukung` : ''
+            initialEvidenceViews.length > 0
+              ? ` dengan ${initialEvidenceViews.length} bukti pendukung`
+              : ''
           }.`
         : `Nilai formatif (${formatifScore}) berada di bawah KKTP (${thresholdKKTP})${
-            evidenceViews.length > 0 ? ` dengan ${evidenceViews.length} bukti pendukung` : ''
+            initialEvidenceViews.length > 0
+              ? ` dengan ${initialEvidenceViews.length} bukti pendukung`
+              : ''
           }.`;
   } else if (normalizedEvidenceAvg100 !== null) {
     effectiveScore100 = normalizedEvidenceAvg100;
     status = classifyMasteryStatusKKTP(normalizedEvidenceAvg100, thresholdKKTP);
-    alasanStatus = `Dihitung dari ${scoredEvidenceViews.length} bukti asesmen ternormalisasi ke skala 0–100 (rata-rata ${normalizedEvidenceAvg100} vs KKTP ${thresholdKKTP}).`;
-  } else if (evidenceViews.length > 0) {
-    const decided = evidenceViews.filter((v) => v.status !== 'Belum Dinilai');
+    alasanStatus = `Dihitung dari ${scoredInitialEvidenceViews.length} bukti asesmen ternormalisasi ke skala 0–100 (rata-rata ${normalizedEvidenceAvg100} vs KKTP ${thresholdKKTP}).`;
+  } else if (initialEvidenceViews.length > 0) {
+    const decided = initialEvidenceViews.filter((v) => v.status !== 'Belum Dinilai');
     if (decided.some((v) => v.status === 'Perlu Bimbingan')) {
       status = 'Perlu Bimbingan';
       alasanStatus = `Berdasarkan ${decided.length} bukti observasi guru tanpa skor angka yang menandai perlu bimbingan.`;
@@ -413,17 +536,17 @@ export function analyzeStudentTPMastery(
     } else {
       status = 'Belum Dinilai';
       insufficientEvidence = true;
-      alasanStatus = `Bukti belum cukup: terdapat ${evidenceViews.length} catatan observasi tanpa skor dan belum ditetapkan status ketercapaiannya.`;
+      alasanStatus = `Bukti belum cukup: terdapat ${initialEvidenceViews.length} catatan observasi tanpa skor dan belum ditetapkan status ketercapaiannya.`;
     }
   } else {
     insufficientEvidence = true;
   }
 
-  // Sub-TP Analysis: STRICTLY only conclude Sub-TP status when Sub-TP-specific evidence exists!
+  // Sub-TP Analysis: STRICTLY uses initial Sub-TP-specific evidence so reassessment never mutates initial Sub-TP state!
   const subTpList = Array.isArray(tp.subTP) ? tp.subTP : [];
   let hasAnySubTpEvidence = false;
   const subTpResults: StudentSubTPMasteryResult[] = subTpList.map((sub) => {
-    const subEvidences = evidenceViews.filter((v) => doesEvidenceMatchSubTP(v.evidence, sub));
+    const subEvidences = initialEvidenceViews.filter((v) => doesEvidenceMatchSubTP(v.evidence, sub));
     if (subEvidences.length === 0) {
       return {
         subTpId: sub.id,
@@ -491,8 +614,8 @@ export function analyzeStudentTPMastery(
       ? 'Analisis Sub-TP menggunakan bukti spesifik Sub-TP yang tercatat; Sub-TP tanpa bukti ditandai "Bukti belum cukup".'
       : 'Hanya tersedia data tingkat TP; bukti spesifik per Sub-TP belum tersedia sehingga tidak menyimpulkan Sub-TP bermasalah.';
 
-  const catatanMiskonsepsiGuru = matchingEvidences
-    .map((ev) => (ev.catatanMiskonsepsi || '').trim())
+  const catatanMiskonsepsiGuru = initialEvidenceViews
+    .map((v) => (v.evidence.catatanMiskonsepsi || '').trim())
     .filter(Boolean);
 
   const riwayatRemedialTP = (item.riwayatRemedial || []).filter(
@@ -515,6 +638,8 @@ export function analyzeStudentTPMastery(
     insufficientEvidence,
     alasanStatus,
     evidences: evidenceViews,
+    initialEvidences: initialEvidenceViews,
+    reassessmentEvidences: reassessmentEvidenceViews,
     subTpResults,
     subTpAnalysisNote,
     catatanMiskonsepsiGuru,

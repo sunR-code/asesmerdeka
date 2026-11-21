@@ -21,6 +21,8 @@ import type {
   KelasHarianData,
   NilaiSiswaItem,
   PresensiPertemuan,
+  RemedialAuditEvent,
+  RiwayatRemedialItem,
   SiswaItem,
   StatusKehadiran,
 } from '../types/kelasHarian';
@@ -1492,6 +1494,9 @@ function recomputeNilaiRow(
   bobotPolicy?: KelasHarianData['bobotNilai'],
   forceRefreshDeskripsi = false
 ): NilaiSiswaItem {
+  if (item.statusRapor === 'final') {
+    return item;
+  }
   const computed = computeNilaiAkhir(
     item.nilaiFormatif || {},
     item.nilaiSTS,
@@ -1517,6 +1522,103 @@ function recomputeNilaiRow(
     });
   }
   return next;
+}
+
+function mergeRemedialAuditTrailsThreeWay(
+  baseList?: RemedialAuditEvent[],
+  localList?: RemedialAuditEvent[],
+  serverList?: RemedialAuditEvent[]
+): RemedialAuditEvent[] | undefined {
+  const combined = [...(baseList || []), ...(localList || []), ...(serverList || [])];
+  if (combined.length === 0) return undefined;
+  const byId = new Map<string, RemedialAuditEvent>();
+  for (const ev of combined) {
+    if (ev && ev.id && !byId.has(ev.id)) {
+      byId.set(ev.id, deepClone(ev));
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => a.at.localeCompare(b.at));
+}
+
+function mergeRemedialRecordThreeWay(params: {
+  hasBase: boolean;
+  b?: RiwayatRemedialItem;
+  l: RiwayatRemedialItem;
+  s: RiwayatRemedialItem;
+}): { merged: RiwayatRemedialItem; hasConflict: boolean } {
+  const { hasBase, b, l, s } = params;
+  if (!hasBase || !b) {
+    const res = resolveThreeWayField(false, undefined, l, s, { additiveIfNoBase: false });
+    return {
+      merged: res.resolved as RiwayatRemedialItem,
+      hasConflict: res.hasConflict,
+    };
+  }
+
+  const out: RiwayatRemedialItem = deepClone(l);
+  // Pertahankan field awal yang bersifat imutabel secara non-destruktif
+  const immutableKeys: (keyof RiwayatRemedialItem)[] = [
+    'attemptAwalId',
+    'originalEvidenceId',
+    'hasilSebelum',
+    'createdAt',
+  ];
+  for (const k of immutableKeys) {
+    const chosen = b[k] !== undefined ? b[k] : l[k] !== undefined ? l[k] : s[k];
+    if (chosen !== undefined) {
+      (out as unknown as Record<string, unknown>)[k] = deepClone(chosen);
+    }
+  }
+
+  // Merge field kegiatan & status per-field agar pengisian lintas perangkat tidak menimpa
+  const mutableKeys: (keyof RiwayatRemedialItem)[] = [
+    'siswaId',
+    'schoolId',
+    'classId',
+    'semesterId',
+    'tpId',
+    'tpKode',
+    'subTpIds',
+    'subTpKodes',
+    'tanggalIntervensi',
+    'jenisIntervensi',
+    'alasanRemedial',
+    'rencanaKegiatan',
+    'hasilKegiatan',
+    'materiPengulanganId',
+    'asesmenUlangId',
+    'reassessmentEvidenceId',
+    'hasilSesudah',
+    'statusTindakLanjut',
+    'catatanGuru',
+  ];
+
+  let hasConflict = false;
+  for (const k of mutableKeys) {
+    const res = resolveThreeWayField(true, b[k], l[k], s[k], { additiveIfNoBase: true });
+    (out as unknown as Record<string, unknown>)[k] = res.resolved;
+    if (res.hasConflict) {
+      hasConflict = true;
+    }
+  }
+
+  const mergedAudit = mergeRemedialAuditTrailsThreeWay(
+    b.auditTrail,
+    l.auditTrail,
+    s.auditTrail
+  );
+  if (mergedAudit) {
+    out.auditTrail = mergedAudit;
+  }
+
+  const timestamps = [b.updatedAt, l.updatedAt, s.updatedAt].filter(
+    (v): v is string => typeof v === 'string' && v.length > 0
+  );
+  if (timestamps.length > 0) {
+    out.updatedAt = timestamps.sort().slice(-1)[0];
+  }
+
+  return { merged: out, hasConflict };
 }
 
 function mergeNilaiSubRecordArray<T extends { id: string }>(params: {
@@ -1589,11 +1691,29 @@ function mergeNilaiSubRecordArray<T extends { id: string }>(params: {
       continue;
     }
 
-    const res = resolveThreeWayField(Boolean(hasStudentBase && b), b, l, s, {
-      additiveIfNoBase: false,
-    });
-    if (res.hasConflict) {
-      merged.push(deepClone(l));
+    const hasItemBase = Boolean(hasStudentBase && b);
+    let fieldHasConflict = false;
+    let resolvedObj: T;
+
+    if (collection === 'riwayatRemedial' && hasItemBase) {
+      const mergedRem = mergeRemedialRecordThreeWay({
+        hasBase: true,
+        b: b as unknown as RiwayatRemedialItem,
+        l: l as unknown as RiwayatRemedialItem,
+        s: s as unknown as RiwayatRemedialItem,
+      });
+      fieldHasConflict = mergedRem.hasConflict;
+      resolvedObj = mergedRem.merged as unknown as T;
+    } else {
+      const res = resolveThreeWayField(hasItemBase, b, l, s, {
+        additiveIfNoBase: false,
+      });
+      fieldHasConflict = res.hasConflict;
+      resolvedObj = res.resolved as T;
+    }
+
+    if (fieldHasConflict) {
+      merged.push(deepClone(resolvedObj));
       conflicts.push({
         id: `${storageKey}::nilai::${siswaId}::${collection}::${id}`,
         storageKey,
@@ -1613,9 +1733,8 @@ function mergeNilaiSubRecordArray<T extends { id: string }>(params: {
         },
       });
     } else {
-      const chosen = res.resolved as T;
-      merged.push(deepClone(chosen));
-      if (!stableEqual(chosen, l)) {
+      merged.push(deepClone(resolvedObj));
+      if (!stableEqual(resolvedObj, l)) {
         addedOrUpdatedCount++;
       }
     }
@@ -1831,6 +1950,7 @@ function mergeNilaiLists(params: {
       { additiveIfNoBase: true }
     );
     const shouldRecomputeAutoDesc =
+      out.statusRapor !== 'final' &&
       scoreChangedFromMerge &&
       tpList.length > 0 &&
       (stableEqual(l.nilaiFormatif, s.nilaiFormatif) === false);

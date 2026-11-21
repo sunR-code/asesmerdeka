@@ -15,6 +15,11 @@ import {
   createBuktiAsesmenEntry,
   resolveEffectiveKKTPThreshold,
 } from '../../utils/learningMasteryEngine';
+import {
+  isEvidenceProtectedFromDeletion,
+  JENIS_INTERVENSI_LABELS,
+  STATUS_REMEDIAL_META,
+} from '../../utils/remedialTrackingEngine';
 
 interface StudentEvidenceModalProps {
   isOpen: boolean;
@@ -290,61 +295,105 @@ export const StudentEvidenceModal: React.FC<StudentEvidenceModalProps> = ({
                     </div>
                   )}
 
-                  {/* Daftar Bukti untuk TP ini */}
+                  {/* Daftar Bukti untuk TP ini (membedakan Bukti Awal vs Reassessment) */}
                   {res.evidences.length > 0 && (
                     <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {res.evidences.map((v) => (
-                        <div
-                          key={v.evidence.id}
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'flex-start',
-                            gap: 8,
-                            padding: '5px 8px',
-                            background: '#f8fafc',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: 6,
-                            fontSize: 11.5,
-                          }}
-                        >
-                          <div style={{ minWidth: 0 }}>
-                            <div>
-                              <strong style={{ color: '#0f172a', textTransform: 'uppercase' }}>
-                                {v.evidence.jenisBukti}
-                              </strong>{' '}
-                              ({v.evidence.sumberBukti} · {v.evidence.tanggal}
-                              {v.evidence.subTpKode ? ` · Sub-TP ${v.evidence.subTpKode}` : ''}) —{' '}
-                              {v.evidence.skor !== null && v.evidence.skor !== undefined ? (
-                                <strong>
-                                  Skor {v.evidence.skor}/{v.evidence.skalaSkor ?? 100} (={v.normalizedScore100}%)
+                      {res.evidences.map((v) => {
+                        const isReassessment = v.evidence.peranBukti === 'reassessment';
+                        const deletionGuard = isEvidenceProtectedFromDeletion(
+                          siswaNilai,
+                          v.evidence.id
+                        );
+                        return (
+                          <div
+                            key={v.evidence.id}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'flex-start',
+                              gap: 8,
+                              padding: '5px 8px',
+                              background: isReassessment ? '#faf5ff' : '#f8fafc',
+                              border: `1px solid ${isReassessment ? '#d8b4fe' : '#e2e8f0'}`,
+                              borderRadius: 6,
+                              fontSize: 11.5,
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5 }}>
+                                <span
+                                  style={{
+                                    padding: '1px 6px',
+                                    borderRadius: 99,
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    background: isReassessment ? '#f3e8ff' : '#e2e8f0',
+                                    color: isReassessment ? '#6b21a8' : '#334155',
+                                  }}
+                                >
+                                  {isReassessment ? 'Reassessment' : 'Bukti Awal'}
+                                </span>
+                                <strong style={{ color: '#0f172a', textTransform: 'uppercase' }}>
+                                  {v.evidence.jenisBukti}
                                 </strong>
-                              ) : (
-                                <span>Observasi tanpa skor ({v.status})</span>
+                                <span>
+                                  ({v.evidence.sumberBukti} · {v.evidence.tanggal}
+                                  {v.evidence.subTpKode ? ` · Sub-TP ${v.evidence.subTpKode}` : ''}) —{' '}
+                                  {v.evidence.skor !== null && v.evidence.skor !== undefined ? (
+                                    <strong>
+                                      Skor {v.evidence.skor}/{v.evidence.skalaSkor ?? 100} (=
+                                      {v.normalizedScore100}%)
+                                    </strong>
+                                  ) : (
+                                    <span>Observasi tanpa skor ({v.status})</span>
+                                  )}
+                                </span>
+                              </div>
+                              <div style={{ color: '#475569' }}>{v.evidence.indikatorYangDiamati}</div>
+                              {isReassessment && v.evidence.originalEvidenceId && (
+                                <div style={{ color: '#6b21a8', fontSize: 11 }}>
+                                  Terhubung ke bukti awal ({v.evidence.originalEvidenceId}) tanpa menimpa nilai awal.
+                                </div>
+                              )}
+                              {v.evidence.catatanGuru && (
+                                <div style={{ color: '#334155', fontStyle: 'italic' }}>
+                                  Catatan: {v.evidence.catatanGuru}
+                                </div>
                               )}
                             </div>
-                            <div style={{ color: '#475569' }}>{v.evidence.indikatorYangDiamati}</div>
-                            {v.evidence.catatanGuru && (
-                              <div style={{ color: '#334155', fontStyle: 'italic' }}>
-                                Catatan: {v.evidence.catatanGuru}
-                              </div>
-                            )}
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline"
+                              aria-label={`Hapus bukti ${v.evidence.id}`}
+                              disabled={deletionGuard.protected}
+                              title={
+                                deletionGuard.protected
+                                  ? deletionGuard.reason
+                                  : 'Hapus bukti asesmen ini'
+                              }
+                              style={{
+                                padding: '2px 6px',
+                                fontSize: 11,
+                                color: deletionGuard.protected ? '#94a3b8' : '#b91c1c',
+                                opacity: deletionGuard.protected ? 0.55 : 1,
+                                cursor: deletionGuard.protected ? 'not-allowed' : 'pointer',
+                                flexShrink: 0,
+                              }}
+                              onClick={() => {
+                                if (!deletionGuard.protected) {
+                                  onRemoveEvidence(siswaNilai.siswaId, v.evidence.id);
+                                }
+                              }}
+                            >
+                              <Trash2 size={11} aria-hidden="true" />
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-outline"
-                            aria-label={`Hapus bukti ${v.evidence.id}`}
-                            style={{ padding: '2px 6px', fontSize: 11, color: '#b91c1c', flexShrink: 0 }}
-                            onClick={() => onRemoveEvidence(siswaNilai.siswaId, v.evidence.id)}
-                          >
-                            <Trash2 size={11} aria-hidden="true" />
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
-                  {/* Riwayat Tindak Lanjut Remedial (Persiapan Task 8.3B) */}
+                  {/* Riwayat Tindak Lanjut Remedial (Non-Destruktif) */}
                   {res.riwayatRemedialTP.length > 0 && (
                     <div
                       style={{
@@ -359,19 +408,36 @@ export const StudentEvidenceModal: React.FC<StudentEvidenceModalProps> = ({
                       <strong style={{ color: '#1e3a8a', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         <CheckCircle2 size={12} aria-hidden="true" /> Riwayat Tindak Lanjut:
                       </strong>
-                      {res.riwayatRemedialTP.map((r) => (
-                        <div key={r.id} style={{ color: '#1e293b', marginTop: 2 }}>
-                          {r.tanggalIntervensi} · {r.jenisIntervensi} · Status: <strong>{r.statusTindakLanjut}</strong>
-                          {r.hasilSebelum?.persentase !== undefined && r.hasilSebelum?.persentase !== null
-                            ? ` (Sebelum: ${r.hasilSebelum.persentase}%`
-                            : ''}
-                          {r.hasilSesudah?.persentase !== undefined && r.hasilSesudah?.persentase !== null
-                            ? ` → Sesudah: ${r.hasilSesudah.persentase}%)`
-                            : r.hasilSebelum?.persentase !== undefined && r.hasilSebelum?.persentase !== null
-                            ? ')'
-                            : ''}
-                        </div>
-                      ))}
+                      {res.riwayatRemedialTP.map((r) => {
+                        const statusLabel =
+                          STATUS_REMEDIAL_META[r.statusTindakLanjut]?.label || r.statusTindakLanjut;
+                        const intervensiLabel =
+                          JENIS_INTERVENSI_LABELS[r.jenisIntervensi] || r.jenisIntervensi;
+                        return (
+                          <div key={r.id} style={{ color: '#1e293b', marginTop: 3 }}>
+                            <div>
+                              {r.tanggalIntervensi} · {intervensiLabel} · Status:{' '}
+                              <strong>{statusLabel}</strong>
+                              {r.hasilSebelum?.persentase !== undefined &&
+                              r.hasilSebelum?.persentase !== null
+                                ? ` (Sebelum: ${r.hasilSebelum.persentase}%`
+                                : ''}
+                              {r.hasilSesudah?.persentase !== undefined &&
+                              r.hasilSesudah?.persentase !== null
+                                ? ` → Sesudah Reassessment: ${r.hasilSesudah.persentase}%)`
+                                : r.hasilSebelum?.persentase !== undefined &&
+                                  r.hasilSebelum?.persentase !== null
+                                ? ')'
+                                : ''}
+                            </div>
+                            {r.rencanaKegiatan && (
+                              <div style={{ color: '#334155', fontSize: 11 }}>
+                                Kegiatan: {r.rencanaKegiatan}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

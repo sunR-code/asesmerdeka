@@ -4,6 +4,7 @@ import {
   ClipboardList,
   Download,
   Printer,
+  RefreshCw,
   Sparkles,
   FileSpreadsheet,
   SlidersHorizontal,
@@ -41,7 +42,16 @@ import {
   computeDynamicKKTPBands,
   resolveEffectiveKKTPThreshold,
 } from '../../utils/learningMasteryEngine';
+import {
+  evaluateClassRemedialOverview,
+  isEvidenceProtectedFromDeletion,
+  recordNonDestructiveReassessment,
+  upsertStudentRemedialPlan,
+  type RecordReassessmentInput,
+  type UpsertRemedialPlanInput,
+} from '../../utils/remedialTrackingEngine';
 import { ImportSiswaModal } from './ImportSiswaModal';
+import { RemedialTrackingPanel } from './RemedialTrackingPanel';
 import { SimulatedDataNoticeBanner } from './SimulatedDataNoticeBanner';
 import { StudentEvidenceModal } from './StudentEvidenceModal';
 
@@ -69,6 +79,8 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [showBobotEditor, setShowBobotEditor] = useState(false);
   const [showMasteryPanel, setShowMasteryPanel] = useState(false);
+  const [showRemedialPanel, setShowRemedialPanel] = useState(false);
+  const [remedialFilterTpId, setRemedialFilterTpId] = useState<string>('');
   const [evidenceModalSiswaId, setEvidenceModalSiswaId] = useState<string | null>(null);
 
   const activeBobot = useMemo(
@@ -306,6 +318,14 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
   };
 
   const handleRemoveEvidence = (siswaId: string, evidenceId: string) => {
+    const targetRow = kelasHarian.daftarNilai.find((n) => n.siswaId === siswaId);
+    if (targetRow) {
+      const protection = isEvidenceProtectedFromDeletion(targetRow, evidenceId);
+      if (protection.protected) {
+        onToast(protection.reason || 'Bukti penilaian ini dilindungi dan tidak dapat dihapus.');
+        return;
+      }
+    }
     const updatedNilai = kelasHarian.daftarNilai.map((item) => {
       if (item.siswaId !== siswaId) return item;
       const nextEvidences = (item.buktiAsesmenSubTP || []).filter((e) => e.id !== evidenceId);
@@ -316,6 +336,38 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
     });
     onUpdateKelasHarian({ ...kelasHarian, daftarNilai: updatedNilai });
     onToast('Bukti asesmen dihapus.');
+  };
+
+  const handleSaveRemedialPlan = (
+    input: Omit<UpsertRemedialPlanInput, 'kelasHarian' | 'schoolProfile'>
+  ) => {
+    const res = upsertStudentRemedialPlan({
+      ...input,
+      kelasHarian,
+      schoolProfile,
+    });
+    onUpdateKelasHarian(res.kelasHarian);
+    onToast(
+      res.finalReportPreserved
+        ? 'Catatan remedial tersimpan terpisah; nilai & deskripsi Rapor Final tetap terkunci.'
+        : 'Rencana & status tindak lanjut remedial tersimpan tanpa mengubah nilai awal.'
+    );
+  };
+
+  const handleSaveReassessment = (
+    input: Omit<RecordReassessmentInput, 'kelasHarian' | 'schoolProfile'>
+  ) => {
+    const res = recordNonDestructiveReassessment({
+      ...input,
+      kelasHarian,
+      schoolProfile,
+    });
+    onUpdateKelasHarian(res.kelasHarian);
+    onToast(
+      res.finalReportPreserved
+        ? 'Hasil reassessment dicatat sebagai bukti baru; bukti awal dan Rapor Final tetap utuh.'
+        : 'Hasil reassessment dicatat sebagai bukti baru terpisah tanpa menimpa nilai awal.'
+    );
   };
 
   const isSimulationDataset = isKelasHarianSimulated(kelasHarian);
@@ -392,6 +444,17 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
     [activeDaftarNilai, tpList, activeBobot, schoolProfile]
   );
 
+  const remedialTargetOverview = useMemo(
+    () =>
+      evaluateClassRemedialOverview({
+        kelasHarian,
+        tpList,
+        bobotPolicy: activeBobot,
+        schoolProfile,
+      }),
+    [kelasHarian, tpList, activeBobot, schoolProfile]
+  );
+
   const activeEvidenceStudent = useMemo(
     () => activeDaftarNilai.find((n) => n.siswaId === evidenceModalSiswaId) || null,
     [activeDaftarNilai, evidenceModalSiswaId]
@@ -443,6 +506,17 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
             title="Lihat analisis ketercapaian per TP/Sub-TP dan rekomendasi tindak lanjut"
           >
             <BarChart3 size={13} aria-hidden="true" /> Analisis TP
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowRemedialPanel((v) => !v)}
+            className={`btn btn-sm ${showRemedialPanel ? 'btn-primary' : 'btn-outline'}`}
+            aria-expanded={showRemedialPanel}
+            title="Kelola siswa sasaran remedial dan pencatatan reassessment non-destruktif"
+          >
+            <RefreshCw size={13} aria-hidden="true" /> Tindak Lanjut Remedial (
+            {remedialTargetOverview.counts.totalTargets})
           </button>
 
           <button
@@ -868,11 +942,42 @@ export const BukuNilaiTab: React.FC<BukuNilaiTabProps> = ({
                       Hanya tersedia capaian tingkat TP; rincian Sub-TP belum memiliki bukti spesifik.
                     </div>
                   ) : null}
+
+                  {tpSum.perluBimbinganCount > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline"
+                        style={{ fontSize: 11.5 }}
+                        onClick={() => {
+                          setRemedialFilterTpId(tpSum.tpId);
+                          setShowRemedialPanel(true);
+                        }}
+                      >
+                        <RefreshCw size={11} aria-hidden="true" /> Kelola Remedial TP {tpSum.tpKode} (
+                        {tpSum.perluBimbinganCount} siswa)
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         </div>
+      )}
+
+      {/* Panel Pelacakan Remedial & Reassessment Non-Destruktif */}
+      {showRemedialPanel && (
+        <RemedialTrackingPanel
+          schoolProfile={schoolProfile}
+          kelasHarian={kelasHarian}
+          tpList={tpList}
+          selectedTpId={remedialFilterTpId}
+          onChangeSelectedTpId={setRemedialFilterTpId}
+          onSaveRemedialPlan={handleSaveRemedialPlan}
+          onSaveReassessment={handleSaveReassessment}
+          onOpenStudentEvidenceModal={(sid) => setEvidenceModalSiswaId(sid)}
+        />
       )}
 
       {/* Tabel Nilai Lengkap */}

@@ -352,8 +352,9 @@ export function generateAutoDeskripsiRapor(
     if (score === undefined && Array.isArray(options?.buktiAsesmenSubTP)) {
       const tpEvs = options.buktiAsesmenSubTP.filter(
         (ev) =>
-          (ev.tpId && tp.id && ev.tpId === tp.id) ||
-          (ev.tpKode && tp.kode && ev.tpKode.trim().toLowerCase() === tp.kode.trim().toLowerCase())
+          ev.peranBukti !== 'reassessment' &&
+          ((ev.tpId && tp.id && ev.tpId === tp.id) ||
+            (ev.tpKode && tp.kode && ev.tpKode.trim().toLowerCase() === tp.kode.trim().toLowerCase()))
       );
       const normScores = tpEvs
         .map((ev) => normalizeEvidenceScoreToScale100(ev.skor, ev.skalaSkor))
@@ -384,7 +385,9 @@ export function generateAutoDeskripsiRapor(
 
   const subTpNotes: string[] = [];
   if (Array.isArray(options?.buktiAsesmenSubTP) && options.buktiAsesmenSubTP.length > 0) {
-    const specificSubEvs = options.buktiAsesmenSubTP.filter((ev) => Boolean(ev.subTpKode || ev.subTpId));
+    const specificSubEvs = options.buktiAsesmenSubTP.filter(
+      (ev) => ev.peranBukti !== 'reassessment' && Boolean(ev.subTpKode || ev.subTpId)
+    );
     if (specificSubEvs.length > 0) {
       const achievedSubs: string[] = [];
       const guidedSubs: string[] = [];
@@ -988,6 +991,10 @@ function normalizeStoredKelasHarian(
         bobot,
         item.nilaiPraktik
       );
+      if (item.statusRapor === 'final' && statusNilai === 'lengkap') {
+        return updated ? { ...item, nilaiFormatif: formatif } : item;
+      }
+
       if (
         updated ||
         !item.deskripsiRapor ||

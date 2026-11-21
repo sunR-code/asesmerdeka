@@ -81,6 +81,8 @@ export type StatusKetercapaianBukti =
   | 'Perlu Bimbingan'
   | 'Tercapai';
 
+export type PeranBuktiAsesmen = 'awal' | 'reassessment';
+
 export interface BuktiAsesmenSubTP {
   id: string;
   tpId: string;
@@ -90,6 +92,13 @@ export interface BuktiAsesmenSubTP {
   jenisBukti: JenisBuktiAsesmen;
   tanggal: string;
   sumberBukti: SumberBuktiAsesmen;
+  peranBukti?: PeranBuktiAsesmen;
+  remedialRecordId?: string;
+  originalEvidenceId?: string;
+  siswaId?: string;
+  schoolId?: string;
+  classId?: string;
+  semesterId?: string;
   asesmenId?: string;
   rangkumanId?: string;
   lkpdId?: string;
@@ -100,6 +109,7 @@ export interface BuktiAsesmenSubTP {
   indikatorYangDiamati: string;
   catatanGuru?: string;
   catatanMiskonsepsi?: string;
+  createdAt?: string;
   updatedAt?: string;
 }
 
@@ -111,11 +121,29 @@ export type JenisIntervensiRemedial =
   | 'pendekatan_ulang';
 
 export type StatusTindakLanjutRemedial =
+  | 'perlu_tindak_lanjut'
   | 'direncanakan'
   | 'berlangsung'
   | 'selesai_perlu_reassessment'
+  | 'selesai'
   | 'tuntas_setelah_remedial'
   | 'belum_tuntas';
+
+export type RemedialAuditAction =
+  | 'created'
+  | 'status_changed'
+  | 'activity_updated'
+  | 'reassessment_recorded';
+
+export interface RemedialAuditEvent {
+  id: string;
+  at: string;
+  action: RemedialAuditAction;
+  fromStatus?: StatusTindakLanjutRemedial;
+  toStatus?: StatusTindakLanjutRemedial;
+  summary: string;
+  evidenceId?: string;
+}
 
 export interface HasilPenilaianRemedial {
   skor?: number | null;
@@ -126,19 +154,31 @@ export interface HasilPenilaianRemedial {
 
 export interface RiwayatRemedialItem {
   id: string;
+  siswaId?: string;
+  schoolId?: string;
+  classId?: string;
+  semesterId?: string;
   tpId: string;
   tpKode?: string;
   subTpIds?: string[];
+  subTpKodes?: string[];
   attemptAwalId?: string;
+  originalEvidenceId?: string;
   tanggalIntervensi: string;
   jenisIntervensi: JenisIntervensiRemedial;
+  alasanRemedial?: string;
+  rencanaKegiatan?: string;
+  hasilKegiatan?: string;
   materiPengulanganId?: string;
   asesmenUlangId?: string;
+  reassessmentEvidenceId?: string;
   hasilSebelum?: HasilPenilaianRemedial;
   hasilSesudah?: HasilPenilaianRemedial;
   statusTindakLanjut: StatusTindakLanjutRemedial;
   catatanGuru?: string;
+  createdAt?: string;
   updatedAt?: string;
+  auditTrail?: RemedialAuditEvent[];
 }
 
 export interface BobotNilaiKebijakan {
