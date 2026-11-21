@@ -173,39 +173,56 @@ function safeParseJson(raw) {
   }
 }
 
-async function getRegistryFromRedis() {
-  const { url, token, configured } = getRedisCredentials();
-  let redisList = [];
+function isStagingRegistryEntry(item) {
+  if (!item || typeof item !== 'object') return false;
+  return (
+    isStagingLicenseCode(item.code) ||
+    String(item.environment || '').trim().toLowerCase() === 'staging'
+  );
+}
 
+async function readRawRegistryFromRedis() {
+  const { url, token, configured } = getRedisCredentials();
   if (!configured) {
-    redisList = [...localLicenseRegistryStore];
-  } else {
-    const endpoint = `${url.replace(/\/$/, '')}/get/${encodeURIComponent(REGISTRY_REDIS_KEY)}`;
-    try {
-      const res = await fetch(endpoint, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data && data.result) {
-          const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
-          if (Array.isArray(parsed)) {
-            redisList = parsed;
-          }
+    return [...localLicenseRegistryStore];
+  }
+
+  const endpoint = `${url.replace(/\/$/, '')}/get/${encodeURIComponent(REGISTRY_REDIS_KEY)}`;
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && data.result) {
+        const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+        if (Array.isArray(parsed)) {
+          return parsed;
         }
       }
-    } catch {
-      redisList = [...localLicenseRegistryStore];
+      return [];
+    }
+  } catch {
+    return [...localLicenseRegistryStore];
+  }
+  return [];
+}
+
+async function getRegistryFromRedis() {
+  const runtimeEnv = resolveLicenseRuntimeEnvironment();
+  if (
+    runtimeEnv === 'preview' ||
+    (runtimeEnv !== 'production' && runtimeEnv !== 'local' && runtimeEnv !== 'development')
+  ) {
+    if (!validateStagingBranchContext({ runtimeEnv }).allowed) {
+      return [];
     }
   }
 
-  const runtimeEnv = resolveLicenseRuntimeEnvironment();
-  if (runtimeEnv === 'preview' && !validateStagingBranchContext({ runtimeEnv }).allowed) {
-    return [];
-  }
+  const redisList = await readRawRegistryFromRedis();
 
-  // Gabungkan OFFICIAL_SEEDED_LICENSES dengan redisList hanya pada non-preview
+  // Gabungkan OFFICIAL_SEEDED_LICENSES dengan redisList hanya pada non-preview/non-unknown
   const map = new Map();
   // 1. Masukkan lisensi dari Redis / Store dinamis terlebih dahulu
   for (const item of redisList) {
@@ -215,7 +232,7 @@ async function getRegistryFromRedis() {
   }
 
   // 2. Masukkan master seeds resmi jika belum ada di peta (dilarang pada Preview staging)
-  if (runtimeEnv !== 'preview') {
+  if (runtimeEnv === 'production' || runtimeEnv === 'local' || runtimeEnv === 'development') {
     for (const seed of OFFICIAL_SEEDED_LICENSES) {
       if (!map.has(seed.code)) {
         map.set(seed.code, { ...seed });
@@ -227,7 +244,7 @@ async function getRegistryFromRedis() {
   return Array.from(map.values()).filter((item) => {
     if (!item || item.deleted) return false;
     if (isDeprecatedStagingLicenseCode(item.code)) return false;
-    const itemIsStaging = isStagingLicenseCode(item.code) || item.environment === 'staging';
+    const itemIsStaging = isStagingRegistryEntry(item);
     if (runtimeEnv === 'production' && itemIsStaging) return false;
     if (runtimeEnv === 'preview' && !itemIsStaging) return false;
     return true;
@@ -235,10 +252,45 @@ async function getRegistryFromRedis() {
 }
 
 async function saveRegistryToRedis(registryList) {
+  const runtimeEnv = resolveLicenseRuntimeEnvironment();
+  if (
+    runtimeEnv !== 'production' &&
+    runtimeEnv !== 'preview' &&
+    runtimeEnv !== 'local' &&
+    runtimeEnv !== 'development'
+  ) {
+    return;
+  }
+
+  const outgoingItems = (Array.isArray(registryList) ? registryList : []).filter((item) => {
+    if (!item || !item.code) return false;
+    const itemIsStaging = isStagingRegistryEntry(item);
+    if (runtimeEnv === 'preview') return itemIsStaging;
+    if (runtimeEnv === 'production') return !itemIsStaging;
+    return true;
+  });
+
+  const existingRaw = await readRawRegistryFromRedis();
+  const outgoingCodes = new Set(outgoingItems.map((item) => item.code));
+  const preservedItems = existingRaw.filter((item) => {
+    if (!item || !item.code) return false;
+    if (outgoingCodes.has(item.code)) return false;
+    const itemIsStaging = isStagingRegistryEntry(item);
+    if (runtimeEnv === 'preview') {
+      return !itemIsStaging || Boolean(item.deleted);
+    }
+    if (runtimeEnv === 'production') {
+      return itemIsStaging || Boolean(item.deleted);
+    }
+    return Boolean(item.deleted);
+  });
+
+  const mergedRegistry = [...outgoingItems, ...preservedItems];
+
   const { url, token, configured } = getRedisCredentials();
   if (!configured) {
     localLicenseRegistryStore.length = 0;
-    localLicenseRegistryStore.push(...registryList);
+    localLicenseRegistryStore.push(...mergedRegistry);
     return;
   }
 
@@ -250,11 +302,11 @@ async function saveRegistryToRedis(registryList) {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'text/plain;charset=utf-8',
       },
-      body: JSON.stringify(registryList),
+      body: JSON.stringify(mergedRegistry),
     });
   } catch {
     localLicenseRegistryStore.length = 0;
-    localLicenseRegistryStore.push(...registryList);
+    localLicenseRegistryStore.push(...mergedRegistry);
   }
 }
 
@@ -408,7 +460,10 @@ export default async function handler(req, res) {
         });
       }
 
-      if (runtimeEnv === 'preview') {
+      if (
+        runtimeEnv === 'preview' ||
+        (runtimeEnv !== 'production' && runtimeEnv !== 'local' && runtimeEnv !== 'development')
+      ) {
         const branchCheck = validateStagingBranchContext({ runtimeEnv });
         if (!branchCheck.allowed) {
           return res.status(branchCheck.status || 403).json({

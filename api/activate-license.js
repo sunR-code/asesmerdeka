@@ -87,20 +87,34 @@ export function resolveLicenseRuntimeEnvironment() {
   if (vercelEnv === 'production') return 'production';
   if (vercelEnv === 'preview') return 'preview';
   if (vercelEnv === 'development') return 'development';
+  if (vercelEnv) return 'unknown';
   if (nodeEnv === 'production') return 'production';
+  const hasVercelRuntimeMarkers = Boolean(
+    String(process.env.VERCEL || '').trim() ||
+      String(process.env.VERCEL_URL || '').trim() ||
+      String(process.env.VERCEL_REGION || '').trim()
+  );
+  if (hasVercelRuntimeMarkers) return 'unknown';
   return 'local';
 }
 
 export function resolveStagingGitBranch() {
-  return String(process.env.VERCEL_GIT_COMMIT_REF || '').trim();
+  const rawBranch = String(process.env.VERCEL_GIT_COMMIT_REF || '').trim();
+  return rawBranch || 'unknown';
 }
 
 export function validateStagingBranchContext(options = {}) {
-  const runtimeEnv = options.runtimeEnv || resolveLicenseRuntimeEnvironment();
-  const gitBranch =
+  const rawRuntimeEnv =
+    options.runtimeEnv !== undefined
+      ? String(options.runtimeEnv || '').trim().toLowerCase()
+      : resolveLicenseRuntimeEnvironment();
+  const runtimeEnv = rawRuntimeEnv || 'unknown';
+  const rawBranchInput =
     options.gitBranch !== undefined
       ? String(options.gitBranch || '').trim()
-      : resolveStagingGitBranch();
+      : String(process.env.VERCEL_GIT_COMMIT_REF || '').trim();
+  const gitBranch = rawBranchInput || 'unknown';
+  const isUnverifiedBranch = !rawBranchInput || gitBranch.toLowerCase() === 'unknown';
 
   if (runtimeEnv === 'production') {
     return {
@@ -114,12 +128,12 @@ export function validateStagingBranchContext(options = {}) {
   }
 
   if (runtimeEnv === 'preview') {
-    if (!gitBranch) {
+    if (isUnverifiedBranch) {
       return {
         allowed: false,
         status: 403,
         runtimeEnv,
-        gitBranch,
+        gitBranch: 'unknown',
         reason: 'MISSING_STAGING_BRANCH_METADATA',
         message:
           'Operasi lisensi staging pada Vercel Preview ditolak karena metadata branch Git (VERCEL_GIT_COMMIT_REF) kosong.',
@@ -132,10 +146,21 @@ export function validateStagingBranchContext(options = {}) {
         runtimeEnv,
         gitBranch,
         reason: 'STAGING_BRANCH_MISMATCH',
-        message: `Operasi lisensi staging pada Preview hanya diizinkan pada branch '${REQUIRED_STAGING_GIT_BRANCH}' (terdeteksi '${gitBranch}').`,
+        message: `Operasi lisensi staging pada Preview hanya diizinkan pada branch '${REQUIRED_STAGING_GIT_BRANCH}' (terdeteksi '${gitBranch}'). Pastikan Anda membuka deployment Preview dari branch 'staging' (asesmerdeka-git-staging-sun-r.vercel.app), bukan Preview hasil redeploy dari branch '${gitBranch}'.`,
       };
     }
     return { allowed: true, runtimeEnv, gitBranch, isLocalMode: false };
+  }
+
+  if (runtimeEnv !== 'local' && runtimeEnv !== 'development') {
+    return {
+      allowed: false,
+      status: 403,
+      runtimeEnv,
+      gitBranch,
+      reason: 'UNVERIFIED_STAGING_RUNTIME_ENVIRONMENT',
+      message: `Operasi lisensi staging ditolak (fail-closed) karena environment runtime tidak dapat diverifikasi (terdeteksi '${runtimeEnv}', branch '${gitBranch}').`,
+    };
   }
 
   // Aturan eksplisit local development / test (tanpa fallback secret Production)
@@ -403,6 +428,18 @@ export function validateLicenseEnvironmentBoundary(rawCode, seatRecord = null, o
       runtimeEnv,
       gitBranch: branchCheck.gitBranch,
       expectedCodeEnv: 'staging',
+    };
+  }
+
+  if (runtimeEnv !== 'local' && runtimeEnv !== 'development') {
+    const branchCheck = validateStagingBranchContext({ ...options, runtimeEnv });
+    return {
+      allowed: false,
+      status: branchCheck.status || 403,
+      runtimeEnv: branchCheck.runtimeEnv,
+      gitBranch: branchCheck.gitBranch,
+      reason: branchCheck.reason || 'UNVERIFIED_STAGING_RUNTIME_ENVIRONMENT',
+      message: branchCheck.message,
     };
   }
 
