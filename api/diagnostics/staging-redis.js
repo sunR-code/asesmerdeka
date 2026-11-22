@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { getRedisCredentials } from '../activate-license.js';
-import { timingSafeEqualStrings } from '../mayar-webhook.js';
+import { timingSafeEqualStrings } from '../activate-license.js';
 
 const DIAGNOSTIC_NAMESPACE_PREFIX = 'asesmerdeka:staging:diagnostics:';
 const DIAGNOSTIC_TTL_SECONDS = 30;

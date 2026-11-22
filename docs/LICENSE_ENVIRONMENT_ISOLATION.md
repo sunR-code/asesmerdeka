@@ -60,4 +60,4 @@ Dengan konfigurasi ini:
 > **Catatan `VERCEL_ENV` vs `NODE_ENV`:** Vercel Preview menetapkan `VERCEL_ENV=preview` sekaligus `NODE_ENV=production`. Karena itu `resolveLicenseRuntimeEnvironment()` selalu memeriksa `VERCEL_ENV` **sebelum** `NODE_ENV`.
 
 ## 5. Penanganan Kode Palsu / Dimanipulasi
-- Setiap pemotongan atau manipulasi pada `<SIG32>` (termasuk panjang bukan 32 karakter hex), `<PLAN>`, `<NONCE8>`, atau penggunaan format lama `ASM-STG1-*` / `ASM-PRD1-*` / `ASM-PROD-*` langsung ditolak pada `/api/activate-license`, `/api/admin-portal`, `/api/cloud-sync`, `/api/gemini`, `/api/shared-curriculum`, dan `/api/mayar-webhook` sebelum menyentuh Redis atau fallback Mayar API.
+- Setiap pemotongan atau manipulasi pada `<SIG32>` (termasuk panjang bukan 32 karakter hex), `<PLAN>`, `<NONCE8>`, atau penggunaan format lama `ASM-STG1-*` / `ASM-PRD1-*` / `ASM-PROD-*` langsung ditolak pada `/api/activate-license`, `/api/admin-portal`, `/api/cloud-sync`, `/api/gemini`, dan `/api/shared-curriculum` sebelum menyentuh Redis. Endpoint `/api/mayar-webhook` dan fallback Mayar API telah dipensiunkan permanen (`HTTP 410 Gone`, `RETIRED — HISTORICAL REFERENCE ONLY`).

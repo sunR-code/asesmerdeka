@@ -81,6 +81,7 @@ Pemilik aplikasi (admin) membutuhkan **satu tempat terpusat berupa Halaman Admin
   2. **Tab 2: Kotak Masuk Laporan Kendala Guru**:
      - Membawa seluruh fitur inbox laporan: filter status, daftar laporan detail, tombol ubah status, tombol hapus, dan banner **"📋 Salin Laporan untuk AI"**.
   3. **Tab 3: Konfigurasi Pembayaran & Sistem**:
+     > *Catatan Historis (`RETIRED — HISTORICAL REFERENCE ONLY`):* Pengaturan Payment Link Mayar & Product ID Mayar pada Tab 3 telah dipensiunkan permanen bersamaan dengan penonaktifan Mayar; kanal pembelian aktif saat ini dilayani melalui WhatsApp Admin Manual.
      - Pengaturan URL Payment Link Mayar Individu & Sekolah.
      - Pengaturan Product ID Mayar & Batas Perangkat Guru Mandiri (1 atau 2).
      - Tombol Simpan Pengaturan.

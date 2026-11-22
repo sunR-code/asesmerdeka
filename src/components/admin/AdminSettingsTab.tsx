@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Link2,
+  MessageCircle,
   Save,
   Copy,
   Check,
@@ -11,14 +11,6 @@ import {
   FileCode,
 } from 'lucide-react';
 import {
-  getMayarPaymentLink,
-  saveMayarPaymentLinks,
-} from '../../utils/paymentGateway';
-import {
-  getMayarProductId,
-  saveMayarProductId,
-  getMayarSchoolProductId,
-  saveMayarSchoolProductId,
   getConfiguredIndividuMaxDevices,
   setConfiguredIndividuMaxDevices,
   getCloudSeatTrackerUrl,
@@ -62,10 +54,6 @@ function doPost(e) {
 }`;
 
 export const AdminSettingsTab: React.FC = () => {
-  const [mayarIndividuUrl, setMayarIndividuUrl] = useState(() => getMayarPaymentLink('pro_individu'));
-  const [mayarSekolahUrl, setMayarSekolahUrl] = useState(() => getMayarPaymentLink('pro_sekolah'));
-  const [mayarProductIdInput, setMayarProductIdInput] = useState(() => getMayarProductId());
-  const [mayarSchoolProductIdInput, setMayarSchoolProductIdInput] = useState(() => getMayarSchoolProductId());
   const [maxIndividuSeats, setMaxIndividuSeats] = useState(() => getConfiguredIndividuMaxDevices());
   const [cloudTrackerUrl, setCloudTrackerUrl] = useState(() => getCloudSeatTrackerUrl());
 
@@ -76,35 +64,21 @@ export const AdminSettingsTab: React.FC = () => {
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const individu = mayarIndividuUrl.trim();
-    const sekolah = mayarSekolahUrl.trim();
     const tracker = cloudTrackerUrl.trim();
 
-    // Validasi URL jika diisi
-    const urlsToValidate = [
-      { name: 'Payment Link Individu', url: individu },
-      { name: 'Payment Link Sekolah', url: sekolah },
-      { name: 'Cloud Seat Tracker URL', url: tracker },
-    ];
-
-    for (const item of urlsToValidate) {
-      if (item.url && !/^https:\/\/\S+$/i.test(item.url)) {
-        setFeedback({
-          text: `URL untuk ${item.name} tidak valid. Wajib diawali protokol https://`,
-          isError: true,
-        });
-        return;
-      }
+    if (tracker && !/^https:\/\/\S+$/i.test(tracker)) {
+      setFeedback({
+        text: 'URL untuk Cloud Seat Tracker URL tidak valid. Wajib diawali protokol https://',
+        isError: true,
+      });
+      return;
     }
 
-    saveMayarPaymentLinks(individu, sekolah);
-    saveMayarProductId(mayarProductIdInput.trim());
-    saveMayarSchoolProductId(mayarSchoolProductIdInput.trim());
     setConfiguredIndividuMaxDevices(maxIndividuSeats);
     saveCloudSeatTrackerUrl(tracker);
 
     setFeedback({
-      text: `Pengaturan berhasil disimpan! Batas kursi individu: ${maxIndividuSeats} perangkat. Link Mayar & Cloud Tracker siap digunakan.`,
+      text: `Pengaturan berhasil disimpan! Batas kursi individu: ${maxIndividuSeats} perangkat. Pengaturan Cloud Tracker siap digunakan.`,
       isError: false,
     });
     setTimeout(() => setFeedback(null), 5000);
@@ -147,7 +121,7 @@ export const AdminSettingsTab: React.FC = () => {
       )}
 
       <form onSubmit={handleSaveSettings} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Card 1: Integrasi Gateway Mayar.id */}
+        {/* Card 1: Kanal Pembelian Lisensi Aktif */}
         <div
           style={{
             background: '#ffffff',
@@ -157,7 +131,7 @@ export const AdminSettingsTab: React.FC = () => {
             boxShadow: 'var(--shadow-sm)',
             display: 'flex',
             flexDirection: 'column',
-            gap: 16,
+            gap: 14,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>
@@ -166,99 +140,39 @@ export const AdminSettingsTab: React.FC = () => {
                 width: 38,
                 height: 38,
                 borderRadius: 'var(--radius-md)',
-                background: '#eff6ff',
-                color: '#2563eb',
+                background: '#ecfdf5',
+                color: '#059669',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
-              <Link2 size={20} />
+              <MessageCircle size={20} />
             </div>
             <div>
               <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>
-                1. Integrasi Checkout Mayar.id
+                1. Kanal Pembelian Lisensi Aktif
               </h3>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0 0 0' }}>
-                Konfigurasi tautan pembayaran resmi Mayar untuk paket Guru Mandiri dan Kolektif Sekolah.
+                Pembelian lisensi Guru Mandiri dan Kolektif Sekolah saat ini dilayani melalui WhatsApp Admin Manual.
               </p>
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label" htmlFor="mayar-individu-url" style={{ fontSize: 12.5 }}>
-                <span>URL Payment Link Guru Mandiri (Rp 99.000)</span>
-                {mayarIndividuUrl && <span style={{ color: '#059669', fontSize: 11 }}>● Terhubung</span>}
-              </label>
-              <input
-                id="mayar-individu-url"
-                type="url"
-                className="form-input"
-                placeholder="https://asesmerdeka.mayar.link/pl/guru-mandiri-pro"
-                value={mayarIndividuUrl}
-                onChange={(e) => setMayarIndividuUrl(e.target.value)}
-              />
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
-                Tautan yang dibuka otomatis saat guru memilih opsi bayar langsung lewat Mayar.
-              </p>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label" htmlFor="mayar-sekolah-url" style={{ fontSize: 12.5 }}>
-                <span>URL Payment Link Kolektif Sekolah (Rp 749.000)</span>
-                {mayarSekolahUrl && <span style={{ color: '#059669', fontSize: 11 }}>● Terhubung</span>}
-              </label>
-              <input
-                id="mayar-sekolah-url"
-                type="url"
-                className="form-input"
-                placeholder="https://asesmerdeka.mayar.link/pl/kolektif-sekolah-25"
-                value={mayarSekolahUrl}
-                onChange={(e) => setMayarSekolahUrl(e.target.value)}
-              />
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
-                Tautan pembayaran berbayar untuk paket kelembagaan instansi sekolah (25 guru).
-              </p>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label" htmlFor="mayar-product-id" style={{ fontSize: 12.5 }}>
-                ID Produk Mayar (Individu)
-              </label>
-              <input
-                id="mayar-product-id"
-                type="text"
-                className="form-input"
-                placeholder="Contoh: c1db962a-7cc5-46cc-969e-2c7c930f5bdc"
-                value={mayarProductIdInput}
-                onChange={(e) => setMayarProductIdInput(e.target.value)}
-                style={{ fontFamily: 'monospace', fontSize: 13 }}
-              />
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
-                Digunakan untuk verifikasi Software License API Mayar saat aktivasi online.
-              </p>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label" htmlFor="mayar-school-product-id" style={{ fontSize: 12.5 }}>
-                ID Produk Mayar (Sekolah)
-              </label>
-              <input
-                id="mayar-school-product-id"
-                type="text"
-                className="form-input"
-                placeholder="Contoh: 17cece7f-e711-4fdc-af44-e6ceb4b4bff7"
-                value={mayarSchoolProductIdInput}
-                onChange={(e) => setMayarSchoolProductIdInput(e.target.value)}
-                style={{ fontFamily: 'monospace', fontSize: 13 }}
-              />
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
-                ID Produk kelembagaan untuk memvalidasi lisensi sekolah di Mayar.
-              </p>
-            </div>
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 'var(--radius-sm)',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              fontSize: 12,
+              color: 'var(--text-secondary)',
+              lineHeight: 1.6,
+            }}
+          >
+            Checkout payment gateway otomatis pihak ketiga saat ini dinonaktifkan. Calon pembeli diarahkan langsung ke{' '}
+            <strong>WhatsApp Admin Resmi</strong>, dan penerbitan kode lisensi dikelola terpusat melalui Portal Admin ini.
+            Integrasi payment gateway di masa mendatang akan dipasang melalui arsitektur <em>Provider Adapter</em> yang terpisah.
           </div>
         </div>
 

@@ -431,12 +431,12 @@ test('AUD-206: Kode lisensi dikunci berdasarkan batas maksimal perangkat (Anti-S
   assert.equal(soloClaim2.success, false, 'Kode SOLO wajib menolak perangkat ke-2');
 });
 
-test('AUD-207: Verifikasi dan aktivasi kode lisensi Mayar membedakan kuota perangkat Individu (2) dan Sekolah (25)', async () => {
+test('AUD-207: Product ID Mayar dipensiunkan namun verifikasi online membedakan kuota Individu (2) dan Sekolah (25)', async () => {
   globalThis.localStorage.clear();
 
-  // Pastikan ID Produk default Individu & Sekolah terdefinisi tepat
-  assert.equal(licenseManager.getMayarProductId(), 'c1db962a-7cc5-46cc-969e-2c7c930f5bdc');
-  assert.equal(licenseManager.getMayarSchoolProductId(), '17cece7f-e711-4fdc-af44-e6ceb4b4bff7');
+  // Pastikan helper Product ID Mayar yang dipensiunkan mengembalikan string kosong
+  assert.equal(licenseManager.getMayarProductId(), '');
+  assert.equal(licenseManager.getMayarSchoolProductId(), '');
 
   // Simulasikan respon endpoint serverless /api/activate-license untuk paket sekolah
   const origFetch = globalThis.fetch;
@@ -456,18 +456,18 @@ test('AUD-207: Verifikasi dan aktivasi kode lisensi Mayar membedakan kuota peran
   };
 
   try {
-    const schoolMayarCode = 'MYR-SEKOLAH-25-TEST';
-    const verifyRes = await licenseManager.verifyMayarLicenseOnline(schoolMayarCode, 'DEV-GURU-01');
+    const schoolCode = 'HIST-SEKOLAH-25-TEST';
+    const verifyRes = await licenseManager.verifyLicenseOnline(schoolCode, 'DEV-GURU-01');
     assert.equal(verifyRes.valid, true);
     assert.equal(verifyRes.planType, 'sekolah');
     assert.equal(verifyRes.maxSeats, 25);
 
-    // Sekarang kode sekolah Mayar ini harus otomatis terdeteksi punya kuota 25 perangkat
-    assert.equal(licenseManager.getMaxDevicesForLicenseCode(schoolMayarCode), 25);
+    // Kode sekolah yang diverifikasi server tetap terdeteksi punya kuota 25 perangkat
+    assert.equal(licenseManager.getMaxDevicesForLicenseCode(schoolCode), 25);
 
     // Aktivasi di guru ke-1 berhasil
     globalThis.localStorage.setItem('asesmerdeka_device_id', 'DEV-GURU-01');
-    const act1 = licenseManager.activateLicense(schoolMayarCode);
+    const act1 = licenseManager.activateLicense(schoolCode);
     assert.equal(act1.success, true);
     assert.equal(act1.maxSeats, 25);
     assert.equal(act1.usedSeats, 1);
@@ -476,38 +476,76 @@ test('AUD-207: Verifikasi dan aktivasi kode lisensi Mayar membedakan kuota peran
   }
 });
 
-test('AUD-208: Serverless API menangani ketiadaan MAYAR_API_KEY dengan pesan ramah panduan KYC', async () => {
+test('AUD-208: Serverless API menolak kode non-ASM tak dikenal dengan 400 LICENSE_NOT_FOUND (tanpa fallback Mayar) namun tetap mengaktifkan catatan kursi historis', async () => {
   const handlerMod = await import('../api/activate-license.js');
   const handler = handlerMod.default;
+  const { saveSeatRecordToRedis, localSeatMemoryStore } = handlerMod;
 
-  const prevKey = process.env.MAYAR_API_KEY;
-  delete process.env.MAYAR_API_KEY;
-
-  let statusCode = 200;
-  let responseData = null;
-  const req = {
-    method: 'POST',
-    body: { licenseCode: 'TEST-CODE', deviceId: 'DEV-TEST' },
+  const prevFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    throw new Error('Outbound fetch should not be called');
   };
-  const res = {
-    status(code) {
-      statusCode = code;
-      return this;
-    },
-    json(data) {
-      responseData = data;
-      return this;
-    },
+
+  const makeMockRes = () => {
+    const out = { statusCode: 200, body: null };
+    return {
+      status(code) {
+        out.statusCode = code;
+        return this;
+      },
+      json(data) {
+        out.body = data;
+        return this;
+      },
+      get result() {
+        return out;
+      },
+    };
   };
 
   try {
-    await handler(req, res);
-    assert.equal(statusCode, 503);
-    assert.equal(responseData.valid, false);
-    assert.equal(responseData.kycPending, true);
-    assert.match(responseData.message, /KYC|verifikasi akun Mayar/i);
+    // 1. Kode non-ASM tak dikenal ditolak bersih tanpa KYC Mayar dan tanpa fetch keluar
+    const unknownRes = makeMockRes();
+    await handler(
+      { method: 'POST', body: { licenseCode: 'UNKNOWN-MAYAR-CODE', deviceId: 'DEV-TEST-UNK' } },
+      unknownRes
+    );
+    assert.equal(unknownRes.result.statusCode, 400);
+    assert.equal(unknownRes.result.body.valid, false);
+    assert.equal(unknownRes.result.body.reason, 'LICENSE_NOT_FOUND');
+    assert.equal(unknownRes.result.body.providerRetired, 'mayar');
+    assert.equal(unknownRes.result.body.kycPending, undefined);
+    assert.equal(fetchCalled, false);
+
+    // 2. Kode non-ASM pelanggan lama yang SUDAH tercatat di seat store tetap dapat diaktifkan di perangkat ke-2 tanpa memanggil Mayar
+    const legacyCode = 'LEGACY-CUST-AUD208';
+    await saveSeatRecordToRedis(legacyCode, {
+      licenseCode: legacyCode,
+      environment: 'production',
+      planType: 'individu',
+      tier: 'guru',
+      maxSeats: 2,
+      devices: ['DEV-OLD-1'],
+      usedSeats: 1,
+      lifecycleState: 'active',
+    });
+
+    const legacyRes = makeMockRes();
+    await handler(
+      { method: 'POST', body: { licenseCode: legacyCode, deviceId: 'DEV-OLD-2' } },
+      legacyRes
+    );
+    assert.equal(legacyRes.result.statusCode, 200);
+    assert.equal(legacyRes.result.body.valid, true);
+    assert.equal(legacyRes.result.body.legacyRecord, true);
+    assert.equal(legacyRes.result.body.usedSeats, 2);
+    assert.equal(legacyRes.result.body.maxSeats, 2);
+    assert.equal(fetchCalled, false);
   } finally {
-    if (prevKey) process.env.MAYAR_API_KEY = prevKey;
+    localSeatMemoryStore.delete('asesmerdeka:seats:v1:LEGACY-CUST-AUD208');
+    globalThis.fetch = prevFetch;
   }
 });
 
@@ -1597,7 +1635,7 @@ test('AUD-219: Client service adminService mengelola sesi, registri lisensi serv
   }
 });
 
-test('AUD-220: Integrasi Mayar.id memverifikasi kode pembelian Mayar, auto-register ke portal admin, dan menerima webhook transaksi', async () => {
+test('AUD-220: Webhook Mayar dipensiunkan HTTP 410 Gone, sedangkan aktivasi lisensi resmi & sinkronisasi seat ke Portal Admin tetap berjalan normal', async () => {
   const { default: mayarWebhookHandler } = await import('../api/mayar-webhook.js');
   const { default: activateHandler } = await import('../api/activate-license.js');
   const { default: adminHandler } = await import('../api/admin-portal.js');
@@ -1626,73 +1664,35 @@ test('AUD-220: Integrasi Mayar.id memverifikasi kode pembelian Mayar, auto-regis
     };
   };
 
-  const prevFetch = globalThis.fetch;
-  const prevMayarKey = process.env.MAYAR_API_KEY;
-  process.env.MAYAR_API_KEY = 'MAYAR_TEST_KEY_AUD220';
-  globalThis.fetch = async (url) => {
-    const urlStr = String(url || '');
-    if (urlStr.includes('/hl/v2/invoices/')) {
-      const lookupId = decodeURIComponent(urlStr.split('/hl/v2/invoices/')[1] || '').toUpperCase();
-      return new Response(
-        JSON.stringify({
-          statusCode: 200,
-          messages: 'success',
-          data: {
-            id: lookupId,
-            status: 'paid',
-            amount: 99000,
-            transactionId: 'TXN-AUD220',
-            transactions: [{ id: 'TXN-AUD220' }],
-            customer: { name: 'Bapak Ahmad Dani', email: 'ahmaddani@sekolah.id' },
-          },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-    throw new Error(`Unexpected fetch URL in AUD-220: ${urlStr}`);
-  };
+  // 1. Webhook GET & POST mengembalikan HTTP 410 Gone (MAYAR_DECOMMISSIONED)
+  const getRes = makeMockRes();
+  await mayarWebhookHandler({ method: 'GET' }, getRes);
+  assert.equal(getRes.result.statusCode, 410);
+  assert.equal(getRes.result.body?.retired, true);
+  assert.equal(getRes.result.body?.reason, 'MAYAR_DECOMMISSIONED');
 
-  try {
-    // 1. Webhook GET (Healthcheck)
-    const getRes = makeMockRes();
-    await mayarWebhookHandler({ method: 'GET' }, getRes);
-    assert.equal(getRes.result.statusCode, 200);
-    assert.equal(getRes.result.body?.ok, true);
-
-    // 2. Webhook POST saat ada transaksi baru dari Mayar (terverifikasi Detail API V2)
-    const webhookRes = makeMockRes();
-    await mayarWebhookHandler(
-      {
-        method: 'POST',
-        body: {
-          event: 'payment.received',
-          data: {
-            id: 'EVT-AUD220',
-            mayarInvoiceId: 'INV-MAYAR-AUD220',
-            transactionId: 'TXN-AUD220',
-            amount: 99000,
-            customerName: 'Bapak Ahmad Dani',
-            customerEmail: 'ahmaddani@sekolah.id',
-            licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
-            productName: 'Lisensi Guru Mandiri AsesMerdeka',
-          },
+  const webhookRes = makeMockRes();
+  await mayarWebhookHandler(
+    {
+      method: 'POST',
+      body: {
+        event: 'payment.received',
+        data: {
+          id: 'EVT-AUD220',
+          mayarInvoiceId: 'INV-MAYAR-AUD220',
+          transactionId: 'TXN-AUD220',
+          amount: 99000,
+          licenseCode: 'ASM-GM26-V9SN-QR2U-136V',
         },
       },
-      webhookRes
-    );
-    assert.equal(webhookRes.result.statusCode, 200);
-    assert.equal(webhookRes.result.body?.ok, true);
-    assert.equal(webhookRes.result.body?.code, 'ASM-GM26-V9SN-QR2U-136V');
-  } finally {
-    globalThis.fetch = prevFetch;
-    if (prevMayarKey === undefined) {
-      delete process.env.MAYAR_API_KEY;
-    } else {
-      process.env.MAYAR_API_KEY = prevMayarKey;
-    }
-  }
+    },
+    webhookRes
+  );
+  assert.equal(webhookRes.result.statusCode, 410);
+  assert.equal(webhookRes.result.body?.retired, true);
+  assert.equal(webhookRes.result.body?.reason, 'MAYAR_DECOMMISSIONED');
 
-  // 3. Cek di Admin Portal: kode sudah terdaftar dengan label pembeli dari Mayar
+  // 2. Kode lisensi resmi historis masih terdaftar di Admin Portal sebagai 'belum_aktif'
   const adminListRes1 = makeMockRes();
   await adminHandler(
     {
@@ -1702,14 +1702,13 @@ test('AUD-220: Integrasi Mayar.id memverifikasi kode pembelian Mayar, auto-regis
     adminListRes1
   );
   assert.equal(adminListRes1.result.statusCode, 200);
-  const foundMayar = adminListRes1.result.body.licenses.find(
+  const foundSeeded = adminListRes1.result.body.licenses.find(
     (l) => l.code === 'ASM-GM26-V9SN-QR2U-136V'
   );
-  assert.ok(foundMayar);
-  assert.ok(foundMayar.label.includes('Ahmad Dani'));
-  assert.equal(foundMayar.status, 'belum_aktif');
+  assert.ok(foundSeeded);
+  assert.equal(foundSeeded.status, 'belum_aktif');
 
-  // 4. Pembeli membuka aplikasi AsesMerdeka dan mengaktifkan lisensinya di laptop
+  // 3. Pengguna mengaktifkan kode lisensi resminya melalui /api/activate-license
   const activateRes = makeMockRes();
   await activateHandler(
     {
@@ -1724,7 +1723,7 @@ test('AUD-220: Integrasi Mayar.id memverifikasi kode pembelian Mayar, auto-regis
   assert.equal(activateRes.result.statusCode, 200);
   assert.equal(activateRes.result.body?.valid, true);
 
-  // 5. Cek kembali di Admin Portal: status lisensi otomatis berubah menjadi 'aktif'
+  // 4. Cek kembali di Admin Portal: status lisensi otomatis berubah menjadi 'aktif'
   // dan perangkat DEV-AHMAD-LAPTOP terkunci (1/2 perangkat)
   const adminListRes2 = makeMockRes();
   await adminHandler(

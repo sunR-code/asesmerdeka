@@ -53,8 +53,6 @@ const STORAGE_KEY_TRIAL_USAGE = 'asesmerdeka_trial_usage_v1';
 const STORAGE_KEY_SEAT_REGISTRY = 'asesmerdeka_license_seats_v1';
 const STORAGE_KEY_MAX_INDIVIDU_SEATS = 'asesmerdeka_max_individu_seats';
 const STORAGE_KEY_SEAT_TRACKER_URL = 'asesmerdeka_seat_tracker_url';
-const STORAGE_KEY_MAYAR_PRODUCT_ID = 'asesmerdeka_mayar_product_id';
-const STORAGE_KEY_MAYAR_SCHOOL_PRODUCT_ID = 'asesmerdeka_mayar_school_product_id';
 const STORAGE_KEY_VERIFIED_MAYAR_CODES = 'asesmerdeka_verified_mayar_codes_v1';
 const STORAGE_KEY_LAST_LICENSE_STATUS = 'asesmerdeka_last_license_status_v1';
 
@@ -62,8 +60,10 @@ export const FREE_TRIAL_CREDITS = 0;
 export const DEFAULT_INDIVIDU_MAX_DEVICES = 2; // 1 Laptop + 1 HP Guru (tidak bisa dijual ulang ke banyak orang)
 export const DEFAULT_SEKOLAH_MAX_DEVICES = 25; // Kuota 1 Sekolah (maksimal 25 Guru)
 export const DEFAULT_SEKOLAH_MAX_DEVICES_PER_TEACHER = 2; // Maksimal 2 perangkat (1 Laptop + 1 HP) per guru di lisensi sekolah
-export const DEFAULT_MAYAR_PRODUCT_ID = 'c1db962a-7cc5-46cc-969e-2c7c930f5bdc';
-export const DEFAULT_MAYAR_SCHOOL_PRODUCT_ID = '17cece7f-e711-4fdc-af44-e6ceb4b4bff7';
+/** @deprecated Integrasi Mayar telah dipensiunkan permanen. */
+export const DEFAULT_MAYAR_PRODUCT_ID = '';
+/** @deprecated Integrasi Mayar telah dipensiunkan permanen. */
+export const DEFAULT_MAYAR_SCHOOL_PRODUCT_ID = '';
 
 function safeSetItem(key: string, value: string): boolean {
   try {
@@ -930,44 +930,32 @@ export function saveCloudSeatTrackerUrl(url: string): void {
   safeSetItem(STORAGE_KEY_SEAT_TRACKER_URL, url.trim());
 }
 
+/**
+ * @deprecated Integrasi Product ID Mayar telah dipensiunkan permanen. Selalu mengembalikan string kosong.
+ */
 export function getMayarProductId(): string {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY_MAYAR_PRODUCT_ID);
-    if (saved && saved.trim().length > 5) {
-      return saved.trim();
-    }
-  } catch {
-    // abaikan
-  }
-  const envId = (import.meta as any).env?.VITE_MAYAR_PRODUCT_ID;
-  if (typeof envId === 'string' && envId.trim().length > 5) {
-    return envId.trim();
-  }
-  return DEFAULT_MAYAR_PRODUCT_ID;
+  return '';
 }
 
-export function saveMayarProductId(productId: string): void {
-  safeSetItem(STORAGE_KEY_MAYAR_PRODUCT_ID, productId.trim());
+/**
+ * @deprecated Integrasi Product ID Mayar telah dipensiunkan permanen. Operasi ini no-op.
+ */
+export function saveMayarProductId(_productId: string): void {
+  // Mayar decommissioned (no-op)
 }
 
+/**
+ * @deprecated Integrasi Product ID Mayar telah dipensiunkan permanen. Selalu mengembalikan string kosong.
+ */
 export function getMayarSchoolProductId(): string {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY_MAYAR_SCHOOL_PRODUCT_ID);
-    if (saved && saved.trim().length > 5) {
-      return saved.trim();
-    }
-  } catch {
-    // abaikan
-  }
-  const envId = (import.meta as any).env?.VITE_MAYAR_SCHOOL_PRODUCT_ID;
-  if (typeof envId === 'string' && envId.trim().length > 5) {
-    return envId.trim();
-  }
-  return DEFAULT_MAYAR_SCHOOL_PRODUCT_ID;
+  return '';
 }
 
-export function saveMayarSchoolProductId(productId: string): void {
-  safeSetItem(STORAGE_KEY_MAYAR_SCHOOL_PRODUCT_ID, productId.trim());
+/**
+ * @deprecated Integrasi Product ID Mayar telah dipensiunkan permanen. Operasi ini no-op.
+ */
+export function saveMayarSchoolProductId(_productId: string): void {
+  // Mayar decommissioned (no-op)
 }
 
 interface MayarVerifiedEntry {
@@ -1030,10 +1018,10 @@ function isMayarVerifiedCodeForDevice(cleanCode: string, deviceId: string): bool
 }
 
 /**
- * Memverifikasi kode lisensi yang diterbitkan otomatis oleh Mayar.id
- * melalui endpoint serverless aman /api/activate-license
+ * Memverifikasi kode lisensi AsesMerdeka melalui endpoint serverless /api/activate-license
+ * serta mengunci kuota kursi perangkat/guru di Redis server.
  */
-export async function verifyMayarLicenseOnline(
+export async function verifyLicenseOnline(
   rawCode: string,
   deviceId?: string,
   teacherPin?: string
@@ -1152,9 +1140,14 @@ export async function verifyMayarLicenseOnline(
 
   return {
     valid: false,
-    message: 'Kode lisensi tidak ditemukan di sistem AsesMerdeka maupun server Mayar.id.',
+    message: 'Kode lisensi tidak ditemukan di sistem AsesMerdeka.',
   };
 }
+
+/**
+ * @deprecated Gunakan `verifyLicenseOnline`. Alias dipertahankan hanya untuk kompatibilitas pemanggil lama.
+ */
+export const verifyMayarLicenseOnline = verifyLicenseOnline;
 
 /**
  * Verifikasi kursi perangkat ke Cloud Tracker (jika URL Google Apps Script / Webhook disetel)
