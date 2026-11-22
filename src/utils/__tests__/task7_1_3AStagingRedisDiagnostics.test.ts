@@ -267,7 +267,7 @@ describe('Task 7.1.3A — Staging Redis Diagnostics Endpoint & Security Guards',
     expect(missingEnvRes.body.redisCredentialsConfigured).toBe(false);
   });
 
-  it('5. Cron endpoint fail-closed HTTP 503 ketika env Upstash Redis hilang di environment produksi', async () => {
+  it('5. Endpoint cron mayar-reconcile yang dipensiunkan mengembalikan HTTP 410 Gone tanpa menyentuh Redis/Mayar meski env Upstash kosong di produksi', async () => {
     process.env.VERCEL_ENV = 'production';
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -277,8 +277,10 @@ describe('Task 7.1.3A — Staging Redis Diagnostics Endpoint & Security Guards',
       url: '/api/cron/mayar-reconcile',
       headers: { authorization: `Bearer ${CRON_SECRET}` },
     });
-    expect(cronRes.statusCode).toBe(503);
-    expect(cronRes.body.reason).toBe('REDIS_UNAVAILABLE');
+    expect(cronRes.statusCode).toBe(410);
+    expect(cronRes.body.reason).toBe('MAYAR_DECOMMISSIONED');
+    expect(cronRes.body.retired).toBe(true);
+    expect(sim.commands).toHaveLength(0);
   });
 
   it('6. Skema redis:// non-HTTPS dan pasangan UPSTASH parsial ditolak sebelum fetch (tidak cross-fallback KV_*)', async () => {

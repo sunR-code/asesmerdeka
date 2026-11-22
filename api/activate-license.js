@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 
 /**
  * Vercel Serverless Function: /api/activate-license
- * 1. Memverifikasi Kode Lisensi Terenkripsi AsesMerdeka (ASM-XXXX-XXXX-XXXX-XXXX) & PRO-MERDEKA-...
- * 2. Memverifikasi Kode Lisensi API resmi Mayar.id
+ * 1. Memverifikasi Kode Lisensi Terenkripsi AsesMerdeka (ASM-XXXX-XXXX-XXXX-XXXX)
+ * 2. Memverifikasi catatan kursi historis di Redis/Registry AsesMerdeka
  * 3. Mengunci Batas Maksimal Perangkat (Device Seat Lock: 2 perangkat untuk Guru Mandiri, 25 untuk Sekolah)
  *    secara terpusat di Upstash Redis agar kode TIDAK BISA dipakai di perangkat ke-3 (HP/Laptop orang lain).
  */
@@ -45,6 +45,16 @@ export const SERVER_PLAN_CATALOG = {
   sekolah_pro: { planId: 'sekolah_pro', planType: 'sekolah_pro', tier: 'sekolah_pro', price: 1499000, maxSeats: 25 },
 };
 
+export function parseValidPaymentAmount(rawAmount) {
+  if (rawAmount === null || rawAmount === undefined) return null;
+  if (typeof rawAmount === 'boolean') return null;
+  if (typeof rawAmount === 'string' && rawAmount.trim() === '') return null;
+  if (typeof rawAmount === 'object') return null;
+  const numericAmount = Number(rawAmount);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) return null;
+  return numericAmount;
+}
+
 globalThis.__ASESMERDEKA_SERVER_PAYMENT_AUTHORITY__ = {
   verifiedTransactions: localWebhookTransactionStore,
   webhookEvents: localWebhookEventStore,
@@ -80,6 +90,15 @@ const KNOWN_WEAK_SECRET_VALUES = new Set([
   'asesmerdeka_2026_master',
   '4b3a2918_key',
 ]);
+
+export function timingSafeEqualStrings(aStr, bStr) {
+  const rawA = String(aStr ?? '');
+  const rawB = String(bStr ?? '');
+  const aHash = crypto.createHash('sha256').update(rawA, 'utf8').digest();
+  const bHash = crypto.createHash('sha256').update(rawB, 'utf8').digest();
+  const equalDigest = crypto.timingSafeEqual(aHash, bHash);
+  return equalDigest && rawA.length > 0 && rawA.length === rawB.length;
+}
 
 export function resolveLicenseRuntimeEnvironment() {
   const vercelEnv = String(process.env.VERCEL_ENV || '').trim().toLowerCase();
@@ -564,6 +583,18 @@ export function evaluateServerLifecycleState(record, revoked = false, nowMs = Da
   if (isLicenseExpired(record?.expiresAt, nowMs) || record?.lifecycleState === 'expired') {
     return 'expired';
   }
+  if (
+    record?.lifecycleState === 'pending_reconciliation' ||
+    record?.consistencyState === 'pending_reconciliation'
+  ) {
+    return 'pending_reconciliation';
+  }
+  if (
+    record?.lifecycleState === 'settling' ||
+    record?.consistencyState === 'settling'
+  ) {
+    return 'settling';
+  }
   if (record?.lifecycleState === 'pending_payment') {
     return 'pending_payment';
   }
@@ -572,6 +603,143 @@ export function evaluateServerLifecycleState(record, revoked = false, nowMs = Da
     return 'active';
   }
   return 'paid';
+}
+
+export const ALLOWED_VERIFY_LIFECYCLE_STATES = new Set(['paid', 'active']);
+
+export function hasInvalidExpirationContract(expiresAt) {
+  if (expiresAt === null || expiresAt === undefined) return false;
+  if (typeof expiresAt !== 'string') return true;
+  const trimmed = expiresAt.trim();
+  if (!trimmed) return false;
+  return Number.isNaN(Date.parse(trimmed));
+}
+
+export function validateSeatRecordLifecycle(existing, options = {}) {
+  if (!existing || typeof existing !== 'object') {
+    return { allowed: true };
+  }
+
+  const {
+    requireExplicitLifecycle = false,
+    hasVerifiedPaymentAuthority = false,
+    fallbackMaxSeats = 2,
+    nowMs = Date.now(),
+  } = options;
+
+  const usedSeats = getEffectiveUsedSeatCount(existing);
+  const maxSeats = Number(existing.maxSeats) || Number(fallbackMaxSeats) || 2;
+  const rawLifecycle =
+    typeof existing.lifecycleState === 'string'
+      ? existing.lifecycleState.trim().toLowerCase()
+      : '';
+  const rawConsistency =
+    typeof existing.consistencyState === 'string'
+      ? existing.consistencyState.trim().toLowerCase()
+      : '';
+
+  if (existing.revoked === true || existing.deleted === true || rawLifecycle === 'revoked') {
+    return {
+      allowed: false,
+      revoked: true,
+      lifecycleState: 'revoked',
+      reason: 'LICENSE_REVOKED',
+      usedSeats,
+      maxSeats,
+      message: 'Kode lisensi ini telah dicabut atau dinonaktifkan oleh Administrator.',
+    };
+  }
+
+  if (existing.suspended === true || rawLifecycle === 'suspended') {
+    return {
+      allowed: false,
+      suspended: true,
+      lifecycleState: 'suspended',
+      reason: 'LICENSE_SUSPENDED',
+      usedSeats,
+      maxSeats,
+      message: 'Kode lisensi ini sedang ditangguhkan oleh Administrator.',
+    };
+  }
+
+  const invalidExpiration = hasInvalidExpirationContract(existing.expiresAt);
+  const expiredByDate = !invalidExpiration && isLicenseExpired(existing.expiresAt, nowMs);
+  if (rawLifecycle === 'expired' || invalidExpiration || expiredByDate) {
+    return {
+      allowed: false,
+      expired: true,
+      lifecycleState: 'expired',
+      expiresAt: existing.expiresAt ?? null,
+      reason: invalidExpiration ? 'INVALID_EXPIRATION_METADATA' : 'LICENSE_EXPIRED',
+      usedSeats,
+      maxSeats,
+      message: invalidExpiration
+        ? 'Metadata masa berlaku kode lisensi tidak valid. Hubungi Administrator.'
+        : 'Masa berlaku kode lisensi telah berakhir. Silakan lakukan perpanjangan (renewal) lisensi.',
+    };
+  }
+
+  if (
+    existing.paymentFailed === true ||
+    rawLifecycle === 'pending_payment' ||
+    rawLifecycle === 'payment_failed' ||
+    rawLifecycle === 'pending_reconciliation' ||
+    rawLifecycle === 'settling' ||
+    rawConsistency === 'pending_reconciliation' ||
+    rawConsistency === 'settling'
+  ) {
+    const effectiveState =
+      rawLifecycle ||
+      (existing.paymentFailed ? 'payment_failed' : rawConsistency || 'pending_payment');
+    const reason =
+      effectiveState === 'pending_reconciliation'
+        ? 'PAYMENT_PENDING_RECONCILIATION'
+        : effectiveState === 'settling'
+        ? 'PAYMENT_SETTLING'
+        : 'PAYMENT_UNVERIFIED';
+    return {
+      allowed: false,
+      paymentUnverified: true,
+      lifecycleState: effectiveState,
+      reason,
+      usedSeats,
+      maxSeats,
+      message: 'Pembayaran untuk kode lisensi ini belum selesai, sedang diproses, atau gagal.',
+    };
+  }
+
+  if (rawLifecycle) {
+    if (!ALLOWED_VERIFY_LIFECYCLE_STATES.has(rawLifecycle)) {
+      return {
+        allowed: false,
+        paymentUnverified: true,
+        lifecycleState: rawLifecycle,
+        reason: 'UNSUPPORTED_LIFECYCLE_STATE',
+        usedSeats,
+        maxSeats,
+        message: `Status lifecycle lisensi '${rawLifecycle}' tidak diizinkan untuk aktivasi.`,
+      };
+    }
+    return { allowed: true, lifecycleState: rawLifecycle };
+  }
+
+  if (requireExplicitLifecycle) {
+    if (!hasVerifiedPaymentAuthority) {
+      return {
+        allowed: false,
+        paymentUnverified: true,
+        lifecycleState: 'unverified',
+        reason: 'MISSING_LIFECYCLE_AND_PAYMENT_AUTHORITY',
+        usedSeats,
+        maxSeats,
+        message:
+          'Catatan lisensi historis tidak memiliki status lifecycle aktif maupun otoritas pembayaran terverifikasi di server.',
+      };
+    }
+    return { allowed: true, lifecycleState: usedSeats > 0 ? 'active' : 'paid' };
+  }
+
+  return { allowed: true };
 }
 
 export function getRedisCredentials() {
@@ -877,7 +1045,12 @@ export async function withDistributedLock(lockNames, task, options = {}) {
     30,
     Number(options.ttlMs) || (Number.isFinite(envTtl) && envTtl > 0 ? envTtl : 10000)
   );
-  const waitTimeoutMs = Math.max(50, Number(options.waitTimeoutMs) || 8000);
+  const envWaitTimeout = Number(process.env.ASESMERDEKA_LOCK_WAIT_TIMEOUT_MS);
+  const waitTimeoutMs = Math.max(
+    50,
+    Number(options.waitTimeoutMs) ||
+      (Number.isFinite(envWaitTimeout) && envWaitTimeout > 0 ? envWaitTimeout : 8000)
+  );
   const baseRetryMs = Math.max(5, Number(options.retryDelayMs) || 15);
   const deadline = Date.now() + waitTimeoutMs;
 
@@ -1267,43 +1440,12 @@ export async function getSanitizedWebhookAuditLog() {
 }
 
 export function resolveMayarApiV2Config() {
-  const rawBaseUrl = String(process.env.MAYAR_API_BASE_URL || '').trim();
-  const rawEnv = String(process.env.MAYAR_ENV || '').trim().toLowerCase();
-  const sandboxFlag =
-    rawEnv === 'sandbox' || String(process.env.MAYAR_SANDBOX || '').trim().toLowerCase() === 'true';
-
-  if (rawBaseUrl) {
-    const lower = rawBaseUrl.toLowerCase();
-    if (
-      lower.includes('/hl/v1') ||
-      lower.includes('/saas/v1') ||
-      lower.includes('/software/v1') ||
-      lower.includes('api.mayar.club')
-    ) {
-      return {
-        ok: false,
-        reason: 'DEPRECATED_MAYAR_V1_URL',
-        message: 'Konfigurasi endpoint Mayar V1 (/hl/v1, /saas/v1, /software/v1, api.mayar.club) telah kedaluwarsa. Gunakan endpoint Headless/SaaS API V2.',
-      };
-    }
-  }
-
-  let origin = sandboxFlag ? 'https://api.mayar.io' : 'https://api.mayar.id';
-  if (rawBaseUrl) {
-    origin = rawBaseUrl
-      .replace(/\/+$/, '')
-      .replace(/\/hl\/v2$/i, '')
-      .replace(/\/saas\/v2$/i, '');
-  }
-
-  const environment = origin.toLowerCase().includes('api.mayar.io') || sandboxFlag ? 'sandbox' : 'production';
   return {
-    ok: true,
-    environment,
-    origin,
-    hlV2BaseUrl: `${origin}/hl/v2`,
-    saasV2BaseUrl: `${origin}/saas/v2`,
-    apiVersion: 'hl/v2',
+    ok: false,
+    retired: true,
+    provider: 'mayar',
+    reason: 'MAYAR_DECOMMISSIONED',
+    message: 'Integrasi Mayar API telah dipensiunkan permanen dari AsesMerdeka.',
   };
 }
 
@@ -1384,115 +1526,15 @@ export function parseMayarV2ResponseEnvelope(response, body) {
   };
 }
 
-export async function createMayarInvoiceViaApi({
-  orderId,
-  planSpec,
-  buyerName,
-  buyerEmail,
-  buyerMobile,
-  deviceId,
-  redirectUrl,
-  expiredAt,
-  timeoutMs = 8000,
-} = {}) {
-  const apiKey = String(process.env.MAYAR_API_KEY || '').trim();
-  if (!apiKey) {
-    return { created: false, reason: 'MAYAR_API_KEY_NOT_CONFIGURED' };
-  }
-  if (!planSpec || !Number.isFinite(Number(planSpec.price))) {
-    return { created: false, reason: 'INVALID_PLAN' };
-  }
-
-  const v2Config = resolveMayarApiV2Config();
-  if (!v2Config.ok) {
-    return { created: false, reason: v2Config.reason, terminal: true };
-  }
-
-  // Wajib menggunakan Mayar Headless API V2: POST /hl/v2/invoices/create
-  const endpoint = `${v2Config.hlV2BaseUrl}/invoices/create`;
-  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const effectiveTimeoutMs = Math.max(100, Number(process.env.MAYAR_API_TIMEOUT_MS) || timeoutMs);
-  const timer = controller ? setTimeout(() => controller.abort(), effectiveTimeoutMs) : null;
-  const cleanEmail = String(buyerEmail || 'guru@sekolah.sch.id').trim() || 'guru@sekolah.sch.id';
-  const cleanMobile = String(buyerMobile || '081200000000').trim() || '081200000000';
-  const defaultExpiredAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      ...(controller ? { signal: controller.signal } : {}),
-      body: JSON.stringify({
-        name: String(buyerName || 'Bapak/Ibu Guru').trim() || 'Bapak/Ibu Guru',
-        email: cleanEmail,
-        mobile: cleanMobile,
-        redirectUrl: String(redirectUrl || 'https://asesmerdeka.vercel.app/?payment_status=pending').trim(),
-        description: `Lisensi AsesMerdeka (${planSpec.planId})`,
-        expiredAt: String(expiredAt || defaultExpiredAt).trim(),
-        items: [
-          {
-            quantity: 1,
-            rate: Number(planSpec.price),
-            description: `Lisensi AsesMerdeka ${planSpec.planId}`,
-          },
-        ],
-        extraData: {
-          noCustomer: cleanMobile,
-          idProd: planSpec.planId,
-          orderId,
-          invoiceId: orderId,
-          deviceId: deviceId || '',
-          planId: planSpec.planId,
-        },
-      }),
-    });
-
-    const body = await response.json().catch(() => null);
-    const envelope = parseMayarV2ResponseEnvelope(response, body);
-    if (!envelope.ok) {
-      return {
-        created: false,
-        reason: envelope.reason,
-        httpStatus: envelope.httpStatus,
-      };
-    }
-
-    const data = envelope.data;
-    const mayarInvoiceId = String(data.id || '').trim().toUpperCase();
-    if (!mayarInvoiceId) {
-      return { created: false, reason: 'MAYAR_API_INCOMPLETE_ENVELOPE' };
-    }
-
-    const mayarTransactionId = String(data.transactionId || data.transaction_id || '').trim().toUpperCase() || null;
-    const rawLink = String(data.link || data.paymentUrl || '').trim();
-    const mayarPaymentUrl = rawLink
-      ? /^https?:\/\//i.test(rawLink)
-        ? rawLink
-        : `${v2Config.environment === 'sandbox' ? 'https://mayar.io' : 'https://mayar.id'}/${rawLink.replace(/^\/+/, '')}`
-      : null;
-
-    return {
-      created: true,
-      mayarInvoiceId,
-      mayarTransactionId,
-      mayarPaymentUrl,
-      expiredAt: data.expiredAt ?? null,
-      extraData: data.extraData ?? null,
-      mayarApiVersion: 'hl/v2',
-    };
-  } catch (err) {
-    const isTimeout = err?.name === 'AbortError' || String(err?.message || '').toLowerCase().includes('abort');
-    return {
-      created: false,
-      reason: isTimeout ? 'MAYAR_API_TIMEOUT' : 'MAYAR_API_NETWORK_ERROR',
-    };
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+export async function createMayarInvoiceViaApi() {
+  return {
+    created: false,
+    retired: true,
+    provider: 'mayar',
+    reason: 'MAYAR_DECOMMISSIONED',
+    terminal: true,
+    message: 'Pembuatan invoice Mayar telah dipensiunkan permanen. Gunakan alur pembelian manual WhatsApp Admin.',
+  };
 }
 
 export function buildPaymentOrderKey(invoiceId) {
@@ -1686,7 +1728,12 @@ export async function getVerifiedTxRecordForOrder(txId, invoiceId, orderRecord =
         licenseCode: order.licenseCode || null,
         planId: order.planId || null,
         planType: order.planType || null,
-        amount: Number(order.paidAmount ?? order.amount ?? order.baseAmount),
+        amount:
+          order.paidAmount !== undefined
+            ? order.paidAmount
+            : order.amount !== undefined
+            ? order.amount
+            : order.baseAmount,
         deviceId: order.deviceId || null,
         customerEmail: order.buyerEmail || null,
         status: 'paid',
@@ -1706,6 +1753,25 @@ export async function getVerifiedTxRecordForOrder(txId, invoiceId, orderRecord =
     }
   }
   return null;
+}
+
+export async function verifyLegacySeatPaymentAuthority(rawCode, seatRecord, expectedMinPrice) {
+  if (!seatRecord || typeof seatRecord !== 'object') return false;
+  const txId = String(seatRecord.transactionId || '').trim().toUpperCase();
+  const invoiceId = String(seatRecord.invoiceId || seatRecord.orderId || '').trim().toUpperCase();
+  if (!txId && !invoiceId) return false;
+
+  const order = invoiceId ? await getPaymentOrderRecord(invoiceId) : null;
+  const txProof = await getVerifiedTxRecordForOrder(txId, invoiceId, order);
+  if (!txProof || txProof.status !== 'paid') return false;
+
+  const validAmount = parseValidPaymentAmount(txProof.amount);
+  if (validAmount === null || validAmount < expectedMinPrice) return false;
+
+  const txLicense = normalizeLicenseCode(txProof.licenseCode || order?.licenseCode || '');
+  if (txLicense && txLicense !== rawCode) return false;
+
+  return true;
 }
 
 const REVOKED_REDIS_KEY = 'asesmerdeka:admin:revoked_licenses:v1';
@@ -1830,40 +1896,26 @@ export async function checkAndClaimServerSeat(cleanCode, deviceId, maxSeats, opt
         };
       }
 
+      if (options.requireExistingRecord && !existing) {
+        return {
+          allowed: false,
+          paymentUnverified: true,
+          reason: 'LEGACY_RECORD_NOT_FOUND',
+          lifecycleState: 'unverified',
+          usedSeats: 0,
+          maxSeats: Number(maxSeats) || 2,
+          message: 'Catatan lisensi historis tidak ditemukan pada server.',
+        };
+      }
+
       if (existing) {
-        if (isLicenseExpired(existing.expiresAt)) {
-          return {
-            allowed: false,
-            expired: true,
-            lifecycleState: 'expired',
-            expiresAt: existing.expiresAt,
-            usedSeats: getEffectiveUsedSeatCount(existing),
-            maxSeats: Number(existing.maxSeats) || maxSeats,
-            message: 'Masa berlaku kode lisensi telah berakhir. Silakan lakukan perpanjangan (renewal) lisensi.',
-          };
-        }
-        if (existing.lifecycleState === 'suspended' || existing.suspended) {
-          return {
-            allowed: false,
-            suspended: true,
-            lifecycleState: 'suspended',
-            usedSeats: getEffectiveUsedSeatCount(existing),
-            maxSeats: Number(existing.maxSeats) || maxSeats,
-            message: 'Kode lisensi ini sedang ditangguhkan oleh Administrator.',
-          };
-        }
-        if (
-          existing.lifecycleState === 'pending_payment' ||
-          existing.lifecycleState === 'payment_failed'
-        ) {
-          return {
-            allowed: false,
-            paymentUnverified: true,
-            lifecycleState: existing.lifecycleState,
-            usedSeats: getEffectiveUsedSeatCount(existing),
-            maxSeats: Number(existing.maxSeats) || maxSeats,
-            message: 'Pembayaran untuk kode lisensi ini belum selesai atau gagal.',
-          };
+        const lifecycleCheck = validateSeatRecordLifecycle(existing, {
+          requireExplicitLifecycle: Boolean(options.requireExplicitLifecycle),
+          hasVerifiedPaymentAuthority: Boolean(options.hasVerifiedPaymentAuthority),
+          fallbackMaxSeats: maxSeats,
+        });
+        if (!lifecycleCheck.allowed) {
+          return lifecycleCheck;
         }
       }
 
@@ -2465,6 +2517,23 @@ export default async function handler(req, res) {
 
     // Action: create_payment_order — Server menetapkan paket, harga resmi, & invoiceId awal ('pending_payment')
     if (action === 'create_payment_order') {
+      const requestedProvider = String(body.provider || '').trim().toLowerCase();
+      const requestedMayarInvoiceId = String(body.mayarInvoiceId || '').trim().toUpperCase();
+      if (
+        body.createMayarInvoice === true ||
+        Boolean(requestedMayarInvoiceId) ||
+        requestedProvider === 'mayar'
+      ) {
+        return res.status(410).json({
+          ok: false,
+          retired: true,
+          provider: 'mayar',
+          reason: 'MAYAR_DECOMMISSIONED',
+          message:
+            'Pembuatan transaksi atau invoice Mayar telah dipensiunkan permanen. Pembelian lisensi saat ini dilayani melalui WhatsApp Admin.',
+        });
+      }
+
       const planId = String(body.planId || '').trim();
       const planSpec = SERVER_PLAN_CATALOG[planId];
       if (!planSpec) {
@@ -2481,7 +2550,6 @@ export default async function handler(req, res) {
       ).padStart(2, '0')}`;
       const generatedInv = `INV-${datePart}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
       const invoiceId = String(body.invoiceId || body.orderId || generatedInv).trim().toUpperCase();
-      const requestedMayarInvoiceId = String(body.mayarInvoiceId || '').trim().toUpperCase();
 
       return await withDistributedLock([`order:${invoiceId}`], async ({ lockKeys, ownerToken, fenceToken }) => {
         const existingOrder = await getPaymentOrderRecord(invoiceId);
@@ -2494,49 +2562,15 @@ export default async function handler(req, res) {
           });
         }
 
-        if (
-          existingOrder?.mayarInvoiceId &&
-          requestedMayarInvoiceId &&
-          String(existingOrder.mayarInvoiceId).trim().toUpperCase() !== requestedMayarInvoiceId
-        ) {
-          return res.status(409).json({
-            ok: false,
-            reason: 'ORDER_INVOICE_CONFLICT',
-            message: 'Order ID sudah terikat pada Mayar Invoice ID lain.',
-          });
-        }
-
-        let resolvedMayarInvoiceId =
-          (existingOrder?.mayarInvoiceId ? String(existingOrder.mayarInvoiceId).trim().toUpperCase() : '') ||
-          requestedMayarInvoiceId ||
-          '';
-        let resolvedMayarTransactionId =
-          (existingOrder?.mayarTransactionId
-            ? String(existingOrder.mayarTransactionId).trim().toUpperCase()
-            : '') || '';
-        let mayarApiVersion = existingOrder?.mayarApiVersion || (resolvedMayarInvoiceId ? 'hl/v2' : null);
-        let mayarPaymentUrl = existingOrder?.mayarPaymentUrl || null;
-        let mayarExpiredAt = existingOrder?.expiredAt || null;
-        let mayarInvoiceResult = null;
-
-        if (!resolvedMayarInvoiceId && body.createMayarInvoice === true && !existingOrder?.status?.includes('paid')) {
-          mayarInvoiceResult = await createMayarInvoiceViaApi({
-            orderId: invoiceId,
-            planSpec,
-            buyerName: body.buyerName,
-            buyerEmail: body.buyerEmail,
-            buyerMobile: body.buyerMobile,
-            deviceId: String(body.deviceId || '').trim().toUpperCase(),
-            redirectUrl: body.redirectUrl,
-          });
-          if (mayarInvoiceResult.created && mayarInvoiceResult.mayarInvoiceId) {
-            resolvedMayarInvoiceId = mayarInvoiceResult.mayarInvoiceId;
-            resolvedMayarTransactionId = mayarInvoiceResult.mayarTransactionId || resolvedMayarTransactionId || '';
-            mayarApiVersion = mayarInvoiceResult.mayarApiVersion || 'hl/v2';
-            mayarPaymentUrl = mayarInvoiceResult.paymentUrl || null;
-            mayarExpiredAt = mayarInvoiceResult.expiredAt || mayarExpiredAt;
-          }
-        }
+        const resolvedMayarInvoiceId = existingOrder?.mayarInvoiceId
+          ? String(existingOrder.mayarInvoiceId).trim().toUpperCase()
+          : '';
+        const resolvedMayarTransactionId = existingOrder?.mayarTransactionId
+          ? String(existingOrder.mayarTransactionId).trim().toUpperCase()
+          : '';
+        const mayarApiVersion = existingOrder?.mayarApiVersion || null;
+        const mayarPaymentUrl = existingOrder?.mayarPaymentUrl || null;
+        const mayarExpiredAt = existingOrder?.expiredAt || null;
 
         const orderRecord =
           existingOrder && existingOrder.status === 'paid'
@@ -2588,23 +2622,14 @@ export default async function handler(req, res) {
           ownerToken,
           expectedFenceToken: fenceToken,
         });
-        if (resolvedMayarInvoiceId) {
-          await saveMayarInvoiceIndex(resolvedMayarInvoiceId, invoiceId, orderRecord.licenseCode || null);
-        }
         return res.status(200).json({
           ok: true,
-          mayarInvoiceId: orderRecord.mayarInvoiceId || null,
-          mayarTransactionId: orderRecord.mayarTransactionId || null,
-          mayarApiVersion: orderRecord.mayarApiVersion || null,
-          mayarPaymentUrl: orderRecord.mayarPaymentUrl || null,
-          mayarInvoiceCreated: Boolean(mayarInvoiceResult?.created),
-          mayarInvoiceError: mayarInvoiceResult && !mayarInvoiceResult.created ? mayarInvoiceResult.reason : undefined,
           order: orderRecord,
         });
       });
     }
 
-    // Action: verify_payment_order — Otorisasi status paid HANYA dari catatan webhook/API server Mayar.id
+    // Action: verify_payment_order — Otorisasi status paid HANYA dari catatan transaksi resmi di server
     if (action === 'verify_payment_order') {
       const invoiceId = String(body.invoiceId || body.orderId || '').trim().toUpperCase();
       const requestedTxId = String(body.transactionId || '').trim().toUpperCase();
@@ -2631,7 +2656,7 @@ export default async function handler(req, res) {
           verified: false,
           activated: false,
           status: order?.status || 'pending_payment',
-          message: 'Pembayaran belum terkonfirmasi oleh server Mayar.id.',
+          message: 'Pembayaran belum terkonfirmasi oleh server pembayaran AsesMerdeka.',
         });
       }
 
@@ -2687,13 +2712,17 @@ export default async function handler(req, res) {
         });
       }
 
-      if (Number(txRecord.amount) < planSpec.price) {
+      const verifiedAmount = parseValidPaymentAmount(txRecord.amount);
+      if (verifiedAmount === null || verifiedAmount < planSpec.price) {
         return res.status(400).json({
           ok: false,
           verified: false,
           activated: false,
           reason: 'AMOUNT_MISMATCH',
-          message: `Nominal transaksi (${txRecord.amount}) kurang dari harga resmi paket (${planSpec.price}).`,
+          message:
+            verifiedAmount === null
+              ? `Nominal transaksi tidak valid atau tidak tersedia untuk paket resmi (${planSpec.price}).`
+              : `Nominal transaksi (${verifiedAmount}) kurang dari harga resmi paket (${planSpec.price}).`,
         });
       }
 
@@ -2774,7 +2803,7 @@ export default async function handler(req, res) {
               planId: freshOrder?.planId || order?.planId || planSpec.planId,
               planType: freshOrder?.planType || order?.planType || txRecord.planType || planSpec.planType,
               baseAmount: freshOrder?.baseAmount || order?.baseAmount || planSpec.price,
-              paidAmount: Number(txRecord.amount),
+              paidAmount: verifiedAmount,
               transactionId:
                 txRecord.transactionId || effectiveTxId || freshOrder?.transactionId || order?.transactionId || null,
               webhookEventId:
@@ -2806,7 +2835,7 @@ export default async function handler(req, res) {
         transactionId: txRecord.transactionId || effectiveTxId,
         webhookEventId: txRecord.webhookEventId || order?.webhookEventId || null,
         licenseCode: finalLicenseCode,
-        amount: Number(txRecord.amount),
+        amount: verifiedAmount,
         planId: order?.planId || planSpec.planId,
         planType: txRecord.planType || planSpec.planType,
         ...(seatClaim ? { usedSeats: seatClaim.usedSeats, maxSeats: seatClaim.maxSeats } : {}),
@@ -2860,22 +2889,36 @@ export default async function handler(req, res) {
           message: 'Tanda tangan kode lisensi staging tidak valid.',
         });
       }
-      if (seatRecord && isLicenseExpired(seatRecord.expiresAt)) {
-        return res.status(403).json({
-          valid: false,
-          expired: true,
-          lifecycleState: 'expired',
-          expiresAt: seatRecord.expiresAt,
-          message: 'Masa berlaku lisensi telah berakhir. Silakan perpanjang lisensi Anda.',
+      if (seatRecord) {
+        const isInternalCode = Boolean(verifyInternalSerialOrDeviceCode(rawCode, _deviceId));
+        const isLegacySchoolStatus = isSchoolLicenseCodeServer(rawCode, seatRecord.maxSeats, seatRecord);
+        const legacyMinPriceStatus = isLegacySchoolStatus
+          ? SERVER_PLAN_CATALOG.pro_sekolah.price
+          : SERVER_PLAN_CATALOG.pro_individu.price;
+        const hasStatusLifecycle =
+          typeof seatRecord.lifecycleState === 'string' && seatRecord.lifecycleState.trim() !== '';
+        const hasVerifiedAuthorityStatus =
+          !isInternalCode && !hasStatusLifecycle
+            ? await verifyLegacySeatPaymentAuthority(rawCode, seatRecord, legacyMinPriceStatus)
+            : false;
+        const statusLifecycleCheck = validateSeatRecordLifecycle(seatRecord, {
+          requireExplicitLifecycle: !isInternalCode,
+          hasVerifiedPaymentAuthority: hasVerifiedAuthorityStatus,
+          fallbackMaxSeats: seatRecord.maxSeats,
         });
-      }
-      if (seatRecord && (seatRecord.lifecycleState === 'suspended' || seatRecord.suspended)) {
-        return res.status(403).json({
-          valid: false,
-          suspended: true,
-          lifecycleState: 'suspended',
-          message: 'Kode lisensi ini sedang ditangguhkan oleh Administrator.',
-        });
+        if (!statusLifecycleCheck.allowed) {
+          return res.status(403).json({
+            valid: false,
+            revoked: Boolean(statusLifecycleCheck.revoked),
+            expired: Boolean(statusLifecycleCheck.expired),
+            suspended: Boolean(statusLifecycleCheck.suspended),
+            paymentUnverified: Boolean(statusLifecycleCheck.paymentUnverified),
+            reason: statusLifecycleCheck.reason || null,
+            lifecycleState: statusLifecycleCheck.lifecycleState,
+            expiresAt: statusLifecycleCheck.expiresAt ?? seatRecord.expiresAt ?? null,
+            message: statusLifecycleCheck.message,
+          });
+        }
       }
 
       const cleanDev = String(_deviceId || '').trim().toUpperCase();
@@ -2993,6 +3036,40 @@ export default async function handler(req, res) {
           message: 'Kode lisensi tidak sesuai dengan bukti pembayaran terverifikasi.',
         });
       }
+
+      const proofPrefix = extractLicensePlanPrefix(rawCode);
+      const proofPlanId =
+        verifyOrder?.planId ||
+        txProof.planId ||
+        (txProof.planType === 'sekolah'
+          ? 'pro_sekolah'
+          : txProof.planType === 'sekolah_pro'
+          ? 'sekolah_pro'
+          : txProof.planType === 'pro'
+          ? 'pro_ai'
+          : proofPrefix === 'SK26'
+          ? 'pro_sekolah'
+          : proofPrefix === 'SP26'
+          ? 'sekolah_pro'
+          : proofPrefix === 'GP26'
+          ? 'pro_ai'
+          : 'pro_individu');
+      const proofPlanSpec = SERVER_PLAN_CATALOG[proofPlanId];
+      const proofAmount = parseValidPaymentAmount(txProof.amount);
+      if (!proofPlanSpec || proofAmount === null || proofAmount < proofPlanSpec.price) {
+        return res.status(400).json({
+          valid: false,
+          ok: false,
+          verified: false,
+          activated: false,
+          paymentUnverified: true,
+          reason: 'AMOUNT_MISMATCH',
+          message:
+            proofAmount === null
+              ? 'Nominal bukti pembayaran tidak valid atau tidak tersedia di server.'
+              : `Nominal bukti pembayaran (${proofAmount}) kurang dari harga resmi paket (${proofPlanSpec?.price}).`,
+        });
+      }
     }
 
     // 0. Cek apakah kode lisensi adalah Kode Terenkripsi AsesMerdeka (ASM-...)
@@ -3009,6 +3086,7 @@ export default async function handler(req, res) {
           teacherSeatDisabled: Boolean(seatCheck.teacherSeatDisabled),
           forbiddenEnvironment: Boolean(seatCheck.forbiddenEnvironment),
           reason: seatCheck.reason || null,
+          revoked: Boolean(seatCheck.revoked),
           expired: Boolean(seatCheck.expired),
           suspended: Boolean(seatCheck.suspended),
           paymentUnverified: Boolean(seatCheck.paymentUnverified),
@@ -3053,122 +3131,60 @@ export default async function handler(req, res) {
       });
     }
 
-    const apiKey = process.env.MAYAR_API_KEY;
-    if (!apiKey) {
-      return res.status(503).json({
-        valid: false,
-        kycPending: true,
-        message:
-          'Sistem verifikasi otomatis Mayar sedang dalam proses verifikasi akun Mayar (KYC). Silakan hubungi Admin atau gunakan Kode Lisensi Cadangan Mitra untuk aktivasi langsung.',
-      });
-    }
-
-    const individuProductId =
-      process.env.MAYAR_PRODUCT_ID ||
-      process.env.VITE_MAYAR_PRODUCT_ID ||
-      'c1db962a-7cc5-46cc-969e-2c7c930f5bdc';
-
-    const schoolProductId =
-      process.env.MAYAR_SCHOOL_PRODUCT_ID ||
-      process.env.VITE_MAYAR_SCHOOL_PRODUCT_ID ||
-      '17cece7f-e711-4fdc-af44-e6ceb4b4bff7';
-
-    async function verifyWithMayar(productId) {
-      const v2Config = resolveMayarApiV2Config();
-      if (!v2Config.ok) {
-        return { status: 400, ok: false, error: v2Config.message || 'Konfigurasi API Mayar V2 tidak valid.' };
-      }
-      const endpointUrl = `${v2Config.saasV2BaseUrl}/license/verify`;
-      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const effectiveTimeoutMs = Math.max(100, Number(process.env.MAYAR_API_TIMEOUT_MS) || 8000);
-      const timer = controller ? setTimeout(() => controller.abort(), effectiveTimeoutMs) : null;
-      try {
-        const response = await fetch(endpointUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey.trim()}`,
-          },
-          ...(controller ? { signal: controller.signal } : {}),
-          body: JSON.stringify({
-            licenseCode: rawCode,
-            productId,
-          }),
-        });
-
-        const data = await response.json().catch(() => null);
-        return {
-          status: response.status,
-          ok: response.ok,
-          data,
-        };
-      } catch (err) {
-        return {
-          status: 500,
-          ok: false,
-          error: err?.message || 'Gagal menghubungi server Mayar V2',
-        };
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-    }
-
-    // 1. Cek Produk Individu terlebih dahulu (Limit 2 Perangkat)
-    const resIndividu = await verifyWithMayar(individuProductId);
-    const individuPayload = resIndividu.data?.data && typeof resIndividu.data.data === 'object' ? resIndividu.data.data : resIndividu.data;
-    if (resIndividu.ok && individuPayload?.isLicenseActive) {
-      const seatCheck = await checkAndClaimServerSeat(rawCode, _deviceId, 2);
-      if (!seatCheck.allowed) {
-        return res.status(403).json({
+    // 1. Cek catatan kursi historis yang sudah tersimpan di Redis/Registry (termasuk lisensi non-ASM-* pelanggan lama)
+    // tanpa memanggil endpoint Mayar eksternal.
+    const existingSeatRecord = await getSeatRecordFromRedis(rawCode);
+    if (existingSeatRecord) {
+      const seatEnvCheck = validateLicenseEnvironmentBoundary(rawCode, existingSeatRecord);
+      if (!seatEnvCheck.allowed) {
+        return res.status(seatEnvCheck.status || 403).json({
           valid: false,
-          seatLimitExceeded: Boolean(seatCheck.seatLimitExceeded),
-          expired: Boolean(seatCheck.expired),
-          suspended: Boolean(seatCheck.suspended),
-          usedSeats: seatCheck.usedSeats,
-          maxSeats: seatCheck.maxSeats,
-          message: seatCheck.message,
+          ok: false,
+          forbiddenEnvironment: true,
+          reason: seatEnvCheck.reason,
+          message: seatEnvCheck.message,
         });
       }
 
-      const buyerLabel = individuPayload?.customerName
-        ? `Mayar: ${individuPayload.customerName}${individuPayload?.customerEmail ? ` (${individuPayload.customerEmail})` : ''}`
-        : 'Pembelian Mayar.id (Individu)';
+      const isLegacySchool = isSchoolLicenseCodeServer(
+        rawCode,
+        existingSeatRecord.maxSeats,
+        existingSeatRecord
+      );
+      const legacyMaxSeats = Number(existingSeatRecord.maxSeats) || (isLegacySchool ? 25 : 2);
+      const legacyPlanType = isLegacySchool ? 'sekolah' : 'individu';
+      const legacyTier = isLegacySchool ? 'sekolah' : 'guru';
+      const legacyMinPrice = isLegacySchool
+        ? SERVER_PLAN_CATALOG.pro_sekolah.price
+        : SERVER_PLAN_CATALOG.pro_individu.price;
 
-      await autoRegisterLicenseInAdminRegistry({
-        code: rawCode,
-        maxSeats: 2,
-        deviceId: _deviceId,
-        label: buyerLabel,
-        planType: 'individu',
-        tier: 'guru',
+      const hasExplicitLifecycle =
+        typeof existingSeatRecord.lifecycleState === 'string' &&
+        existingSeatRecord.lifecycleState.trim() !== '';
+      const hasVerifiedPaymentAuthority = !hasExplicitLifecycle
+        ? await verifyLegacySeatPaymentAuthority(rawCode, existingSeatRecord, legacyMinPrice)
+        : false;
+
+      const seatCheck = await checkAndClaimServerSeat(rawCode, _deviceId, legacyMaxSeats, {
+        ...(isLegacySchool ? { teacherPin } : {}),
+        requireExistingRecord: true,
+        requireExplicitLifecycle: true,
+        hasVerifiedPaymentAuthority,
       });
-
-      return res.status(200).json({
-        valid: true,
-        planType: 'individu',
-        tier: 'guru',
-        usedSeats: seatCheck.usedSeats,
-        maxSeats: 2,
-        lifecycleState: seatCheck.lifecycleState || 'active',
-        expiresAt: seatCheck.expiresAt ?? null,
-        message: `Lisensi Guru Mandiri berhasil diverifikasi dan aktif (${seatCheck.usedSeats}/2 Perangkat).`,
-        details: resIndividu.data?.licenseCode,
-      });
-    }
-
-    // 2. Cek Produk Sekolah (Limit 25 Kursi Guru, maks 2 perangkat/guru)
-    const resSchool = await verifyWithMayar(schoolProductId);
-    const schoolPayload = resSchool.data?.data && typeof resSchool.data.data === 'object' ? resSchool.data.data : resSchool.data;
-    if (resSchool.ok && schoolPayload?.isLicenseActive) {
-      const seatCheck = await checkAndClaimServerSeat(rawCode, _deviceId, 25, { teacherPin });
       if (!seatCheck.allowed) {
         return res.status(403).json({
           valid: false,
           seatLimitExceeded: Boolean(seatCheck.seatLimitExceeded || seatCheck.teacherDeviceLimitExceeded),
           teacherDeviceLimitExceeded: Boolean(seatCheck.teacherDeviceLimitExceeded),
           teacherSeatDisabled: Boolean(seatCheck.teacherSeatDisabled),
+          forbiddenEnvironment: Boolean(seatCheck.forbiddenEnvironment),
+          reason: seatCheck.reason || null,
+          revoked: Boolean(seatCheck.revoked),
           expired: Boolean(seatCheck.expired),
           suspended: Boolean(seatCheck.suspended),
+          paymentUnverified: Boolean(seatCheck.paymentUnverified),
+          lifecycleState: seatCheck.lifecycleState,
+          expiresAt: seatCheck.expiresAt ?? null,
           teacherKey: seatCheck.teacherKey,
           usedSeats: seatCheck.usedSeats,
           maxSeats: seatCheck.maxSeats,
@@ -3176,44 +3192,36 @@ export default async function handler(req, res) {
         });
       }
 
-      const schoolBuyerLabel = resSchool.data?.customerName
-        ? `Mayar: ${resSchool.data.customerName}${resSchool.data?.customerEmail ? ` (${resSchool.data.customerEmail})` : ''}`
-        : 'Pembelian Mayar.id (Sekolah 25 Guru)';
-
-      await autoRegisterLicenseInAdminRegistry({
-        code: rawCode,
-        maxSeats: 25,
-        deviceId: _deviceId,
-        label: schoolBuyerLabel,
-        planType: 'sekolah',
-        tier: 'sekolah',
-      });
-
       return res.status(200).json({
         valid: true,
-        planType: 'sekolah',
-        tier: 'sekolah',
+        legacyRecord: true,
+        planType: legacyPlanType,
+        tier: legacyTier,
         usedSeats: seatCheck.usedSeats,
-        maxSeats: 25,
-        teacherKey: seatCheck.teacherKey,
-        teacherUsedDevices: seatCheck.teacherUsedDevices,
-        teacherMaxDevices: seatCheck.teacherMaxDevices,
+        maxSeats: seatCheck.maxSeats,
+        ...(isLegacySchool
+          ? {
+              teacherKey: seatCheck.teacherKey,
+              teacherUsedDevices: seatCheck.teacherUsedDevices,
+              teacherMaxDevices: seatCheck.teacherMaxDevices,
+            }
+          : {}),
         lifecycleState: seatCheck.lifecycleState || 'active',
         expiresAt: seatCheck.expiresAt ?? null,
-        message: `Lisensi Kolektif Sekolah (25 Guru) berhasil diverifikasi dan aktif (${seatCheck.usedSeats}/25 Kursi Guru).`,
-        details: resSchool.data?.licenseCode,
+        message: isLegacySchool
+          ? `Lisensi Kolektif Sekolah (25 Guru) berhasil diverifikasi dan aktif (${seatCheck.usedSeats}/${seatCheck.maxSeats} Kursi Guru).`
+          : `Lisensi Guru Mandiri berhasil diverifikasi dan aktif (${seatCheck.usedSeats}/${seatCheck.maxSeats} Perangkat).`,
+        details: rawCode,
       });
     }
 
-    // 3. Jika kode tidak aktif pada kedua produk, berikan pesan kesalahan informatif
-    const errorMsg =
-      resIndividu.data?.message ||
-      resSchool.data?.message ||
-      'Kode lisensi tidak ditemukan, tidak aktif, atau batas aktivasi perangkat telah tercapai.';
-
+    // 2. Kode non-ASM-* yang tidak ditemukan di catatan historis server ditolak bersih tanpa fallback Mayar
     return res.status(400).json({
       valid: false,
-      message: errorMsg,
+      reason: 'LICENSE_NOT_FOUND',
+      providerRetired: 'mayar',
+      message:
+        'Kode lisensi tidak ditemukan atau tidak terdaftar pada sistem AsesMerdeka. Silakan periksa kembali kode lisensi Anda atau hubungi Admin melalui WhatsApp.',
     });
   } catch (error) {
     if (error instanceof RedisUnavailableError || error?.name === 'RedisUnavailableError') {

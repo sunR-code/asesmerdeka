@@ -1,3 +1,6 @@
+> **STATUS: RETIRED — HISTORICAL REFERENCE ONLY**
+> Integrasi Mayar telah dipensiunkan secara permanen dari AsesMerdeka. Dokumen ini dipertahankan semata-mata sebagai arsip keputusan teknis dan catatan historis. Lihat `docs/research/MAYAR_DECOMMISSION_REPORT.md` untuk detail penonaktifan.
+
 # Mayar Model A License Integration Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

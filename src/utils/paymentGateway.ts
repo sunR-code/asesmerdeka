@@ -73,8 +73,6 @@ export interface PaymentInvoiceSession {
   transactionId?: string;
 }
 
-const STORAGE_KEY_MAYAR_INDIVIDU = 'asesmerdeka_mayar_link_individu';
-const STORAGE_KEY_MAYAR_SEKOLAH = 'asesmerdeka_mayar_link_sekolah';
 const STORAGE_KEY_PAYMENT_TX_BINDINGS = 'asesmerdeka_payment_tx_bindings_v1';
 
 interface ServerVerifiedTxRecord {
@@ -147,34 +145,18 @@ function getServerVerifiedTransaction(txId: string): ServerVerifiedTxRecord | nu
   return null;
 }
 
-export function getMayarPaymentLink(planId: OneTimePlanId): string {
-  try {
-    const localKey =
-      planId === 'pro_individu'
-        ? localStorage.getItem(STORAGE_KEY_MAYAR_INDIVIDU)
-        : localStorage.getItem(STORAGE_KEY_MAYAR_SEKOLAH);
-    if (localKey && localKey.trim().startsWith('http')) {
-      return localKey.trim();
-    }
-  } catch {
-    // ignore
-  }
-
-  const envUrl =
-    planId === 'pro_individu'
-      ? (import.meta as any).env?.VITE_PAYMENT_LINK_INDIVIDU
-      : (import.meta as any).env?.VITE_PAYMENT_LINK_SEKOLAH;
-
-  return typeof envUrl === 'string' && envUrl.trim().startsWith('http') ? envUrl.trim() : '';
+/**
+ * @deprecated Integrasi payment link Mayar telah dipensiunkan permanen. Selalu mengembalikan string kosong.
+ */
+export function getMayarPaymentLink(_planId: OneTimePlanId): string {
+  return '';
 }
 
-export function saveMayarPaymentLinks(individuUrl: string, sekolahUrl: string): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_MAYAR_INDIVIDU, individuUrl.trim());
-    localStorage.setItem(STORAGE_KEY_MAYAR_SEKOLAH, sekolahUrl.trim());
-  } catch {
-    // ignore
-  }
+/**
+ * @deprecated Integrasi payment link Mayar telah dipensiunkan permanen. Operasi ini tidak lagi menyimpan tautan Mayar.
+ */
+export function saveMayarPaymentLinks(_individuUrl: string, _sekolahUrl: string): void {
+  // Mayar decommissioned (no-op)
 }
 
 export const ONE_TIME_PLANS: Record<OneTimePlanId, OneTimePlan> = {
@@ -194,7 +176,7 @@ export const ONE_TIME_PLANS: Record<OneTimePlanId, OneTimePlan> = {
       'Ekspor Word (.docx) Resmi & Paket Supervisi (.zip) Bebas Watermark',
       'Modul Ajar, ATP, Prota, Promes, Presensi, & Jurnal Lengkap',
     ],
-    paymentLinkEnv: (import.meta as any).env?.VITE_PAYMENT_LINK_INDIVIDU || '',
+    paymentLinkEnv: '',
   },
   pro_sekolah: {
     id: 'pro_sekolah',
@@ -212,7 +194,7 @@ export const ONE_TIME_PLANS: Record<OneTimePlanId, OneTimePlan> = {
       'Kwitansi & Faktur Pembelian Digital Resmi untuk SPJ Dana BOS',
       'Kustomisasi Penuh Kop Surat & Identitas Instansi Sekolah',
     ],
-    paymentLinkEnv: (import.meta as any).env?.VITE_PAYMENT_LINK_SEKOLAH || '',
+    paymentLinkEnv: '',
   },
   pro_ai: {
     id: 'pro_ai',
@@ -407,21 +389,6 @@ export function createPaymentInvoiceSession(params: {
       ? `00020101021226610016ID.CO.ASESMERDEKA.WWW011893600914${devDigits}0215${invoiceId}520458125303360540${totalAmount}5802ID5918ASESMERDEKA STUDIO6007JAKARTA6304A1B2`
       : undefined;
 
-  let externalCheckoutUrl: string | undefined;
-  const configuredLink = getMayarPaymentLink(params.planId);
-  if (configuredLink) {
-    try {
-      const url = new URL(configuredLink);
-      url.searchParams.set('device_id', params.deviceId);
-      url.searchParams.set('invoice_id', invoiceId);
-      if (params.buyerEmail) url.searchParams.set('email', params.buyerEmail);
-      if (params.buyerName) url.searchParams.set('name', params.buyerName);
-      externalCheckoutUrl = url.toString();
-    } catch {
-      externalCheckoutUrl = configuredLink;
-    }
-  }
-
   const createdSession: PaymentInvoiceSession = {
     invoiceId,
     planId: plan.id,
@@ -438,7 +405,7 @@ export function createPaymentInvoiceSession(params: {
     qrisPayload,
     createdAt: now.toLocaleString('id-ID'),
     expiresAt: exp.toLocaleString('id-ID'),
-    externalCheckoutUrl,
+    externalCheckoutUrl: undefined,
     status: 'pending_payment',
   };
 
@@ -514,7 +481,7 @@ export function applyPaymentGatewayCallback(
     };
   }
 
-  // Zero-Trust Browser Check: Validasi pesanan & catatan transaksi otoritatif dari server Mayar.id
+  // Zero-Trust Browser Check: Validasi pesanan & catatan transaksi otoritatif dari server pembayaran AsesMerdeka
   const canonicalPlan = ONE_TIME_PLANS[session.planId];
   const originalOrder =
     createdInvoiceRegistry.get(String(session.invoiceId || '').trim().toUpperCase()) ||
@@ -549,7 +516,7 @@ export function applyPaymentGatewayCallback(
       activated: false,
       reason: 'UNVERIFIED_PAYMENT_TRANSACTION',
       session: { ...session, status: 'pending_payment' },
-      message: 'Transaksi belum terverifikasi oleh server Mayar.id. Status pembayaran dari browser ditolak.',
+      message: 'Transaksi belum terverifikasi oleh server pembayaran AsesMerdeka. Status pembayaran dari browser ditolak.',
       quota: getUserQuota(),
     };
   }
@@ -728,7 +695,7 @@ export async function verifyPaymentOrderStatusOnline(
               ? data.status
               : 'pending_payment',
         },
-        message: data?.message || 'Pembayaran masih menunggu konfirmasi server Mayar.id.',
+        message: data?.message || 'Pembayaran masih menunggu konfirmasi server pembayaran.',
         quota: getUserQuota(),
       };
     }

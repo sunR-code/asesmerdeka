@@ -25,7 +25,7 @@ import {
   getLicenseSeatStatus,
   getCloudSeatTrackerUrl,
   verifyAndClaimSeatOnline,
-  verifyMayarLicenseOnline,
+  verifyLicenseOnline,
   isLicensed,
   getTierDisplayName,
   getTierBadgeLabel,
@@ -241,8 +241,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const handleOpenPurchaseFlow = (planId: OneTimePlanId) => {
     setStatusMessage(null);
     setSelectedPlanId(planId);
-    // Rilis awal menonaktifkan checkout otomatis Mayar dan mengarahkan calon pembeli
-    // ke modal informasi pembelian via WhatsApp Admin.
+    // Arahkan calon pembeli ke modal informasi pembelian manual via WhatsApp Admin.
     setWhatsAppModalPlanId(planId);
   };
 
@@ -275,17 +274,17 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
         return;
       }
 
-      // 1. Verifikasi apakah kode berasal dari Mayar / Registry AsesMerdeka & klaim seat (Individu 2 perangkat / Sekolah 25 Guru × 2 perangkat)
-      const mayarVerify = await verifyMayarLicenseOnline(
+      // 1. Verifikasi kode lisensi ke server Registry AsesMerdeka & klaim seat (Individu 2 perangkat / Sekolah 25 Guru × 2 perangkat)
+      const licenseVerify = await verifyLicenseOnline(
         trimmed,
         quota.deviceId,
         isSchoolLicenseKey ? cleanTeacherPin : undefined
       );
-      if (!mayarVerify.valid) {
+      if (!licenseVerify.valid) {
         setStatusMessage({
           text:
-            mayarVerify.message ||
-            'Kode lisensi tidak valid. Pastikan Anda memasukkan kode lisensi yang dikirim oleh Mayar.id atau Mitra Resmi.',
+            licenseVerify.message ||
+            'Kode lisensi tidak valid. Pastikan Anda memasukkan kode lisensi resmi dari Admin AsesMerdeka.',
           isError: true,
         });
         return;
@@ -307,7 +306,7 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
 
       const res = activateLicense(trimmed, {
         teacherPin: isSchoolLicenseKey ? cleanTeacherPin : undefined,
-        expiresAt: mayarVerify.expiresAt,
+        expiresAt: licenseVerify.expiresAt,
       });
       if (res.success) {
         onUpdateQuota(res.quota);

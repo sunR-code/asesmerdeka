@@ -62,7 +62,6 @@ import activateLicenseHandler, {
   localWebhookTransactionStore,
   resolveLicenseRuntimeEnvironment,
   revokeLicenseInRedis,
-  savePaymentOrderRecord,
   saveSeatRecordToRedis,
   validateLicenseEnvironmentBoundary,
   validateStagingBranchContext,
@@ -822,7 +821,7 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
     expect(cloudSyncSource).not.toContain('ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET');
   });
 
-  it('Test 15: Mayar Webhook & renewal menegakkan batas environment (Preview hanya ASM-STG2-*, Production tolak ASM-STG2-*)', async () => {
+  it('Test 15: Environment boundaries tetap ditegakkan di activate-license; Mayar Webhook yang dipensiunkan selalu mengembalikan HTTP 410 Gone tanpa mutasi', async () => {
     process.env.VERCEL_ENV = 'preview';
     process.env.VERCEL_GIT_COMMIT_REF = 'staging';
     process.env.ASESMERDEKA_STAGING_LICENSE_SIGNING_SECRET = TEST_STAGING_SECRET;
@@ -838,110 +837,59 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
       });
     };
 
-    // 1. Production menolak keras webhook untuk ASM-STG2-* dengan 403 sebelum antre rekonsiliasi
+    // 1. Mayar Webhook telah dipensiunkan permanen (HTTP 410 Gone) di Production maupun Preview tanpa menulis ke Redis
     process.env.VERCEL_ENV = 'production';
-    const prodRejectStgWebhook = await postWebhook({
+    const prodRetiredWh = await postWebhook({
       event: 'license.renewed',
       data: {
         id: 'ev-prod-reject-stg-1',
         transactionId: 'tx-prod-reject-stg-1',
         status: 'SUCCESS',
         amount: 199000,
-        productName: 'AsesMerdeka Pro AI',
         licenseCode: validStgForWebhook,
       },
     });
-    expect(prodRejectStgWebhook.statusCode).toBe(403);
-    expect(prodRejectStgWebhook.body.forbiddenEnvironment).toBe(true);
+    expect(prodRetiredWh.statusCode).toBe(410);
+    expect(prodRetiredWh.body.reason).toBe('MAYAR_DECOMMISSIONED');
 
-    // 2. Preview menolak webhook untuk kode ASM-STG2-* yang signature-nya dimanipulasi
-    process.env.VERCEL_ENV = 'preview';
-    const previewRejectTamperedWebhook = await postWebhook({
-      event: 'license.renewed',
-      data: {
-        id: 'ev-preview-reject-tampered-1',
-        transactionId: 'tx-preview-reject-tampered-1',
-        status: 'SUCCESS',
-        amount: 199000,
-        productName: 'AsesMerdeka Pro AI',
-        licenseCode: tamperedStgForWebhook,
-      },
+    // Production tetap menolak aktivasi kode staging melalui activate-license (HTTP 403)
+    const prodRejectStgActivate = await callHandler(activateLicenseHandler, 'POST', {
+      action: 'verify',
+      licenseCode: validStgForWebhook,
+      deviceId: 'DEV-PROD-REJ-15',
     });
-    expect(previewRejectTamperedWebhook.statusCode).toBe(403);
+    expect(prodRejectStgActivate.statusCode).toBe(403);
+    expect(prodRejectStgActivate.body.forbiddenEnvironment).toBe(true);
 
-    // 3. Preview menolak renewal webhook untuk serial Production
+    // 2. Preview menolak aktivasi kode ASM-STG2-* yang signature-nya dimanipulasi (HTTP 403)
+    process.env.VERCEL_ENV = 'preview';
+    const previewRejectTamperedActivate = await callHandler(activateLicenseHandler, 'POST', {
+      action: 'verify',
+      licenseCode: tamperedStgForWebhook,
+      deviceId: 'DEV-STG-TAMPER-15',
+    });
+    expect(previewRejectTamperedActivate.statusCode).toBe(403);
+
+    // 3. Preview menolak aktivasi serial Production (HTTP 403)
     process.env.VERCEL_ENV = 'production';
     const prodSerial = generateOrderLicenseCodeServer('individu', 'PROD-WH-OLD');
     process.env.VERCEL_ENV = 'preview';
-    const previewRejectProdWebhook = await postWebhook({
-      event: 'license.renewed',
-      data: {
-        id: 'ev-preview-reject-prod-1',
-        transactionId: 'tx-preview-reject-prod-1',
-        status: 'SUCCESS',
-        amount: 99000,
-        productName: 'AsesMerdeka Guru Mandiri',
-        licenseCode: prodSerial,
-      },
+    const previewRejectProdActivate = await callHandler(activateLicenseHandler, 'POST', {
+      action: 'verify',
+      licenseCode: prodSerial,
+      deviceId: 'DEV-STG-PRODREJ-15',
     });
-    expect(previewRejectProdWebhook.statusCode).toBe(403);
-    expect(previewRejectProdWebhook.body.forbiddenEnvironment).toBe(true);
+    expect(previewRejectProdActivate.statusCode).toBe(403);
+    expect(previewRejectProdActivate.body.forbiddenEnvironment).toBe(true);
 
-    // 4. Preview menerima payment settlement terverifikasi untuk order staging & memberi tag environment='staging'
-    process.env.MAYAR_API_KEY = 'MAYAR_STAGING_SANDBOX_KEY_713B2';
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const urlStr = String(input);
-      if (urlStr.includes('/hl/v2/')) {
-        return new Response(
-          JSON.stringify({
-            statusCode: 200,
-            messages: 'success',
-            data: {
-              id: 'UUID-STG-WH-001',
-              status: 'paid',
-              amount: 199000,
-              transactions: [
-                { id: 'tx-preview-valid-stg-1', status: 'paid', amount: 199000 },
-              ],
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      return new Response(JSON.stringify({ error: 'unexpected fetch' }), { status: 404 });
-    }) as typeof fetch;
-
-    await savePaymentOrderRecord('INV-STG-WH-001', {
-      orderId: 'INV-STG-WH-001',
-      invoiceId: 'INV-STG-WH-001',
-      mayarInvoiceId: 'UUID-STG-WH-001',
-      planId: 'pro_ai',
-      planType: 'pro',
-      tier: 'pro',
-      baseAmount: 199000,
-      status: 'pending_payment',
-      buyerEmail: 'staging.tester@example.test',
-    });
-
-    const previewValidWebhook = await postWebhook({
+    // 4. Mayar Webhook di Preview juga mengembalikan 410 Gone tanpa menyentuh seat/order
+    const previewRetiredWh = await postWebhook({
       event: 'payment.received',
-      data: {
-        id: 'ev-preview-valid-stg-1',
-        transactionId: 'tx-preview-valid-stg-1',
-        mayarInvoiceId: 'UUID-STG-WH-001',
-        orderId: 'INV-STG-WH-001',
-        status: 'paid',
-        amount: 199000,
-        productName: 'AsesMerdeka Pro AI',
-        licenseCode: validStgForWebhook,
-        customerEmail: 'staging.tester@example.test',
-      },
+      data: { id: 'ev-preview-retired-1', licenseCode: validStgForWebhook, amount: 199000 },
     });
-    expect(previewValidWebhook.statusCode).toBe(200);
-    expect(previewValidWebhook.body.ok).toBe(true);
-    expect(previewValidWebhook.body.code).toBe(validStgForWebhook);
-    const savedSeat = await getSeatRecordFromRedis(validStgForWebhook);
-    expect(savedSeat?.environment).toBe('staging');
+    expect(previewRetiredWh.statusCode).toBe(410);
+    expect(previewRetiredWh.body.reason).toBe('MAYAR_DECOMMISSIONED');
+    expect(await getSeatRecordFromRedis(validStgForWebhook)).toBeNull();
   });
 
   it('Test 16: Strict Branch Binding — Preview pada branch selain staging (feature/*, main, Staging, staging-v2) menolak cetak, verifikasi, aktivasi, seat claim, Cloud Sync, AI entitlement, shared curriculum, & webhook', async () => {
@@ -1034,7 +982,8 @@ describe('Task 7.1.3B.2 — Environment-Bound License Signing & Staging Isolatio
         'x-callback-token': TEST_WEBHOOK_SECRET,
         'x-mayar-signature': whSig,
       });
-      expect(wh.statusCode, nonStagingBranch).toBe(403);
+      expect(wh.statusCode, nonStagingBranch).toBe(410);
+      expect(wh.body.reason, nonStagingBranch).toBe('MAYAR_DECOMMISSIONED');
 
       // Pastikan Preview non-staging juga tidak menerima kode Production
       const prodOnNonStaging = await callHandler(activateLicenseHandler, 'POST', {

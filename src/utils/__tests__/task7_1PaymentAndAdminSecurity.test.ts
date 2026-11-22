@@ -66,9 +66,12 @@ import activateLicenseHandler, {
   localRevokedLicensesSet,
   localSeatMemoryStore,
   localWebhookTransactionStore,
+  savePaymentOrderRecord,
+  saveSeatRecordToRedis,
+  saveWebhookTransactionRecord,
 } from '../../../api/activate-license.js';
 // @ts-expect-error serverless JS handler tested directly
-import mayarWebhookHandler, { computeMayarHmacSignature } from '../../../api/mayar-webhook.js';
+import mayarWebhookHandler from '../../../api/mayar-webhook.js';
 // @ts-expect-error serverless JS handler tested directly
 import adminPortalHandler, { clearAdminPortalRateLimitStore } from '../../../api/admin-portal.js';
 
@@ -136,47 +139,62 @@ function makeSerial(prefix: 'GM26' | 'SK26', seed: string): string {
 }
 
 const TEST_ADMIN_PIN = 'ADM_ROTATED_2026';
-const TEST_WEBHOOK_SECRET = 'MAYAR_TEST_SECRET_TASK71';
-const INDIVIDU_PRODUCT_ID = 'c1db962a-7cc5-46cc-969e-2c7c930f5bdc';
-const SCHOOL_PRODUCT_ID = '17cece7f-e711-4fdc-af44-e6ceb4b4bff7';
 
-const MAYAR_V2_MOCK_INVOICES: Record<string, { amount: number; transactionId: string }> = {
-  'INV-MAYAR-7103': { amount: 99000, transactionId: 'TXN-REAL-7103' },
-  'INV-MAYAR-7104': { amount: 99000, transactionId: 'TXN-PKG-7104' },
-  'INV-MAYAR-7105': { amount: 99000, transactionId: 'TXN-VICTIM-7105' },
-  'INV-MAYAR-REPLAY10': { amount: 99000, transactionId: 'TXN-REPLAY-10' },
-  'INV-MAYAR-SHARED11A': { amount: 99000, transactionId: 'TXN-SHARED-11' },
-  'INV-MAYAR-SHARED11B': { amount: 99000, transactionId: 'TXN-SHARED-11' },
-  'INV-MAYAR-FLOW14': { amount: 99000, transactionId: 'TXN-MAYAR-14' },
-  'INV-MAYAR-POLL16': { amount: 99000, transactionId: 'TXN-POLL-16' },
-  'INV-MAYAR-RACE17': { amount: 749000, transactionId: 'TXN-RACE-17' },
-};
-
-function tryHandleMayarV2InvoiceFetch(input: RequestInfo | URL): Response | null {
-  const urlStr = String(input || '');
-  if (!urlStr.includes('/hl/v2/invoices/')) return null;
-  const lookupId = decodeURIComponent(urlStr.split('/hl/v2/invoices/')[1] || '').toUpperCase();
-  const entry = MAYAR_V2_MOCK_INVOICES[lookupId];
-  if (!entry) {
-    return new Response(JSON.stringify({ statusCode: 404, messages: 'not found' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-  return new Response(
-    JSON.stringify({
-      statusCode: 200,
-      messages: 'success',
-      data: {
-        id: lookupId,
-        status: 'paid',
-        amount: entry.amount,
-        transactionId: entry.transactionId,
-        transactions: [{ id: entry.transactionId }],
-      },
-    }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } }
-  );
+async function seedAuthorizedPaymentAuthority(params: {
+  invoiceId: string;
+  transactionId: string;
+  licenseCode: string;
+  planId: 'pro_individu' | 'pro_sekolah';
+  amount: number;
+  deviceId: string;
+  buyerName?: string;
+  buyerEmail: string;
+}) {
+  const planType = params.planId === 'pro_sekolah' ? 'sekolah' : 'individu';
+  const tier = planType === 'sekolah' ? 'sekolah' : 'guru';
+  const maxSeats = planType === 'sekolah' ? 25 : 2;
+  const now = new Date().toISOString();
+  await savePaymentOrderRecord(params.invoiceId, {
+    orderId: params.invoiceId,
+    invoiceId: params.invoiceId,
+    planId: params.planId,
+    planType,
+    tier,
+    baseAmount: params.amount,
+    maxSeats,
+    deviceId: params.deviceId,
+    buyerName: params.buyerName || 'Bapak/Ibu Guru',
+    buyerEmail: params.buyerEmail,
+    status: 'paid',
+    transactionId: params.transactionId,
+    licenseCode: params.licenseCode,
+    updatedAt: now,
+  });
+  await saveWebhookTransactionRecord(params.transactionId, {
+    transactionId: params.transactionId,
+    orderId: params.invoiceId,
+    invoiceId: params.invoiceId,
+    licenseCode: params.licenseCode,
+    planType,
+    tier,
+    amount: params.amount,
+    deviceId: params.deviceId,
+    customerEmail: params.buyerEmail,
+    status: 'paid',
+    verifiedBy: 'server_authority',
+    updatedAt: now,
+  });
+  await saveSeatRecordToRedis(params.licenseCode, {
+    licenseCode: params.licenseCode,
+    planType,
+    tier,
+    maxSeats,
+    devices: [],
+    usedSeats: 0,
+    lifecycleState: 'paid',
+    transactionId: params.transactionId,
+    updatedAt: now,
+  });
 }
 
 describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', () => {
@@ -193,15 +211,8 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
     clearAdminPortalRateLimitStore();
 
     process.env.ADMIN_PIN = TEST_ADMIN_PIN;
-    process.env.MAYAR_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
-    process.env.MAYAR_API_KEY = 'MAYAR_TEST_KEY_TASK71';
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const mayarRes = tryHandleMayarV2InvoiceFetch(input);
-      if (mayarRes) return mayarRes;
-      return originalFetch(input, init);
-    });
   });
 
   afterEach(() => {
@@ -269,28 +280,15 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
       deviceId: 'DEV-71-03',
     });
 
-    const payload = {
-      event: 'payment.received',
-      data: {
-        id: 'EVT-REAL-7103',
-        mayarInvoiceId: 'INV-MAYAR-7103',
-        transactionId: 'TXN-REAL-7103',
-        status: true,
-        amount: 99000,
-        currency: 'IDR',
-        invoiceId: session.invoiceId,
-        deviceId: session.deviceId,
-        customerEmail: session.buyerEmail,
-        productId: INDIVIDU_PRODUCT_ID,
-        licenseCode: code,
-      },
-    };
-    const raw = JSON.stringify(payload);
-    const webhookRes = await invokeHandler(mayarWebhookHandler, {
-      body: payload,
-      headers: { 'x-mayar-signature': computeMayarHmacSignature(raw, TEST_WEBHOOK_SECRET) },
+    await seedAuthorizedPaymentAuthority({
+      invoiceId: session.invoiceId,
+      transactionId: 'TXN-REAL-7103',
+      licenseCode: code,
+      planId: 'pro_individu',
+      amount: 99000,
+      deviceId: session.deviceId,
+      buyerEmail: session.buyerEmail,
     });
-    expect(webhookRes.statusCode).toBe(200);
 
     // Client tries passing manipulated amount Rp 1.000
     const res = applyPaymentGatewayCallback(session, {
@@ -318,24 +316,14 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
     });
 
     // Server mencatat transaksi sah Rp 99.000 untuk pro_individu
-    const payload = {
-      event: 'payment.received',
-      data: {
-        id: 'EVT-PKG-7104',
-        mayarInvoiceId: 'INV-MAYAR-7104',
-        transactionId: 'TXN-PKG-7104',
-        status: true,
-        amount: 99000,
-        invoiceId: session.invoiceId,
-        deviceId: session.deviceId,
-        customerEmail: session.buyerEmail,
-        productId: INDIVIDU_PRODUCT_ID,
-        licenseCode: indivCode,
-      },
-    };
-    await invokeHandler(mayarWebhookHandler, {
-      body: payload,
-      headers: { 'x-callback-token': TEST_WEBHOOK_SECRET },
+    await seedAuthorizedPaymentAuthority({
+      invoiceId: session.invoiceId,
+      transactionId: 'TXN-PKG-7104',
+      licenseCode: indivCode,
+      planId: 'pro_individu',
+      amount: 99000,
+      deviceId: session.deviceId,
+      buyerEmail: session.buyerEmail,
     });
 
     // Penyerang mencoba mengubah session.planId menjadi pro_sekolah di DOM/JS
@@ -384,25 +372,15 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
     });
     expect(victimOrder.statusCode).toBe(200);
 
-    const payload = {
-      event: 'payment.received',
-      data: {
-        id: 'EVT-VICTIM-7105',
-        mayarInvoiceId: 'INV-MAYAR-7105',
-        transactionId: 'TXN-VICTIM-7105',
-        status: true,
-        amount: 99000,
-        invoiceId: 'INV-VICTIM-7105',
-        deviceId: 'DEV-VICTIM-05',
-        customerEmail: 'victim@sdn.sch.id',
-        licenseCode: ownerCode,
-      },
-    };
-    const whRes = await invokeHandler(mayarWebhookHandler, {
-      body: payload,
-      headers: { 'x-callback-token': TEST_WEBHOOK_SECRET },
+    await seedAuthorizedPaymentAuthority({
+      invoiceId: 'INV-VICTIM-7105',
+      transactionId: 'TXN-VICTIM-7105',
+      licenseCode: ownerCode,
+      planId: 'pro_individu',
+      amount: 99000,
+      deviceId: 'DEV-VICTIM-05',
+      buyerEmail: 'victim@sdn.sch.id',
     });
-    expect(whRes.statusCode).toBe(200);
 
     const stealRes = applyPaymentGatewayCallback(attackerSession, {
       status: 'paid',
@@ -417,101 +395,50 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
   });
 
   // =========================================================================
-  // PART B — MAYAR WEBHOOK AUTHENTICATION & PAYLOAD INTEGRITY (SCENARIOS 6–13)
+  // PART B — RETIRED MAYAR WEBHOOK ENDPOINT (410 GONE) (SCENARIOS 6–13)
+  // Replaced by task13_mayarDecommissionRegression.test.ts
   // =========================================================================
-  it('6. Webhook dengan autentikasi (token/signature) tidak valid ditolak HTTP 401', async () => {
+  it('6. [RETIRED] Endpoint webhook Mayar mengembalikan HTTP 410 Gone meski disertai token query', async () => {
     const res = await invokeHandler(mayarWebhookHandler, {
       url: '/api/mayar-webhook?token=TOKEN_SALAH',
       body: { event: 'payment.received', data: { id: 'TXN-6', status: true, amount: 99000 } },
     });
-    expect(res.statusCode).toBe(401);
-    expect(res.body.reason).toBe('INVALID_WEBHOOK_SIGNATURE');
+    expect(res.statusCode).toBe(410);
+    expect(res.body.retired).toBe(true);
+    expect(res.body.reason).toBe('MAYAR_DECOMMISSIONED');
   });
 
-  it('7. Webhook tanpa token/signature saat MAYAR_WEBHOOK_SECRET aktif ditolak HTTP 401', async () => {
+  it('7. [RETIRED] Endpoint webhook Mayar mengembalikan HTTP 410 Gone tanpa membaca MAYAR_WEBHOOK_SECRET', async () => {
     const res = await invokeHandler(mayarWebhookHandler, {
       body: { event: 'payment.received', data: { id: 'TXN-7', status: true, amount: 99000 } },
     });
-    expect(res.statusCode).toBe(401);
-    expect(res.body.reason).toBe('MISSING_WEBHOOK_SIGNATURE');
+    expect(res.statusCode).toBe(410);
+    expect(res.body.reason).toBe('MAYAR_DECOMMISSIONED');
   });
 
-  it('8. Webhook dengan nominal kurang atau mata uang bukan IDR ditolak HTTP 400', async () => {
+  it('8. [RETIRED] Webhook Mayar tidak membuat transaksi/seat bahkan untuk payload nominal/mata uang apapun (410 Gone)', async () => {
     const code = makeSerial('SK26', 'UNDER8');
     const underRes = await invokeHandler(mayarWebhookHandler, {
-      url: `/api/mayar-webhook?token=${TEST_WEBHOOK_SECRET}`,
-      body: {
-        event: 'payment.received',
-        data: {
-          id: 'EVT-UNDER-8',
-          transactionId: 'TXN-UNDER-8',
-          status: true,
-          amount: 99000, // kurang untuk Sekolah Rp 749.000
-          productId: SCHOOL_PRODUCT_ID,
-          licenseCode: code,
-        },
-      },
+      url: '/api/mayar-webhook',
+      body: { event: 'payment.received', data: { id: 'EVT-UNDER-8', licenseCode: code } },
     });
-    expect(underRes.statusCode).toBe(400);
-    expect(underRes.body.reason).toBe('AMOUNT_MISMATCH');
-
-    const badCurrencyRes = await invokeHandler(mayarWebhookHandler, {
-      url: `/api/mayar-webhook?token=${TEST_WEBHOOK_SECRET}`,
-      body: {
-        event: 'payment.received',
-        data: {
-          id: 'EVT-USD-8',
-          transactionId: 'TXN-USD-8',
-          status: true,
-          amount: 749000,
-          currency: 'USD',
-          licenseCode: code,
-        },
-      },
-    });
-    expect(badCurrencyRes.statusCode).toBe(400);
-    expect(badCurrencyRes.body.reason).toBe('CURRENCY_MISMATCH');
+    expect(underRes.statusCode).toBe(410);
+    expect(underRes.body.reason).toBe('MAYAR_DECOMMISSIONED');
+    expect(localWebhookTransactionStore.size).toBe(0);
+    expect(localSeatMemoryStore.size).toBe(0);
   });
 
-  it('9. Webhook dengan productId salah atau produk Individu untuk lisensi Sekolah ditolak HTTP 400', async () => {
+  it('9. [RETIRED] Webhook Mayar dengan productId apapun tetap ditolak permanen HTTP 410 Gone', async () => {
     const schoolCode = makeSerial('SK26', 'PROD9');
-    const wrongProd = await invokeHandler(mayarWebhookHandler, {
-      headers: { 'x-callback-token': TEST_WEBHOOK_SECRET },
-      body: {
-        event: 'payment.received',
-        data: {
-          id: 'EVT-PROD-9A',
-          transactionId: 'TXN-PROD-9A',
-          status: true,
-          amount: 749000,
-          productId: 'unknown-product-uuid',
-          licenseCode: schoolCode,
-        },
-      },
+    const res = await invokeHandler(mayarWebhookHandler, {
+      body: { event: 'payment.received', data: { id: 'EVT-PROD-9A', licenseCode: schoolCode } },
     });
-    expect(wrongProd.statusCode).toBe(400);
-    expect(wrongProd.body.reason).toBe('PRODUCT_MISMATCH');
-
-    const escalationProd = await invokeHandler(mayarWebhookHandler, {
-      headers: { 'x-callback-token': TEST_WEBHOOK_SECRET },
-      body: {
-        event: 'payment.received',
-        data: {
-          id: 'EVT-PROD-9B',
-          transactionId: 'TXN-PROD-9B',
-          status: true,
-          amount: 99000,
-          productId: INDIVIDU_PRODUCT_ID,
-          productName: 'Lisensi Guru Mandiri',
-          licenseCode: schoolCode, // mencoba mengaktifkan SK26 lewat produk Individu
-        },
-      },
-    });
-    expect(escalationProd.statusCode).toBe(400);
-    expect(escalationProd.body.reason).toBe('PRODUCT_MISMATCH');
+    expect(res.statusCode).toBe(410);
+    expect(res.body.reason).toBe('MAYAR_DECOMMISSIONED');
+    expect(localSeatMemoryStore.size).toBe(0);
   });
 
-  it('10. Webhook replay idempoten untuk transaksi sama menjaga kursi perangkat aktif', async () => {
+  it('10. Webhook Mayar replay (RETIRED 410) tetap menjaga kursi perangkat yang sudah aktif sebelumnya', async () => {
     const code = makeSerial('GM26', 'REPLAY10');
     await invokeHandler(activateLicenseHandler, {
       body: { action: 'verify', licenseCode: code, deviceId: 'LAPTOP-10' },
@@ -519,101 +446,78 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
 
     const payload = {
       event: 'payment.received',
-      data: {
-        id: 'EVT-REPLAY-10',
-        mayarInvoiceId: 'INV-MAYAR-REPLAY10',
-        transactionId: 'TXN-REPLAY-10',
-        status: true,
-        amount: 99000,
-        licenseCode: code,
-      },
+      data: { id: 'EVT-REPLAY-10', licenseCode: code },
     };
-    const r1 = await invokeHandler(mayarWebhookHandler, {
-      url: `/api/mayar-webhook?token=${TEST_WEBHOOK_SECRET}`,
-      body: payload,
-    });
-    const r2 = await invokeHandler(mayarWebhookHandler, {
-      url: `/api/mayar-webhook?token=${TEST_WEBHOOK_SECRET}`,
-      body: payload,
-    });
+    const r1 = await invokeHandler(mayarWebhookHandler, { body: payload });
+    const r2 = await invokeHandler(mayarWebhookHandler, { body: payload });
 
-    expect(r1.statusCode).toBe(200);
-    expect(r2.statusCode).toBe(200);
-    expect(r2.body.idempotentReplay).toBe(true);
+    expect(r1.statusCode).toBe(410);
+    expect(r2.statusCode).toBe(410);
     const seatKey = `asesmerdeka:seats:v1:${code}`;
     expect(localSeatMemoryStore.get(seatKey)?.devices).toContain('LAPTOP-10');
   });
 
-  it('11. Satu transactionId dipakai ulang untuk mengaktifkan lisensi berbeda ditolak HTTP 409', async () => {
+  it('11. Server requirePaymentProof menolak pemakaian ulang 1 transactionId untuk lisensi berbeda (403); webhook Mayar 410 (RETIRED)', async () => {
     const c1 = makeSerial('GM26', 'DUP11A');
     const c2 = makeSerial('GM26', 'DUP11B');
+    await seedAuthorizedPaymentAuthority({
+      invoiceId: 'INV-SHARED-11A',
+      transactionId: 'TXN-SHARED-11',
+      licenseCode: c1,
+      planId: 'pro_individu',
+      amount: 99000,
+      deviceId: 'DEV-SHARED-11A',
+      buyerEmail: 'a@sdn.sch.id',
+    });
 
-    const first = await invokeHandler(mayarWebhookHandler, {
-      headers: { 'x-callback-token': TEST_WEBHOOK_SECRET },
+    const second = await invokeHandler(activateLicenseHandler, {
       body: {
-        event: 'payment.received',
-        data: { id: 'EVT-SHARED-11A', mayarInvoiceId: 'INV-MAYAR-SHARED11A', transactionId: 'TXN-SHARED-11', status: true, amount: 99000, licenseCode: c1 },
+        action: 'verify',
+        licenseCode: c2,
+        deviceId: 'DEV-SHARED-11B',
+        transactionId: 'TXN-SHARED-11',
+        requirePaymentProof: true,
       },
     });
-    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(403);
+    expect(second.body.reason).toBe('TRANSACTION_OWNERSHIP_MISMATCH');
 
-    const second = await invokeHandler(mayarWebhookHandler, {
-      headers: { 'x-callback-token': TEST_WEBHOOK_SECRET },
-      body: {
-        event: 'payment.received',
-        data: { id: 'EVT-SHARED-11B', mayarInvoiceId: 'INV-MAYAR-SHARED11B', transactionId: 'TXN-SHARED-11', status: true, amount: 99000, licenseCode: c2 },
-      },
+    const whRetired = await invokeHandler(mayarWebhookHandler, {
+      body: { event: 'payment.received', data: { id: 'EVT-SHARED-11B', transactionId: 'TXN-SHARED-11', licenseCode: c2 } },
     });
-    expect(second.statusCode).toBe(409);
-    expect(second.body.transactionAlreadyBound).toBe(true);
+    expect(whRetired.statusCode).toBe(410);
   });
 
-  it('12. Webhook berstatus pending dikembalikan HTTP 202 (pending_payment) tanpa aktivasi', async () => {
+  it('12. [RETIRED] Webhook Mayar payment.pending dikembalikan HTTP 410 Gone tanpa mutasi', async () => {
     const code = makeSerial('GM26', 'PEND12');
     const res = await invokeHandler(mayarWebhookHandler, {
-      url: `/api/mayar-webhook?token=${TEST_WEBHOOK_SECRET}`,
-      body: {
-        event: 'payment.pending',
-        data: { id: 'TXN-PEND-12', status: 'pending', amount: 99000, licenseCode: code },
-      },
+      body: { event: 'payment.pending', data: { id: 'TXN-PEND-12', licenseCode: code } },
     });
-    expect(res.statusCode).toBe(202);
-    expect(res.body.activated).toBe(false);
-    expect(res.body.lifecycleState).toBe('pending_payment');
+    expect(res.statusCode).toBe(410);
+    expect(res.body.reason).toBe('MAYAR_DECOMMISSIONED');
   });
 
-  it('13. Webhook payment.failed dan payload boolean status=false Mayar ditolak HTTP 422 (payment_failed)', async () => {
+  it('13. [RETIRED] Webhook Mayar payment.failed & payload boolean status=false mengembalikan HTTP 410 Gone', async () => {
     const code = makeSerial('GM26', 'FAIL13');
     const failedEventRes = await invokeHandler(mayarWebhookHandler, {
-      headers: { 'x-callback-token': TEST_WEBHOOK_SECRET },
-      body: {
-        event: 'payment.failed',
-        data: { id: 'TXN-FAIL-13A', status: 'failed', amount: 99000, licenseCode: code },
-      },
+      body: { event: 'payment.failed', data: { id: 'TXN-FAIL-13A', status: 'failed', licenseCode: code } },
     });
-    expect(failedEventRes.statusCode).toBe(422);
-    expect(failedEventRes.body.lifecycleState).toBe('payment_failed');
+    expect(failedEventRes.statusCode).toBe(410);
+    expect(failedEventRes.body.reason).toBe('MAYAR_DECOMMISSIONED');
 
     const boolFalseRes = await invokeHandler(mayarWebhookHandler, {
-      headers: { 'x-callback-token': TEST_WEBHOOK_SECRET },
-      body: {
-        event: 'payment.received',
-        data: { id: 'TXN-FAIL-13B', status: false, amount: 99000, licenseCode: code },
-      },
+      body: { event: 'payment.received', data: { id: 'TXN-FAIL-13B', status: false, licenseCode: code } },
     });
-    expect(boolFalseRes.statusCode).toBe(422);
-    expect(boolFalseRes.body.activated).toBe(false);
-    expect(boolFalseRes.body.lifecycleState).toBe('payment_failed');
+    expect(boolFalseRes.statusCode).toBe(410);
+    expect(boolFalseRes.body.reason).toBe('MAYAR_DECOMMISSIONED');
   });
 
   // =========================================================================
   // PART C — E2E SERVER-AUTHORITATIVE FLOW, POLLING & CONCURRENCY (14–17)
   // =========================================================================
-  it('14. Alur checkout resmi: server order -> webhook ?token= (data.status=true) -> verifyPaymentOrderStatusOnline', async () => {
+  it('14. Alur Payment Authority generik: create_payment_order -> otorisasi server -> verifyPaymentOrderStatusOnline', async () => {
     const code = makeSerial('GM26', 'FLOW14');
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const mayarRes = tryHandleMayarV2InvoiceFetch(input);
-      if (mayarRes) return mayarRes;
+    globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(String(init.body)) : {};
       const mock = await invokeHandler(activateLicenseHandler, { body });
       return {
@@ -646,29 +550,17 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
     expect(orderRes.statusCode).toBe(200);
     expect(orderRes.body.order.status).toBe('pending_payment');
 
-    // 2. Mayar delivers webhook with ?token= query parameter & data.status = true
-    const whRes = await invokeHandler(mayarWebhookHandler, {
-      url: `/api/mayar-webhook?token=${TEST_WEBHOOK_SECRET}`,
-      body: {
-        event: 'payment.received',
-        data: {
-        id: 'EVT-MAYAR-14',
-        mayarInvoiceId: 'INV-MAYAR-FLOW14',
-        transactionId: 'TXN-MAYAR-14',
-          status: true,
-          amount: ONE_TIME_PLANS.pro_individu.price,
-          currency: 'IDR',
-          customerName: 'Ibu Dewi',
-          customerEmail: 'dewi@smp1.sch.id',
-          invoiceId: session.invoiceId,
-          deviceId: session.deviceId,
-          productId: INDIVIDU_PRODUCT_ID,
-          licenseCode: code,
-        },
-      },
+    // 2. Payment authority records verified settlement on server
+    await seedAuthorizedPaymentAuthority({
+      invoiceId: session.invoiceId,
+      transactionId: 'TXN-AUTH-14',
+      licenseCode: code,
+      planId: 'pro_individu',
+      amount: ONE_TIME_PLANS.pro_individu.price,
+      deviceId: session.deviceId,
+      buyerName: session.buyerName,
+      buyerEmail: session.buyerEmail,
     });
-    expect(whRes.statusCode).toBe(200);
-    expect(whRes.body.activated).toBe(true);
 
     // 3. Browser polls server-authoritative order verification
     const verifyRes = await verifyPaymentOrderStatusOnline(session);
@@ -678,7 +570,7 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
     expect(getUserQuota().tier).toBe('guru');
   });
 
-  it('15. Pengguna kembali dari checkout sebelum webhook masuk -> tetap pending_payment (belum aktif)', async () => {
+  it('15. Pengguna kembali dari checkout sebelum otorisasi pembayaran -> tetap pending_payment (belum aktif)', async () => {
     globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(String(init.body)) : {};
       const mock = await invokeHandler(activateLicenseHandler, { body });
@@ -714,11 +606,9 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
     expect(getUserQuota().tier).toBe('free');
   });
 
-  it('16. Status pembayaran di-refresh berulang kali tetap aman & idempoten sebelum dan sesudah webhook', async () => {
+  it('16. Status pembayaran di-refresh berulang kali tetap aman & idempoten sebelum dan sesudah konfirmasi server', async () => {
     const code = makeSerial('GM26', 'POLL16');
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const mayarRes = tryHandleMayarV2InvoiceFetch(input);
-      if (mayarRes) return mayarRes;
+    globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(String(init.body)) : {};
       const mock = await invokeHandler(activateLicenseHandler, { body });
       return {
@@ -745,33 +635,26 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
       },
     });
 
-    // Refresh 3x sebelum webhook tiba
+    // Refresh 3x sebelum otorisasi tiba
     for (let i = 0; i < 3; i++) {
       const pre = await verifyPaymentOrderStatusOnline(session);
       expect(pre.activated).toBe(false);
       expect(pre.session.status).toBe('pending_payment');
     }
 
-    // Webhook sah tiba
-    await invokeHandler(mayarWebhookHandler, {
-      url: `/api/mayar-webhook?token=${TEST_WEBHOOK_SECRET}`,
-      body: {
-        event: 'payment.received',
-        data: {
-          id: 'EVT-POLL-16',
-          mayarInvoiceId: 'INV-MAYAR-POLL16',
-          transactionId: 'TXN-POLL-16',
-          status: true,
-          amount: 99000,
-          invoiceId: session.invoiceId,
-          deviceId: session.deviceId,
-          customerEmail: session.buyerEmail,
-          licenseCode: code,
-        },
-      },
+    // Otoritas pembayaran server menandai order & TX sah
+    await seedAuthorizedPaymentAuthority({
+      invoiceId: session.invoiceId,
+      transactionId: 'TXN-POLL-16',
+      licenseCode: code,
+      planId: 'pro_individu',
+      amount: 99000,
+      deviceId: session.deviceId,
+      buyerName: session.buyerName,
+      buyerEmail: session.buyerEmail,
     });
 
-    // Refresh 3x sesudah webhook tiba (1st activates, 2nd & 3rd idempotent replay)
+    // Refresh 3x sesudah otorisasi tiba (1st activates, 2nd & 3rd idempotent replay)
     const after1 = await verifyPaymentOrderStatusOnline(session);
     const after2 = await verifyPaymentOrderStatusOnline(session);
     const after3 = await verifyPaymentOrderStatusOnline(session);
@@ -782,38 +665,21 @@ describe('Task 7.1 — Payment Authorization & Admin Security (18 Scenarios)', (
     expect(after3.idempotentReplay).toBe(true);
   });
 
-  it('17. Dua webhook sukses masuk bersamaan (Promise.all) diproses aman dengan concurrency lock', async () => {
+  it('17. [RETIRED Webhook] Panggilan paralel ke /api/mayar-webhook selalu gagal bersih HTTP 410 Gone tanpa menulis seat', async () => {
     const code = makeSerial('SK26', 'CONC17');
     const payload = {
       event: 'payment.received',
-      data: {
-        id: 'EVT-RACE-17',
-        mayarInvoiceId: 'INV-MAYAR-RACE17',
-        transactionId: 'TXN-RACE-17',
-        status: true,
-        amount: 749000,
-        productId: SCHOOL_PRODUCT_ID,
-        licenseCode: code,
-      },
+      data: { id: 'EVT-RACE-17', licenseCode: code },
     };
 
     const [resA, resB] = await Promise.all([
-      invokeHandler(mayarWebhookHandler, {
-        url: `/api/mayar-webhook?token=${TEST_WEBHOOK_SECRET}`,
-        body: payload,
-      }),
-      invokeHandler(mayarWebhookHandler, {
-        url: `/api/mayar-webhook?token=${TEST_WEBHOOK_SECRET}`,
-        body: payload,
-      }),
+      invokeHandler(mayarWebhookHandler, { body: payload }),
+      invokeHandler(mayarWebhookHandler, { body: payload }),
     ]);
 
-    expect(resA.statusCode).toBe(200);
-    expect(resB.statusCode).toBe(200);
-    const replayCount = [resA.body.idempotentReplay, resB.body.idempotentReplay].filter(Boolean).length;
-    const activatedCount = [resA.body.activated, resB.body.activated].filter(Boolean).length;
-    expect(activatedCount).toBe(1);
-    expect(replayCount).toBe(1);
+    expect(resA.statusCode).toBe(410);
+    expect(resB.statusCode).toBe(410);
+    expect(localSeatMemoryStore.has(`asesmerdeka:seats:v1:${code}`)).toBe(false);
   });
 
   // =========================================================================
